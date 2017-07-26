@@ -1324,7 +1324,7 @@ public class Job extends JobContextImpl implements JobContext {
     }
 
     LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done, Finish Time at at"+ getFinishTime() +".....");
-    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done within "+ getFinishTime()-getStartTime() +" ...");
+    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Started at "+getStartTime() +" ...");
     return isSuccessful();
   }
   

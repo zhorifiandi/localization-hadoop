@@ -1304,7 +1304,9 @@ public class Job extends JobContextImpl implements JobContext {
   public boolean waitForCompletion(boolean verbose
                                    ) throws IOException, InterruptedException,
                                             ClassNotFoundException {
+    JobID jobId = getJobID();
     if (state == JobState.DEFINE) {
+      LOG.info("ARIZHO >>  Submitting Job (JobId : "+jobId+" , Start Time at at"+ getStartTime() +".....");
       submit();
     }
     if (verbose) {
@@ -1320,6 +1322,9 @@ public class Job extends JobContextImpl implements JobContext {
         }
       }
     }
+
+    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done, Finish Time at at"+ getFinishTime() +".....");
+    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done within "+ getFinishTime()-getStartTime() +" ...");
     return isSuccessful();
   }
   

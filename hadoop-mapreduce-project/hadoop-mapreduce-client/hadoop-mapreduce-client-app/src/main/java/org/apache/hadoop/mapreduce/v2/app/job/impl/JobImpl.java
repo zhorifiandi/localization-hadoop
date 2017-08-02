@@ -132,6 +132,10 @@ import org.apache.hadoop.yarn.util.Clock;
 
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 
+// Custom package
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+
 /** Implementation of Job interface. Maintains the state machines of Job.
  * The read and write calls use ReadWriteLock for concurrency.
  */
@@ -1483,11 +1487,13 @@ public class JobImpl implements org.apache.hadoop.mapreduce.v2.app.job.Job,
     }
 
     protected void setup(JobImpl job) throws IOException {
-
       String oldJobIDString = job.oldJobId.toString();
       String user = 
         UserGroupInformation.getCurrentUser().getShortUserName();
       Path path = MRApps.getStagingAreaDir(job.conf, user);
+      Calendar cal = Calendar.getInstance();
+      SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+      LOG.info("ARIZHOJOBIMPL >>  startJobs parent=" + path + " child=" + oldJobIDString + " time: " + sdf.format(cal.getTime()));
       if(LOG.isDebugEnabled()) {
         LOG.debug("startJobs: parent=" + path + " child=" + oldJobIDString);
       }
@@ -1987,6 +1993,9 @@ public class JobImpl implements org.apache.hadoop.mapreduce.v2.app.job.Job,
           job.eventHandler.handle(new CommitterJobAbortEvent(job.jobId,
             job.jobContext, org.apache.hadoop.mapreduce.JobStatus.State.FAILED)
           );
+          Calendar cal = Calendar.getInstance();
+          SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+          LOG.info("ARIZHOJOBIMPL >>  endjobs time: " + sdf.format(cal.getTime()));
           return JobStateInternal.FAIL_ABORT;
         }
 

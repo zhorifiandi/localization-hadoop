@@ -1514,7 +1514,7 @@ public class JobImpl implements org.apache.hadoop.mapreduce.v2.app.job.Job,
       // Add it to the jobTokenSecretManager so that TaskAttemptListener server
       // can authenticate containers(tasks)
       job.jobTokenSecretManager.addTokenForJob(oldJobIDString, job.jobToken);
-      LOG.info("Adding job token for " + oldJobIDString
+      LOG.info("ARIZHOJOBIMPL >> Adding job token for " + oldJobIDString
           + " to jobTokenSecretManager");
 
       // If the job client did not setup the shuffle secret then reuse

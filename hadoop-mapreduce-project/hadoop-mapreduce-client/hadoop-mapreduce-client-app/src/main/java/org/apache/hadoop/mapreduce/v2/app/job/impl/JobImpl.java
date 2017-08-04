@@ -1085,7 +1085,7 @@ public class JobImpl implements org.apache.hadoop.mapreduce.v2.app.job.Job,
   }
 
   void logJobHistoryFinishedEvent() {
-    LOG.info("ARIZHO >>  Finished Job (JobId : "+getID()+" , Start Time at at"+ this.finishTime +".....");
+    LOG.info("ARIZHO >>  Finished Job Time at"+ this.finishTime +".....");
     this.setFinishTime();
     JobFinishedEvent jfe = createJobFinishedEvent(this);
     LOG.info("Calling handler for JobFinishedEvent ");

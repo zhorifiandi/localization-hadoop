@@ -73,7 +73,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class TestCommitterEventHandler {
-  public static class WaitForItHandler implements EventHandler<Event> {
+  public static class WaitForItHandler implements EventHandler {
 
     private Event event = null;
     
@@ -127,10 +127,10 @@ public class TestCommitterEventHandler {
     TestingJobEventHandler jeh = new TestingJobEventHandler();
     dispatcher.register(JobEventType.class, jeh);
 
-    SystemClock clock = SystemClock.getInstance();
+    SystemClock clock = new SystemClock();
     AppContext appContext = mock(AppContext.class);
-    ApplicationAttemptId attemptid = ApplicationAttemptId.fromString(
-        "appattempt_1234567890000_0001_0");
+    ApplicationAttemptId attemptid = 
+      ConverterUtils.toApplicationAttemptId("appattempt_1234567890000_0001_0");
     when(appContext.getApplicationID()).thenReturn(attemptid.getApplicationId());
     when(appContext.getApplicationAttemptId()).thenReturn(attemptid);
     when(appContext.getEventHandler()).thenReturn(
@@ -240,8 +240,8 @@ public class TestCommitterEventHandler {
     YarnConfiguration conf = new YarnConfiguration();
     conf.set(MRJobConfig.MR_AM_STAGING_DIR, stagingDir);
     JobContext mockJobContext = mock(JobContext.class);
-    ApplicationAttemptId attemptid = ApplicationAttemptId.fromString(
-        "appattempt_1234567890000_0001_0");
+    ApplicationAttemptId attemptid = 
+      ConverterUtils.toApplicationAttemptId("appattempt_1234567890000_0001_0");
     JobId jobId =  TypeConverter.toYarn(
         TypeConverter.fromYarn(attemptid.getApplicationId()));
     
@@ -288,8 +288,8 @@ public class TestCommitterEventHandler {
     YarnConfiguration conf = new YarnConfiguration();
     conf.set(MRJobConfig.MR_AM_STAGING_DIR, stagingDir);
     JobContext mockJobContext = mock(JobContext.class);
-    ApplicationAttemptId attemptid =
-        ApplicationAttemptId.fromString("appattempt_1234567890000_0001_0");
+    ApplicationAttemptId attemptid = 
+      ConverterUtils.toApplicationAttemptId("appattempt_1234567890000_0001_0");
     JobId jobId =  TypeConverter.toYarn(
         TypeConverter.fromYarn(attemptid.getApplicationId()));
     

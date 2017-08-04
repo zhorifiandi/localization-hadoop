@@ -36,7 +36,7 @@ public interface Reconfigurable extends Configurable {
    * If the property cannot be changed, throw a 
    * {@link ReconfigurationException}.
    */
-  void reconfigureProperty(String property, String newVal)
+  public String reconfigureProperty(String property, String newVal) 
     throws ReconfigurationException;
 
   /**
@@ -46,10 +46,12 @@ public interface Reconfigurable extends Configurable {
    * then changeConf should not throw an exception when changing
    * this property.
    */
-  boolean isPropertyReconfigurable(String property);
+  public boolean isPropertyReconfigurable(String property);
 
   /**
    * Return all the properties that can be changed at run time.
    */
-  Collection<String> getReconfigurableProperties();
+  public Collection<String> getReconfigurableProperties();
+
+
 }

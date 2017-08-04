@@ -21,7 +21,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 import java.io.File;
 import java.util.Random;
@@ -50,7 +49,7 @@ public class TestBlockPoolSliceStorage {
                               String clusterId) {
       super(namespaceID, bpID, cTime, clusterId);
       addStorageDir(new StorageDirectory(new File("/tmp/dontcare/" + bpID)));
-      assertThat(getStorageDirs().size(), is(1));
+      assertThat(storageDirs.size(), is(1));
     }
   }
 
@@ -106,10 +105,7 @@ public class TestBlockPoolSliceStorage {
 
     LOG.info("Got subdir " + blockFileSubdir);
     LOG.info("Generated file path " + testFilePath);
-
-    ReplicaInfo info = Mockito.mock(ReplicaInfo.class);
-    Mockito.when(info.getBlockURI()).thenReturn(new File(testFilePath).toURI());
-    assertThat(storage.getTrashDirectory(info), is(expectedTrashPath));
+    assertThat(storage.getTrashDirectory(new File(testFilePath)), is(expectedTrashPath));
   }
 
   /*

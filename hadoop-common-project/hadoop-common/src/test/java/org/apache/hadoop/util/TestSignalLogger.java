@@ -19,22 +19,21 @@
 package org.apache.hadoop.util;
 
 import org.apache.commons.lang.SystemUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TestSignalLogger {
-  public static final Logger LOG =
-      LoggerFactory.getLogger(TestSignalLogger.class);
+  public static final Log LOG = LogFactory.getLog(TestSignalLogger.class);
   
   @Test(timeout=60000)
   public void testInstall() throws Exception {
     Assume.assumeTrue(SystemUtils.IS_OS_UNIX);
-    SignalLogger.INSTANCE.register(LogAdapter.create(LOG));
+    SignalLogger.INSTANCE.register(LOG);
     try {
-      SignalLogger.INSTANCE.register(LogAdapter.create(LOG));
+      SignalLogger.INSTANCE.register(LOG);
       Assert.fail("expected IllegalStateException from double registration");
     } catch (IllegalStateException e) {
       // fall through

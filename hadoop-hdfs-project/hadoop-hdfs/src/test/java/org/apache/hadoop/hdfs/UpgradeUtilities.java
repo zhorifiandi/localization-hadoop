@@ -1,4 +1,6 @@
-/**
+/*
+ * UpgradeUtilities.java
+ *
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -28,7 +30,6 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Properties;
 import java.util.zip.CRC32;
 
 import org.apache.hadoop.conf.Configuration;
@@ -36,9 +37,9 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.protocol.LayoutVersion;
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.common.Storage;
@@ -48,7 +49,6 @@ import org.apache.hadoop.hdfs.server.datanode.BlockPoolSliceStorage;
 import org.apache.hadoop.hdfs.server.datanode.DataNodeLayoutVersion;
 import org.apache.hadoop.hdfs.server.datanode.DataStorage;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
-import org.apache.hadoop.hdfs.server.protocol.DatanodeStorage;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
 
 import com.google.common.base.Preconditions;
@@ -144,7 +144,7 @@ public class UpgradeUtilities {
       
       // save image
       namenode.setSafeMode(SafeModeAction.SAFEMODE_ENTER, false);
-      namenode.saveNamespace(0, 0);
+      namenode.saveNamespace();
       namenode.setSafeMode(SafeModeAction.SAFEMODE_LEAVE, false);
       
       // write more files
@@ -304,11 +304,10 @@ public class UpgradeUtilities {
         continue;
       }
 
-      // skip VERSION and dfsUsed and replicas file for DataNodes
+      // skip VERSION and dfsUsed file for DataNodes
       if (nodeType == DATA_NODE &&
           (list[i].getName().equals("VERSION") ||
-              list[i].getName().equals("dfsUsed") ||
-              list[i].getName().equals("replicas"))) {
+              list[i].getName().equals("dfsUsed"))) {
         continue;
       }
 
@@ -379,14 +378,6 @@ public class UpgradeUtilities {
       localFS.copyToLocalFile(new Path(datanodeStorage.toString(), "current"),
                               new Path(newDir.toString()),
                               false);
-      // Change the storage UUID to avoid conflicts when DN starts up.
-      StorageDirectory sd = new StorageDirectory(
-          new File(datanodeStorage.toString()));
-      sd.setStorageUuid(DatanodeStorage.generateUuid());
-      Properties properties = Storage.readPropertiesFile(sd.getVersionFile());
-      properties.setProperty("storageID", sd.getStorageUuid());
-      Storage.writeProperties(sd.getVersionFile(), properties);
-
       retVal[i] = newDir;
     }
     return retVal;
@@ -485,7 +476,7 @@ public class UpgradeUtilities {
     for (int i = 0; i < parent.length; i++) {
       File versionFile = new File(parent[i], "VERSION");
       StorageDirectory sd = new StorageDirectory(parent[i].getParentFile());
-      DataStorage.createStorageID(sd, false);
+      storage.createStorageID(sd, false);
       storage.writeProperties(versionFile, sd);
       versionFiles[i] = versionFile;
       File bpDir = BlockPoolSliceStorage.getBpRoot(bpid, parent[i]);
@@ -541,7 +532,7 @@ public class UpgradeUtilities {
    * of the Namenode, whether it is running or not.
    */
   public static int getCurrentNameNodeLayoutVersion() {
-    return HdfsServerConstants.NAMENODE_LAYOUT_VERSION;
+    return HdfsConstants.NAMENODE_LAYOUT_VERSION;
   }
   
   /**

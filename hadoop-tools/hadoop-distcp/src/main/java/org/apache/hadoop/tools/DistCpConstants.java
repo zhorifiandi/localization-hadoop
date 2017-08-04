@@ -1,3 +1,5 @@
+package org.apache.hadoop.tools;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -16,23 +18,16 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.tools;
-
-import org.apache.hadoop.fs.Path;
-
 /**
  * Utility class to hold commonly used constants.
  */
 public class DistCpConstants {
 
-  /* Default number of threads to use for building file listing */
-  public static final int DEFAULT_LISTSTATUS_THREADS = 1;
-
   /* Default number of maps to use for DistCp */
   public static final int DEFAULT_MAPS = 20;
 
   /* Default bandwidth if none specified */
-  public static final float DEFAULT_BANDWIDTH_MB = 100;
+  public static final int DEFAULT_BANDWIDTH_MB = 100;
 
   /* Default strategy for copying. Implementation looked up
      from distcp-default.xml
@@ -51,7 +46,7 @@ public class DistCpConstants {
       "distcp.preserve.rawxattrs";
   public static final String CONF_LABEL_SYNC_FOLDERS = "distcp.sync.folders";
   public static final String CONF_LABEL_DELETE_MISSING = "distcp.delete.missing.source";
-  public static final String CONF_LABEL_LISTSTATUS_THREADS = "distcp.liststatus.threads";
+  public static final String CONF_LABEL_SSL_CONF = "distcp.keystore.resource";
   public static final String CONF_LABEL_MAX_MAPS = "distcp.max.maps";
   public static final String CONF_LABEL_SOURCE_LISTING = "distcp.source.listing";
   public static final String CONF_LABEL_COPY_STRATEGY = "distcp.copy.strategy";
@@ -59,14 +54,8 @@ public class DistCpConstants {
   public static final String CONF_LABEL_OVERWRITE = "distcp.copy.overwrite";
   public static final String CONF_LABEL_APPEND = "distcp.copy.append";
   public static final String CONF_LABEL_DIFF = "distcp.copy.diff";
-  public static final String CONF_LABEL_RDIFF = "distcp.copy.rdiff";
   public static final String CONF_LABEL_BANDWIDTH_MB = "distcp.map.bandwidth.mb";
-  public static final String CONF_LABEL_SIMPLE_LISTING_FILESTATUS_SIZE =
-      "distcp.simplelisting.file.status.size";
-  public static final String CONF_LABEL_SIMPLE_LISTING_RANDOMIZE_FILES =
-      "distcp.simplelisting.randomize.files";
-  public static final String CONF_LABEL_FILTERS_FILE =
-      "distcp.filters.file";
+  
   public static final String CONF_LABEL_MAX_CHUNKS_TOLERABLE =
       "distcp.dynamic.max.chunks.tolerable";
   public static final String CONF_LABEL_MAX_CHUNKS_IDEAL =
@@ -81,6 +70,9 @@ public class DistCpConstants {
 
   /* Total number of paths to copy, includes directories. Unfiltered count */
   public static final String CONF_LABEL_TOTAL_NUMBER_OF_RECORDS = "mapred.number.of.records";
+
+  /* SSL keystore resource */
+  public static final String CONF_LABEL_SSL_KEYSTORE = "dfs.https.client.keystore.resource";
 
   /* If input is based -f <<source listing>>, file containing the src paths */
   public static final String CONF_LABEL_LISTING_FILE_PATH = "distcp.listing.file.path";
@@ -109,9 +101,17 @@ public class DistCpConstants {
   /* DistCp CopyListing class override param */
   public static final String CONF_LABEL_COPY_LISTING_CLASS = "distcp.copy.listing.class";
 
-  /* DistCp Copy Buffer Size */
-  public static final String CONF_LABEL_COPY_BUFFER_SIZE =
-      "distcp.copy.buffer.size";
+  /**
+   * Conf label for SSL Trust-store location.
+   */
+  public static final String CONF_LABEL_SSL_TRUST_STORE_LOCATION
+      = "ssl.client.truststore.location";
+
+  /**
+   * Conf label for SSL Key-store location.
+   */
+  public static final String CONF_LABEL_SSL_KEY_STORE_LOCATION
+      = "ssl.client.keystore.location";
 
   /**
    * Constants for DistCp return code to shell / consumer of ToolRunner's run
@@ -132,19 +132,9 @@ public class DistCpConstants {
   public static final int SPLIT_RATIO_DEFAULT  = 2;
 
   /**
-   * Constants for NONE file deletion
-   */
-  public static final String NONE_PATH_NAME = "/NONE";
-  public static final Path NONE_PATH = new Path(NONE_PATH_NAME);
-  public static final Path RAW_NONE_PATH = new Path(
-      DistCpConstants.HDFS_RESERVED_RAW_DIRECTORY_NAME + NONE_PATH_NAME);
-
-  /**
    * Value of reserved raw HDFS directory when copying raw.* xattrs.
    */
-  public static final String HDFS_RESERVED_RAW_DIRECTORY_NAME = "/.reserved/raw";
+  static final String HDFS_RESERVED_RAW_DIRECTORY_NAME = "/.reserved/raw";
 
   static final String HDFS_DISTCP_DIFF_DIRECTORY_NAME = ".distcp.diff.tmp";
-
-  public static final int COPY_BUFFER_SIZE_DEFAULT = 8 * 1024;
 }

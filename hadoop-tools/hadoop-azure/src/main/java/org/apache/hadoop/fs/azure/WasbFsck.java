@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.fs.azure;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -140,15 +139,12 @@ public class WasbFsck extends Configured implements Tool {
     if (p == null) {
       return true;
     }
-    FileStatus status;
-    try {
-      status = fs.getFileStatus(p);
-    } catch (FileNotFoundException e) {
+    if (!fs.exists(p)) {
       System.out.println("Path " + p + " does not exist!");
       return true;
     }
 
-    if (status.isFile()) {
+    if (fs.isFile(p)) {
       if (containsColon(p)) {
         System.out.println("Warning: file " + p + " has a colon in its name.");
         return false;

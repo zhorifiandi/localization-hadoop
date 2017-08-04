@@ -19,10 +19,8 @@ package org.apache.hadoop.io.file.tfile;
 import java.io.IOException;
 import java.util.Random;
 
-import org.junit.Test;
-
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import org.junit.Assert;
+import junit.framework.TestCase;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -32,10 +30,10 @@ import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.file.tfile.TFile.Reader;
 import org.apache.hadoop.io.file.tfile.TFile.Writer;
 import org.apache.hadoop.io.file.tfile.TFile.Reader.Scanner;
-import org.apache.hadoop.test.GenericTestUtils;
 
-public class TestTFileSplit {
-  private static String ROOT = GenericTestUtils.getTestDir().getAbsolutePath();
+public class TestTFileSplit extends TestCase {
+  private static String ROOT =
+      System.getProperty("test.build.data", "/tmp/tfile-test");
 
   private final static int BLOCK_SIZE = 64 * 1024;
 
@@ -88,10 +86,10 @@ public class TestTFileSplit {
         scanner.advance();
       }
       scanner.close();
-      assertTrue(count > 0);
+      Assert.assertTrue(count > 0);
       rowCount += count;
     }
-    assertEquals(rowCount, reader.getEntryCount());
+    Assert.assertEquals(rowCount, reader.getEntryCount());
     reader.close();
   }
 
@@ -124,11 +122,11 @@ public class TestTFileSplit {
         ++x;
       }
       scanner.close();
-      assertTrue(count == (endRec - startRec));
+      Assert.assertTrue(count == (endRec - startRec));
     }
     // make sure specifying range at the end gives zero records.
     Scanner scanner = reader.createScannerByRecordNum(totalRecords, -1);
-    assertTrue(scanner.atEnd());
+    Assert.assertTrue(scanner.atEnd());
   }
   
   static String composeSortedKey(String prefix, int total, int value) {
@@ -177,8 +175,7 @@ public class TestTFileSplit {
           .getRecordNumByLocation(reader.getLocationByRecordNum(x)));
     }
   }
-
-  @Test
+  
   public void testSplit() throws IOException {
     System.out.println("testSplit");
     createFile(100000, Compression.Algorithm.NONE.getName());

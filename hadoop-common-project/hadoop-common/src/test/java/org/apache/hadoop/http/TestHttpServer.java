@@ -17,29 +17,25 @@
  */
 package org.apache.hadoop.http;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.conf.Configuration.IntegerRanges;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.http.HttpServer2.QuotingInputFilter.RequestQuoter;
 import org.apache.hadoop.http.resource.JerseyResource;
 import org.apache.hadoop.net.NetUtils;
-import org.apache.hadoop.net.ServerSocketUtil;
 import org.apache.hadoop.security.Groups;
 import org.apache.hadoop.security.ShellBasedUnixGroupsMapping;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.AccessControlList;
-import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.util.ajax.JSON;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.ExpectedException;
 import org.mockito.Mockito;
 import org.mockito.internal.util.reflection.Whitebox;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.mortbay.jetty.Connector;
+import org.mortbay.util.ajax.JSON;
 
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
@@ -52,7 +48,6 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletRequestWrapper;
 import javax.servlet.http.HttpServletResponse;
-import javax.ws.rs.core.MediaType;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.HttpURLConnection;
@@ -69,16 +64,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeys.DEFAULT_HADOOP_HTTP_STATIC_USER;
-import static org.apache.hadoop.fs.CommonConfigurationKeys.HADOOP_HTTP_STATIC_USER;
-
 public class TestHttpServer extends HttpServerFunctionalTest {
-  static final Logger LOG = LoggerFactory.getLogger(TestHttpServer.class);
+  static final Log LOG = LogFactory.getLog(TestHttpServer.class);
   private static HttpServer2 server;
   private static final int MAX_THREADS = 10;
-
-  @Rule
-  public ExpectedException exception = ExpectedException.none();
   
   @SuppressWarnings("serial")
   public static class EchoMapServlet extends HttpServlet {
@@ -87,7 +76,6 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     public void doGet(HttpServletRequest request, 
                       HttpServletResponse response
                       ) throws ServletException, IOException {
-      response.setContentType(MediaType.TEXT_PLAIN + "; " + JettyUtils.UTF_8);
       PrintWriter out = response.getWriter();
       Map<String, String[]> params = request.getParameterMap();
       SortedSet<String> keys = new TreeSet<String>(params.keySet());
@@ -115,7 +103,6 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     public void doGet(HttpServletRequest request, 
                       HttpServletResponse response
                       ) throws ServletException, IOException {
-      response.setContentType(MediaType.TEXT_PLAIN + "; " + JettyUtils.UTF_8);
       PrintWriter out = response.getWriter();
       SortedSet<String> sortedKeys = new TreeSet<String>();
       Enumeration<String> keys = request.getParameterNames();
@@ -138,7 +125,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     public void doGet(HttpServletRequest request, 
                       HttpServletResponse response
                       ) throws ServletException, IOException {
-      response.setContentType(MediaType.TEXT_HTML + "; " + JettyUtils.UTF_8);
+      response.setContentType("text/html");
       PrintWriter out = response.getWriter();
       out.print("hello world");
       out.close();
@@ -147,7 +134,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
 
   @BeforeClass public static void setup() throws Exception {
     Configuration conf = new Configuration();
-    conf.setInt(HttpServer2.HTTP_MAX_THREADS_KEY, 10);
+    conf.setInt(HttpServer2.HTTP_MAX_THREADS, 10);
     server = createTestServer(conf);
     server.addServlet("echo", "/echo", EchoServlet.class);
     server.addServlet("echomap", "/echomap", EchoMapServlet.class);
@@ -230,8 +217,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     conn = (HttpURLConnection)servletUrl.openConnection();
     conn.connect();
     assertEquals(200, conn.getResponseCode());
-    assertEquals(MediaType.TEXT_PLAIN + ";" + JettyUtils.UTF_8,
-        conn.getContentType());
+    assertEquals("text/plain; charset=utf-8", conn.getContentType());
 
     // We should ignore parameters for mime types - ie a parameter
     // ending in .css should not change mime type
@@ -239,82 +225,15 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     conn = (HttpURLConnection)servletUrl.openConnection();
     conn.connect();
     assertEquals(200, conn.getResponseCode());
-    assertEquals(MediaType.TEXT_PLAIN + ";" + JettyUtils.UTF_8,
-        conn.getContentType());
+    assertEquals("text/plain; charset=utf-8", conn.getContentType());
 
     // Servlets that specify text/html should get that content type
     servletUrl = new URL(baseUrl, "/htmlcontent");
     conn = (HttpURLConnection)servletUrl.openConnection();
     conn.connect();
     assertEquals(200, conn.getResponseCode());
-    assertEquals(MediaType.TEXT_HTML + ";" + JettyUtils.UTF_8,
-        conn.getContentType());
+    assertEquals("text/html; charset=utf-8", conn.getContentType());
   }
-
-  @Test
-  public void testHttpResonseContainsXFrameOptions() throws Exception {
-    validateXFrameOption(HttpServer2.XFrameOption.SAMEORIGIN);
-  }
-
-  @Test
-  public void testHttpResonseContainsDeny() throws Exception {
-    validateXFrameOption(HttpServer2.XFrameOption.DENY);
-  }
-
-  @Test
-  public void testHttpResonseContainsAllowFrom() throws Exception {
-    validateXFrameOption(HttpServer2.XFrameOption.ALLOWFROM);
-  }
-
-  private void validateXFrameOption(HttpServer2.XFrameOption option) throws
-      Exception {
-    Configuration conf = new Configuration();
-    boolean xFrameEnabled = true;
-    HttpServer2 httpServer = createServer(xFrameEnabled,
-        option.toString(), conf);
-    try {
-      HttpURLConnection conn = getHttpURLConnection(httpServer);
-      String xfoHeader = conn.getHeaderField("X-FRAME-OPTIONS");
-      assertTrue("X-FRAME-OPTIONS is absent in the header", xfoHeader != null);
-      assertTrue(xfoHeader.endsWith(option.toString()));
-    } finally {
-      httpServer.stop();
-    }
-  }
-
-  @Test
-  public void testHttpResonseDoesNotContainXFrameOptions() throws Exception {
-    Configuration conf = new Configuration();
-    boolean xFrameEnabled = false;
-    HttpServer2 httpServer = createServer(xFrameEnabled,
-        HttpServer2.XFrameOption.SAMEORIGIN.toString(), conf);
-    try {
-      HttpURLConnection conn = getHttpURLConnection(httpServer);
-      String xfoHeader = conn.getHeaderField("X-FRAME-OPTIONS");
-      assertTrue("Unexpected X-FRAME-OPTIONS in header", xfoHeader == null);
-    } finally {
-      httpServer.stop();
-    }
-  }
-
-  private HttpURLConnection getHttpURLConnection(HttpServer2 httpServer)
-      throws IOException {
-    httpServer.start();
-    URL newURL = getServerURL(httpServer);
-    URL url = new URL(newURL, "");
-    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-    conn.connect();
-    return conn;
-  }
-
-  @Test
-  public void testHttpResonseInvalidValueType() throws Exception {
-    Configuration conf = new Configuration();
-    boolean xFrameEnabled = true;
-    exception.expect(IllegalArgumentException.class);
-    createServer(xFrameEnabled, "Hadoop", conf);
-  }
-
 
   /**
    * Dummy filter that mimics as an authentication filter. Obtains user identity
@@ -394,7 +313,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   }
 
   /**
-   * Verify the access for /logs, /stacks, /conf, and /logLevel
+   * Verify the access for /logs, /stacks, /conf, /logLevel and /metrics
    * servlets, when authentication filters are set, but authorization is not
    * enabled.
    * @throws Exception 
@@ -420,7 +339,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     myServer.start();
     String serverURL = "http://" + NetUtils.getHostPortString(myServer.getConnectorAddress(0)) + "/";
     for (String servlet : new String[] { "conf", "logs", "stacks",
-        "logLevel" }) {
+        "logLevel", "metrics" }) {
       for (String user : new String[] { "userA", "userB" }) {
         assertEquals(HttpURLConnection.HTTP_OK, getHttpStatusCode(serverURL
             + servlet, user));
@@ -430,8 +349,8 @@ public class TestHttpServer extends HttpServerFunctionalTest {
   }
 
   /**
-   * Verify the administrator access for /logs, /stacks, /conf, and /logLevel
-   * servlets.
+   * Verify the administrator access for /logs, /stacks, /conf, /logLevel and
+   * /metrics servlets.
    * 
    * @throws Exception
    */
@@ -464,7 +383,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     String serverURL = "http://"
         + NetUtils.getHostPortString(myServer.getConnectorAddress(0)) + "/";
     for (String servlet : new String[] { "conf", "logs", "stacks",
-        "logLevel", "jmx" }) {
+        "logLevel", "metrics" }) {
       for (String user : new String[] { "userA", "userB", "userC", "userD" }) {
         assertEquals(HttpURLConnection.HTTP_OK, getHttpStatusCode(serverURL
             + servlet, user));
@@ -472,18 +391,6 @@ public class TestHttpServer extends HttpServerFunctionalTest {
       assertEquals(HttpURLConnection.HTTP_FORBIDDEN, getHttpStatusCode(
           serverURL + servlet, "userE"));
     }
-
-    // hadoop.security.authorization is set as true while
-    // hadoop.http.authentication.type's value is `simple`(default value)
-    // in this case, static user has administrator access
-    final String staticUser = conf.get(HADOOP_HTTP_STATIC_USER,
-        DEFAULT_HADOOP_HTTP_STATIC_USER);
-    for (String servlet : new String[] {"conf", "logs", "stacks",
-        "logLevel", "jmx"}) {
-      assertEquals(HttpURLConnection.HTTP_OK, getHttpStatusCode(
-          serverURL + servlet, staticUser));
-    }
-
     myServer.stop();
   }
   
@@ -511,7 +418,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
 
   @SuppressWarnings("unchecked")
   private static Map<String, Object> parse(String jsonString) {
-    return (Map<String, Object>) JSON.parse(jsonString);
+    return (Map<String, Object>)JSON.parse(jsonString);
   }
 
   @Test public void testJersey() throws Exception {
@@ -615,7 +522,7 @@ public class TestHttpServer extends HttpServerFunctionalTest {
       // not bound, ephemeral should return requested port (0 for ephemeral)
       List<?> listeners = (List<?>) Whitebox.getInternalState(server,
           "listeners");
-      ServerConnector listener = (ServerConnector)listeners.get(0);
+      Connector listener = (Connector) listeners.get(0);
 
       assertEquals(port, listener.getPort());
       // verify hostname is what was given
@@ -627,6 +534,9 @@ public class TestHttpServer extends HttpServerFunctionalTest {
         assertTrue(boundPort != 0); // ephemeral should now return bound port
       } else if (findPort) {
         assertTrue(boundPort > port);
+        // allow a little wiggle room to prevent random test failures if
+        // some consecutive ports are already in use
+        assertTrue(boundPort - port < 8);
       }
     } catch (Exception e) {
       server.stop();
@@ -645,41 +555,5 @@ public class TestHttpServer extends HttpServerFunctionalTest {
     assertNotNull(conn.getHeaderField("Expires"));
     assertNotNull(conn.getHeaderField("Date"));
     assertEquals(conn.getHeaderField("Expires"), conn.getHeaderField("Date"));
-  }
-
-  private static void stopHttpServer(HttpServer2 server) throws Exception {
-    if (server != null) {
-      server.stop();
-    }
-  }
-
-  @Test
-  public void testPortRanges() throws Exception {
-    Configuration conf = new Configuration();
-    int port =  ServerSocketUtil.waitForPort(49000, 60);
-    int endPort = 49500;
-    conf.set("abc", "49000-49500");
-    HttpServer2.Builder builder = new HttpServer2.Builder()
-        .setName("test").setConf(new Configuration()).setFindPort(false);
-    IntegerRanges ranges = conf.getRange("abc", "");
-    int startPort = 0;
-    if (ranges != null && !ranges.isEmpty()) {
-       startPort = ranges.getRangeStart();
-       builder.setPortRanges(ranges);
-    }
-    builder.addEndpoint(URI.create("http://localhost:" + startPort));
-    HttpServer2 myServer = builder.build();
-    HttpServer2 myServer2 = null;
-    try {
-      myServer.start();
-      assertEquals(port, myServer.getConnectorAddress(0).getPort());
-      myServer2 = builder.build();
-      myServer2.start();
-      assertTrue(myServer2.getConnectorAddress(0).getPort() > port &&
-          myServer2.getConnectorAddress(0).getPort() <= endPort);
-    } finally {
-      stopHttpServer(myServer);
-      stopHttpServer(myServer2);
-    }
   }
 }

@@ -17,6 +17,7 @@
  */
 package org.apache.hadoop.yarn.sls.scheduler;
 
+import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.Queue;
 import java.util.concurrent.DelayQueue;
@@ -26,6 +27,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
+import org.apache.hadoop.yarn.exceptions.YarnException;
 
 @Private
 @Unstable
@@ -146,8 +148,8 @@ public class TaskRunner {
 
   @SuppressWarnings("unchecked")
   public void start() {
-    if (executor != null && !executor.isTerminated()) {
-      throw new IllegalStateException("Executor already running");
+    if (executor != null) {
+      throw new IllegalStateException("Already started");
     }
     DelayQueue preStartQueue = queue;
 
@@ -162,9 +164,8 @@ public class TaskRunner {
     }
   }
   
-  public void stop() throws InterruptedException {
+  public void stop() {
     executor.shutdownNow();
-    executor.awaitTermination(20, TimeUnit.SECONDS);
   }
 
   @SuppressWarnings("unchecked")

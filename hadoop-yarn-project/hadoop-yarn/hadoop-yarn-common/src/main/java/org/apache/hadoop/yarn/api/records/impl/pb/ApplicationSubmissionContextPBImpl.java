@@ -18,13 +18,7 @@
 
 package org.apache.hadoop.yarn.api.records.impl.pb;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
 import java.util.Set;
 
 import org.apache.hadoop.classification.InterfaceAudience.Private;
@@ -32,7 +26,6 @@ import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationSubmissionContext;
-import org.apache.hadoop.yarn.api.records.ApplicationTimeoutType;
 import org.apache.hadoop.yarn.api.records.ContainerLaunchContext;
 import org.apache.hadoop.yarn.api.records.LogAggregationContext;
 import org.apache.hadoop.yarn.api.records.Priority;
@@ -43,7 +36,6 @@ import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.proto.YarnProtos.ApplicationIdProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ApplicationSubmissionContextProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ApplicationSubmissionContextProtoOrBuilder;
-import org.apache.hadoop.yarn.proto.YarnProtos.ApplicationTimeoutMapProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ContainerLaunchContextProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.LogAggregationContextProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.PriorityProto;
@@ -51,6 +43,7 @@ import org.apache.hadoop.yarn.proto.YarnProtos.ReservationIdProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ResourceProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ResourceRequestProto;
 
+import com.google.common.base.CharMatcher;
 import com.google.protobuf.TextFormat;
 
 @Private
@@ -67,10 +60,9 @@ extends ApplicationSubmissionContext {
   private ContainerLaunchContext amContainer = null;
   private Resource resource = null;
   private Set<String> applicationTags = null;
-  private List<ResourceRequest> amResourceRequests = null;
+  private ResourceRequest amResourceRequest = null;
   private LogAggregationContext logAggregationContext = null;
   private ReservationId reservationId = null;
-  private Map<ApplicationTimeoutType, Long> applicationTimeouts = null;
 
   public ApplicationSubmissionContextPBImpl() {
     builder = ApplicationSubmissionContextProto.newBuilder();
@@ -119,17 +111,18 @@ extends ApplicationSubmissionContext {
     if (this.amContainer != null) {
       builder.setAmContainerSpec(convertToProtoFormat(this.amContainer));
     }
-    if (this.resource != null) {
+    if (this.resource != null &&
+        !((ResourcePBImpl) this.resource).getProto().equals(
+            builder.getResource())) {
       builder.setResource(convertToProtoFormat(this.resource));
     }
     if (this.applicationTags != null && !this.applicationTags.isEmpty()) {
       builder.clearApplicationTags();
       builder.addAllApplicationTags(this.applicationTags);
     }
-    if (this.amResourceRequests != null) {
-      builder.clearAmContainerResourceRequest();
-      builder.addAllAmContainerResourceRequest(
-          convertToProtoFormat(this.amResourceRequests));
+    if (this.amResourceRequest != null) {
+      builder.setAmContainerResourceRequest(
+          convertToProtoFormat(this.amResourceRequest));
     }
     if (this.logAggregationContext != null) {
       builder.setLogAggregationContext(
@@ -137,9 +130,6 @@ extends ApplicationSubmissionContext {
     }
     if (this.reservationId != null) {
       builder.setReservationId(convertToProtoFormat(this.reservationId));
-    }
-    if (this.applicationTimeouts != null) {
-      addApplicationTimeouts();
     }
   }
 
@@ -283,7 +273,7 @@ extends ApplicationSubmissionContext {
             "maximum allowed length of a tag is " +
             YarnConfiguration.APPLICATION_MAX_TAG_LENGTH);
       }
-      if (!org.apache.commons.lang3.StringUtils.isAsciiPrintable(tag)) {
+      if (!CharMatcher.ASCII.matchesAllOf(tag)) {
         throw new IllegalArgumentException("A tag can only have ASCII " +
             "characters! Invalid tag - " + tag);
       }
@@ -430,23 +420,13 @@ extends ApplicationSubmissionContext {
   private PriorityProto convertToProtoFormat(Priority t) {
     return ((PriorityPBImpl)t).getProto();
   }
-
-  private List<ResourceRequest> convertFromProtoFormat(
-      List<ResourceRequestProto> ps) {
-    List<ResourceRequest> rs = new ArrayList<>();
-    for (ResourceRequestProto p : ps) {
-      rs.add(new ResourceRequestPBImpl(p));
-    }
-    return rs;
+  
+  private ResourceRequestPBImpl convertFromProtoFormat(ResourceRequestProto p) {
+    return new ResourceRequestPBImpl(p);
   }
 
-  private List<ResourceRequestProto> convertToProtoFormat(
-      List<ResourceRequest> ts) {
-    List<ResourceRequestProto> rs = new ArrayList<>(ts.size());
-    for (ResourceRequest t : ts) {
-      rs.add(((ResourceRequestPBImpl)t).getProto());
-    }
-    return rs;
+  private ResourceRequestProto convertToProtoFormat(ResourceRequest t) {
+    return ((ResourceRequestPBImpl)t).getProto();
   }
 
   private ApplicationIdPBImpl convertFromProtoFormat(ApplicationIdProto p) {
@@ -472,7 +452,7 @@ extends ApplicationSubmissionContext {
   }
 
   private ResourceProto convertToProtoFormat(Resource t) {
-    return ProtoUtils.convertToProtoFormat(t);
+    return ((ResourcePBImpl)t).getProto();
   }
 
   @Override
@@ -495,46 +475,25 @@ extends ApplicationSubmissionContext {
   }
   
   @Override
-  @Deprecated
   public ResourceRequest getAMContainerResourceRequest() {
-    List<ResourceRequest> reqs = getAMContainerResourceRequests();
-    if (reqs == null || reqs.isEmpty()) {
-      return null;
-    }
-    return getAMContainerResourceRequests().get(0);
-  }
-
-  @Override
-  public List<ResourceRequest> getAMContainerResourceRequests() {
     ApplicationSubmissionContextProtoOrBuilder p = viaProto ? proto : builder;
-    if (this.amResourceRequests != null) {
-      return amResourceRequests;
+    if (this.amResourceRequest != null) {
+      return amResourceRequest;
     } // Else via proto
-    if (p.getAmContainerResourceRequestCount() == 0) {
+    if (!p.hasAmContainerResourceRequest()) {
       return null;
     }
-    amResourceRequests =
-        convertFromProtoFormat(p.getAmContainerResourceRequestList());
-    return amResourceRequests;
+    amResourceRequest = convertFromProtoFormat(p.getAmContainerResourceRequest());
+    return amResourceRequest;
   }
 
   @Override
-  @Deprecated
   public void setAMContainerResourceRequest(ResourceRequest request) {
     maybeInitBuilder();
     if (request == null) {
       builder.clearAmContainerResourceRequest();
     }
-    this.amResourceRequests = Collections.singletonList(request);
-  }
-
-  @Override
-  public void setAMContainerResourceRequests(List<ResourceRequest> requests) {
-    maybeInitBuilder();
-    if (requests == null) {
-      builder.clearAmContainerResourceRequest();
-    }
-    this.amResourceRequests = requests;
+    this.amResourceRequest = request;
   }
 
   @Override
@@ -588,78 +547,5 @@ extends ApplicationSubmissionContext {
 
   private ReservationIdProto convertToProtoFormat(ReservationId t) {
     return ((ReservationIdPBImpl) t).getProto();
-  }
-
-  @Override
-  public Map<ApplicationTimeoutType, Long> getApplicationTimeouts() {
-    initApplicationTimeout();
-    return this.applicationTimeouts;
-  }
-
-  private void initApplicationTimeout() {
-    if (this.applicationTimeouts != null) {
-      return;
-    }
-    ApplicationSubmissionContextProtoOrBuilder p = viaProto ? proto : builder;
-    List<ApplicationTimeoutMapProto> lists = p.getApplicationTimeoutsList();
-    this.applicationTimeouts =
-        new HashMap<ApplicationTimeoutType, Long>(lists.size());
-    for (ApplicationTimeoutMapProto timeoutProto : lists) {
-      this.applicationTimeouts.put(
-          ProtoUtils
-              .convertFromProtoFormat(timeoutProto.getApplicationTimeoutType()),
-          timeoutProto.getTimeout());
-    }
-  }
-
-  @Override
-  public void setApplicationTimeouts(
-      Map<ApplicationTimeoutType, Long> appTimeouts) {
-    if (appTimeouts == null) {
-      return;
-    }
-    initApplicationTimeout();
-    this.applicationTimeouts.clear();
-    this.applicationTimeouts.putAll(appTimeouts);
-  }
-
-  private void addApplicationTimeouts() {
-    maybeInitBuilder();
-    builder.clearApplicationTimeouts();
-    if (applicationTimeouts == null) {
-      return;
-    }
-    Iterable<? extends ApplicationTimeoutMapProto> values =
-        new Iterable<ApplicationTimeoutMapProto>() {
-
-          @Override
-          public Iterator<ApplicationTimeoutMapProto> iterator() {
-            return new Iterator<ApplicationTimeoutMapProto>() {
-              private Iterator<ApplicationTimeoutType> iterator =
-                  applicationTimeouts.keySet().iterator();
-
-              @Override
-              public boolean hasNext() {
-                return iterator.hasNext();
-              }
-
-              @Override
-              public ApplicationTimeoutMapProto next() {
-                ApplicationTimeoutType key = iterator.next();
-                return ApplicationTimeoutMapProto.newBuilder()
-                    .setTimeout(applicationTimeouts.get(key))
-                    .setApplicationTimeoutType(
-                        ProtoUtils.convertToProtoFormat(key))
-                    .build();
-              }
-
-              @Override
-              public void remove() {
-                throw new UnsupportedOperationException();
-              }
-            };
-          }
-        };
-    this.builder.addAllApplicationTimeouts(values);
   }
 }  

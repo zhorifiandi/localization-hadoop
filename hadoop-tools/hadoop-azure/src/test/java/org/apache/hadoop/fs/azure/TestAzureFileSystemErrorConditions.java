@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.fs.azure;
 
-import static org.apache.hadoop.fs.azure.AzureNativeFileSystemStore.NO_ACCESS_TO_CONTAINER_MSG;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -36,8 +35,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.azure.AzureNativeFileSystemStore.TestHookOperationContext;
-import org.apache.hadoop.test.GenericTestUtils;
-
 import org.junit.Test;
 
 import com.microsoft.azure.storage.OperationContext;
@@ -67,18 +64,18 @@ public class TestAzureFileSystemErrorConditions {
    */
   @Test
   public void testAccessUnauthorizedPublicContainer() throws Exception {
-    final String container = "nonExistentContainer";
-    final String account = "hopefullyNonExistentAccount";
     Path noAccessPath = new Path(
-        "wasb://" + container + "@" + account + "/someFile");
+        "wasb://nonExistentContainer@hopefullyNonExistentAccount/someFile");
     NativeAzureFileSystem.suppressRetryPolicy();
     try {
       FileSystem.get(noAccessPath.toUri(), new Configuration())
         .open(noAccessPath);
       assertTrue("Should've thrown.", false);
     } catch (AzureException ex) {
-      GenericTestUtils.assertExceptionContains(
-          String.format(NO_ACCESS_TO_CONTAINER_MSG, account, container), ex);
+      assertTrue("Unexpected message in exception " + ex,
+          ex.getMessage().contains(
+          "Unable to access container nonExistentContainer in account" +
+          " hopefullyNonExistentAccount"));
     } finally {
       NativeAzureFileSystem.resumeRetryPolicy();
     }
@@ -208,7 +205,6 @@ public class TestAzureFileSystemErrorConditions {
         @Override
         public boolean isTargetConnection(HttpURLConnection connection) {
           return connection.getRequestMethod().equals("PUT")
-              && connection.getURL().getQuery() != null
               && connection.getURL().getQuery().contains("blocklist");
         }
       });

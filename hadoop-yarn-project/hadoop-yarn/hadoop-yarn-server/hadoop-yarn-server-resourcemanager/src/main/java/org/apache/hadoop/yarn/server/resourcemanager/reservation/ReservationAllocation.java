@@ -22,6 +22,7 @@ import java.util.Map;
 
 import org.apache.hadoop.yarn.api.records.ReservationDefinition;
 import org.apache.hadoop.yarn.api.records.ReservationId;
+import org.apache.hadoop.yarn.api.records.ReservationRequest;
 import org.apache.hadoop.yarn.api.records.Resource;
 
 /**
@@ -50,14 +51,14 @@ public interface ReservationAllocation extends
   public ReservationDefinition getReservationDefinition();
 
   /**
-   * Returns the time at which the reservation is activated.
+   * Returns the time at which the reservation is activated
    * 
    * @return the time at which the reservation is activated
    */
   public long getStartTime();
 
   /**
-   * Returns the time at which the reservation terminates.
+   * Returns the time at which the reservation terminates
    * 
    * @return the time at which the reservation terminates
    */
@@ -65,12 +66,12 @@ public interface ReservationAllocation extends
 
   /**
    * Returns the map of resources requested against the time interval for which
-   * they were.
+   * they were
    * 
    * @return the allocationRequests the map of resources requested against the
    *         time interval for which they were
    */
-  public Map<ReservationInterval, Resource> getAllocationRequests();
+  public Map<ReservationInterval, ReservationRequest> getAllocationRequests();
 
   /**
    * Return a string identifying the plan to which the reservation belongs
@@ -117,11 +118,5 @@ public interface ReservationAllocation extends
    * @return the resources reserved at the specified time
    */
   public Resource getResourcesAtTime(long tick);
-
-  /**
-   * Return a RLE representation of used resources.
-   * @return a RLE encoding of resources allocated over time.
-   */
-  public RLESparseResourceAllocation getResourcesOverTime();
 
 }

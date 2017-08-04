@@ -74,14 +74,16 @@ public enum DistCpOptionSwitch {
   DELETE_MISSING(DistCpConstants.CONF_LABEL_DELETE_MISSING,
       new Option("delete", false, "Delete from target, " +
           "files missing in source")),
+
   /**
-   * Number of threads for building source file listing (before map-reduce
-   * phase, max one listStatus per thread at a time).
+   * Configuration file to use with hftps:// for securely copying
+   * files across clusters. Typically the configuration file contains
+   * truststore/keystore information such as location, password and type
    */
-  NUM_LISTSTATUS_THREADS(DistCpConstants.CONF_LABEL_LISTSTATUS_THREADS,
-      new Option("numListstatusThreads", true, "Number of threads to " +
-          "use for building file listing (max " +
-          DistCpOptions.MAX_NUM_LISTSTATUS_THREADS + ").")),
+  SSL_CONF(DistCpConstants.CONF_LABEL_SSL_CONF,
+      new Option("mapredSslConf", true, "Configuration for ssl config file" +
+          ", to use with hftps://")),
+
   /**
    * Max number of maps to use during copy. DistCp will split work
    * as equally as possible among these maps
@@ -150,11 +152,6 @@ public enum DistCpOptionSwitch {
       "Use snapshot diff report to identify the difference between source and target"),
       2),
 
-  RDIFF(DistCpConstants.CONF_LABEL_RDIFF,
-      new Option("rdiff", false,
-      "Use target snapshot diff report to identify changes made on target"),
-      2),
-
   /**
    * Should DisctpExecution be blocking
    */
@@ -169,39 +166,11 @@ public enum DistCpOptionSwitch {
       new Option("sizelimit", true, "(Deprecated!) Limit number of files " +
               "copied to <= n bytes")),
 
-  BLOCKS_PER_CHUNK("",
-      new Option("blocksperchunk", true, "If set to a positive value, files"
-          + "with more blocks than this value will be split into chunks of "
-          + "<blocksperchunk> blocks to be transferred in parallel, and "
-          + "reassembled on the destination. By default, <blocksperchunk> is "
-          + "0 and the files will be transmitted in their entirety without "
-          + "splitting. This switch is only applicable when the source file "
-          + "system implements getBlockLocations method and the target file "
-          + "system implements concat method")),
-
   /**
-   * Configurable copy buffer size.
-   */
-  COPY_BUFFER_SIZE(DistCpConstants.CONF_LABEL_COPY_BUFFER_SIZE,
-      new Option("copybuffersize", true, "Size of the copy buffer to use. "
-          + "By default <copybuffersize> is "
-          + DistCpConstants.COPY_BUFFER_SIZE_DEFAULT + "B.")),
-
-  /**
-   * Specify bandwidth per map in MB, accepts bandwidth as a fraction
+   * Specify bandwidth per map in MB
    */
   BANDWIDTH(DistCpConstants.CONF_LABEL_BANDWIDTH_MB,
-      new Option("bandwidth", true, "Specify bandwidth per map in MB,"
-          + " accepts bandwidth as a fraction.")),
-
-  /**
-   * Path containing a list of strings, which when found in the path of
-   * a file to be copied excludes that file from the copy job.
-   */
-  FILTERS(DistCpConstants.CONF_LABEL_FILTERS_FILE,
-      new Option("filters", true, "The path to a file containing a list of"
-          + " strings for paths to be excluded from the copy."));
-
+      new Option("bandwidth", true, "Specify bandwidth per map in MB"));
 
   public static final String PRESERVE_STATUS_DEFAULT = "-prbugpct";
   private final String confLabel;

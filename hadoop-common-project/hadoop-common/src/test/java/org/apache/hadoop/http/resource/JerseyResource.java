@@ -30,10 +30,9 @@ import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import org.apache.hadoop.http.JettyUtils;
-import org.eclipse.jetty.util.ajax.JSON;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.mortbay.util.ajax.JSON;
 
 /**
  * A simple Jersey resource class TestHttpServer.
@@ -42,14 +41,14 @@ import org.slf4j.LoggerFactory;
  */
 @Path("")
 public class JerseyResource {
-  static final Logger LOG = LoggerFactory.getLogger(JerseyResource.class);
+  static final Log LOG = LogFactory.getLog(JerseyResource.class);
 
   public static final String PATH = "path";
   public static final String OP = "op";
 
   @GET
   @Path("{" + PATH + ":.*}")
-  @Produces({MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8})
+  @Produces({MediaType.APPLICATION_JSON})
   public Response get(
       @PathParam(PATH) @DefaultValue("UNKNOWN_" + PATH) final String path,
       @QueryParam(OP) @DefaultValue("UNKNOWN_" + OP) final String op

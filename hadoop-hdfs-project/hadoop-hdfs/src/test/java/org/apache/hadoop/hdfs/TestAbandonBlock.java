@@ -56,14 +56,8 @@ public class TestAbandonBlock {
 
   @After
   public void tearDown() throws Exception {
-    if (fs != null) {
-      fs.close();
-      fs = null;
-    }
-    if (cluster != null) {
-      cluster.shutdown();
-      cluster = null;
-    }
+    fs.close();
+    cluster.shutdown();
   }
 
   @Test

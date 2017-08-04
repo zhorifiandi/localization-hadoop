@@ -21,14 +21,11 @@ package org.apache.hadoop.hdfs.tools.offlineEditsViewer;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.Map;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
@@ -38,10 +35,8 @@ import org.apache.hadoop.hdfs.server.namenode.FSEditLogOpCodes;
 import org.apache.hadoop.hdfs.server.namenode.NameNodeLayoutVersion;
 import org.apache.hadoop.hdfs.server.namenode.OfflineEditsViewerHelper;
 import org.apache.hadoop.hdfs.tools.offlineEditsViewer.OfflineEditsViewer.Flags;
-import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.test.PathUtils;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -105,17 +100,10 @@ public class TestOfflineEditsViewer {
     LOG.info("Generated edits=" + edits);
     String editsParsedXml = folder.newFile("editsParsed.xml").getAbsolutePath();
     String editsReparsed = folder.newFile("editsParsed").getAbsolutePath();
-    // capital case extension
-    String editsParsedXML_caseInSensitive =
-        folder.newFile("editsRecoveredParsed.XML").getAbsolutePath();
 
     // parse to XML then back to binary
     assertEquals(0, runOev(edits, editsParsedXml, "xml", false));
-    assertEquals(0, runOev(edits, editsParsedXML_caseInSensitive, "xml", false));
     assertEquals(0, runOev(editsParsedXml, editsReparsed, "binary", false));
-    assertEquals(0,
-        runOev(editsParsedXML_caseInSensitive, editsReparsed, "binary", false));
-
 
     // judgment time
     assertTrue("Edits " + edits + " should have all op codes",
@@ -126,7 +114,6 @@ public class TestOfflineEditsViewer {
         "Generated edits and reparsed (bin to XML to bin) should be same",
         filesEqualIgnoreTrailingZeros(edits, editsReparsed));
   }
-
 
   @Test
   public void testRecoveryMode() throws IOException {
@@ -289,71 +276,5 @@ public class TestOfflineEditsViewer {
     }
 
     return true;
-  }
-
-  @Test
-  public void testOfflineEditsViewerHelpMessage() throws Throwable {
-    final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-    final PrintStream out = new PrintStream(bytes);
-    final PrintStream oldOut = System.out;
-    try {
-      System.setOut(out);
-      int status = new OfflineEditsViewer().run(new String[] { "-h" });
-      assertTrue("" + "Exit code returned for help option is incorrect",
-          status == 0);
-      Assert.assertFalse(
-          "Invalid Command error displayed when help option is passed.", bytes
-              .toString().contains("Error parsing command-line options"));
-    } finally {
-      System.setOut(oldOut);
-      IOUtils.closeStream(out);
-    }
-  }
-
-  @Test
-  public void testStatisticsStrWithNullOpCodeCount() throws IOException {
-    String editFilename = nnHelper.generateEdits();
-    String outFilename = editFilename + ".stats";
-    FileOutputStream fout = new FileOutputStream(outFilename);
-    StatisticsEditsVisitor visitor = new StatisticsEditsVisitor(fout);
-    OfflineEditsViewer oev = new OfflineEditsViewer();
-
-    String statisticsStr = null;
-    if (oev.go(editFilename, outFilename, "stats", new Flags(), visitor) == 0) {
-      statisticsStr = visitor.getStatisticsString();
-    }
-    Assert.assertNotNull(statisticsStr);
-
-    String str;
-    Long count;
-    Map<FSEditLogOpCodes, Long> opCodeCount = visitor.getStatistics();
-    for (FSEditLogOpCodes opCode : FSEditLogOpCodes.values()) {
-      count = opCodeCount.get(opCode);
-      // Verify the str when the opCode's count is null
-      if (count == null) {
-        str =
-            String.format("    %-30.30s (%3d): %d%n", opCode.toString(),
-                opCode.getOpCode(), Long.valueOf(0L));
-        assertTrue(statisticsStr.contains(str));
-      }
-    }
-  }
-
-  @Test
-  public void testProcessorWithSameTypeFormatFile() throws IOException {
-    String edits = nnHelper.generateEdits();
-    LOG.info("Generated edits=" + edits);
-    String binaryEdits = folder.newFile("binaryEdits").getAbsolutePath();
-    String editsParsedXml = folder.newFile("editsParsed.xml").getAbsolutePath();
-    String editsReparsedXml = folder.newFile("editsReparsed.xml")
-        .getAbsolutePath();
-
-    // Binary format input file is not allowed to be processed
-    // by Binary processor.
-    assertEquals(-1, runOev(edits, binaryEdits, "binary", false));
-    // parse to XML then back to XML
-    assertEquals(0, runOev(edits, editsParsedXml, "xml", false));
-    // XML format input file is not allowed to be processed by XML processor.
-    assertEquals(-1, runOev(editsParsedXml, editsReparsedXml, "xml", false));
   }
 }

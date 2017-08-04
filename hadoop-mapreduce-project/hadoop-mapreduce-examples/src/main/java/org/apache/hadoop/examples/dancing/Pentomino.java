@@ -153,11 +153,6 @@ public class Pentomino {
           break;
         }
       }
-
-      if (piece == null) {
-        continue;
-      }
-
       // for each point where the piece was placed, mark it with the piece name
       for(ColumnName item: row) {
         if (item instanceof Point) {

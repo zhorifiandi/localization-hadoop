@@ -32,7 +32,7 @@ public class Nfs3Constant {
   public final static int VERSION = 3;
   
   // The procedures
-  public enum NFSPROC3 {
+  public static enum NFSPROC3 {
     // the order of the values below are significant.
     NULL,
     GETATTR,
@@ -76,11 +76,7 @@ public class Nfs3Constant {
       return ordinal();
     }
 
-    /**
-     * Convert to NFS procedure.
-     * @param value specify the index of NFS procedure
-     * @return the procedure corresponding to the value.
-     */
+    /** @return the procedure corresponding to the value. */
     public static NFSPROC3 fromValue(int value) {
       if (value < 0 || value >= values().length) {
         return null;

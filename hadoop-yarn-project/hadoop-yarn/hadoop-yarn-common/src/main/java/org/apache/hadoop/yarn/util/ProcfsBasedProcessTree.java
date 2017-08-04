@@ -40,9 +40,9 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.util.CpuTimeTracker;
 import org.apache.hadoop.util.Shell;
-import org.apache.hadoop.util.SysInfoLinux;
+import org.apache.hadoop.util.Shell.ShellCommandExecutor;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 
 /**
@@ -57,16 +57,15 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
 
   private static final String PROCFS = "/proc/";
 
-  private static final Pattern PROCFS_STAT_FILE_FORMAT = Pattern.compile(
-      "^([\\d-]+)\\s\\((.*)\\)\\s[^\\s]\\s([\\d-]+)\\s([\\d-]+)\\s" +
-      "([\\d-]+)\\s([\\d-]+\\s){7}(\\d+)\\s(\\d+)\\s([\\d-]+\\s){7}(\\d+)\\s" +
-      "(\\d+)(\\s[\\d-]+){15}");
+  private static final Pattern PROCFS_STAT_FILE_FORMAT = Pattern .compile(
+    "^([0-9-]+)\\s([^\\s]+)\\s[^\\s]\\s([0-9-]+)\\s([0-9-]+)\\s([0-9-]+)\\s" +
+    "([0-9-]+\\s){7}([0-9]+)\\s([0-9]+)\\s([0-9-]+\\s){7}([0-9]+)\\s([0-9]+)" +
+    "(\\s[0-9-]+){15}");
 
   public static final String PROCFS_STAT_FILE = "stat";
   public static final String PROCFS_CMDLINE_FILE = "cmdline";
-  public static final long PAGE_SIZE = SysInfoLinux.PAGE_SIZE;
-  public static final long JIFFY_LENGTH_IN_MILLIS =
-      SysInfoLinux.JIFFY_LENGTH_IN_MILLIS; // in millisecond
+  public static final long PAGE_SIZE;
+  public static final long JIFFY_LENGTH_IN_MILLIS; // in millisecond
   private final CpuTimeTracker cpuTimeTracker;
   private Clock clock;
 
@@ -109,6 +108,31 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
   protected Map<String, ProcessTreeSmapMemInfo> processSMAPTree =
       new HashMap<String, ProcessTreeSmapMemInfo>();
 
+  static {
+    long jiffiesPerSecond = -1;
+    long pageSize = -1;
+    try {
+      if(Shell.LINUX) {
+        ShellCommandExecutor shellExecutorClk = new ShellCommandExecutor(
+            new String[] { "getconf", "CLK_TCK" });
+        shellExecutorClk.execute();
+        jiffiesPerSecond = Long.parseLong(shellExecutorClk.getOutput().replace("\n", ""));
+
+        ShellCommandExecutor shellExecutorPage = new ShellCommandExecutor(
+            new String[] { "getconf", "PAGESIZE" });
+        shellExecutorPage.execute();
+        pageSize = Long.parseLong(shellExecutorPage.getOutput().replace("\n", ""));
+
+      }
+    } catch (IOException e) {
+      LOG.error(StringUtils.stringifyException(e));
+    } finally {
+      JIFFY_LENGTH_IN_MILLIS = jiffiesPerSecond != -1 ?
+                     Math.round(1000D / jiffiesPerSecond) : -1;
+                     PAGE_SIZE = pageSize;
+    }
+  }
+
   // to enable testing, using this variable which can be configured
   // to a test directory.
   private String procfsDir;
@@ -122,7 +146,7 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
     new HashMap<String, ProcessInfo>();
 
   public ProcfsBasedProcessTree(String pid) {
-    this(pid, PROCFS, SystemClock.getInstance());
+    this(pid, PROCFS, new SystemClock());
   }
 
   @Override
@@ -136,7 +160,7 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
   }
 
   public ProcfsBasedProcessTree(String pid, String procfsDir) {
-    this(pid, procfsDir, SystemClock.getInstance());
+    this(pid, procfsDir, new SystemClock());
   }
 
   /**
@@ -216,16 +240,7 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
         String pID = entry.getKey();
         if (!pID.equals("1")) {
           ProcessInfo pInfo = entry.getValue();
-          String ppid = pInfo.getPpid();
-          // If parent is init and process is not session leader,
-          // attach to sessionID
-          if (ppid.equals("1")) {
-              String sid = pInfo.getSessionId().toString();
-              if (!pID.equals(sid)) {
-                 ppid = sid;
-              }
-          }
-          ProcessInfo parentPInfo = allProcessInfo.get(ppid);
+          ProcessInfo parentPInfo = allProcessInfo.get(pInfo.getPpid());
           if (parentPInfo != null) {
             parentPInfo.addChild(pInfo);
           }
@@ -340,6 +355,12 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
     }
     return total;
   }
+  
+  @Override
+  @SuppressWarnings("deprecation")
+  public long getCumulativeVmem(int olderThanAge) {
+    return getVirtualMemorySize(olderThanAge);
+  }
 
   @Override
   public long getRssMemorySize(int olderThanAge) {
@@ -360,6 +381,12 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
       }
     }
     return isAvailable ? totalPages * PAGE_SIZE : UNAVAILABLE; // convert # pages to byte
+  }
+  
+  @Override
+  @SuppressWarnings("deprecation")
+  public long getCumulativeRssmem(int olderThanAge) {
+    return getRssMemorySize(olderThanAge);
   }
 
   /**
@@ -394,22 +421,25 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
                 continue;
               }
 
-              // Account for anonymous to know the amount of
-              // memory reclaimable by killing the process
-              total += info.anonymous;
-
+              total +=
+                  Math.min(info.sharedDirty, info.pss) + info.privateDirty
+                      + info.privateClean;
               if (LOG.isDebugEnabled()) {
                 LOG.debug(" total(" + olderThanAge + "): PID : " + p.getPid()
-                    + ", info : " + info.toString()
-                    + ", total : " + (total * KB_TO_BYTES));
+                    + ", SharedDirty : " + info.sharedDirty + ", PSS : "
+                    + info.pss + ", Private_Dirty : " + info.privateDirty
+                    + ", Private_Clean : " + info.privateClean + ", total : "
+                    + (total * KB_TO_BYTES));
               }
             }
           }
+        
           if (LOG.isDebugEnabled()) {
             LOG.debug(procMemInfo.toString());
           }
         }
       }
+      
     }
     if (total > 0) {
       total *= KB_TO_BYTES; // convert to bytes
@@ -454,14 +484,6 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
     return totalStime.add(BigInteger.valueOf(totalUtime));
   }
 
-  /**
-   * Get the CPU usage by all the processes in the process-tree in Unix.
-   * Note: UNAVAILABLE will be returned in case when CPU usage is not
-   * available. It is NOT advised to return any other error code.
-   *
-   * @return percentage CPU usage since the process-tree was created,
-   * {@link #UNAVAILABLE} if CPU usage cannot be calculated or not available.
-   */
   @Override
   public float getCpuUsagePercent() {
     BigInteger processTotalJiffies = getTotalProcessJiffies();
@@ -481,21 +503,18 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
    * Get the list of all processes in the system.
    */
   private List<String> getProcessList() {
-    List<String> processList = new ArrayList<String>();
     String[] processDirs = (new File(procfsDir)).list();
-    if (processDirs != null) {
-      for (String dir : processDirs) {
-        Matcher m = numberPattern.matcher(dir);
-        if (!m.matches()) {
-          continue;
+    List<String> processList = new ArrayList<String>();
+
+    for (String dir : processDirs) {
+      Matcher m = numberPattern.matcher(dir);
+      if (!m.matches()) continue;
+      try {
+        if ((new File(procfsDir, dir)).isDirectory()) {
+          processList.add(dir);
         }
-        try {
-          if ((new File(procfsDir, dir)).isDirectory()) {
-            processList.add(dir);
-          }
-        } catch (SecurityException s) {
-          // skip this process
-        }
+      } catch (SecurityException s) {
+        // skip this process
       }
     }
     return processList;
@@ -535,9 +554,8 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
       Matcher m = PROCFS_STAT_FILE_FORMAT.matcher(str);
       boolean mat = m.find();
       if (mat) {
-        String processName = "(" + m.group(2) + ")";
         // Set (name) (ppid) (pgrpId) (session) (utime) (stime) (vsize) (rss)
-        pinfo.updateProcessInfo(processName, m.group(3),
+        pinfo.updateProcessInfo(m.group(2), m.group(3),
                 Integer.parseInt(m.group(4)), Integer.parseInt(m.group(5)),
                 Long.parseLong(m.group(7)), new BigInteger(m.group(8)),
                 Long.parseLong(m.group(10)), Long.parseLong(m.group(11)));
@@ -577,14 +595,6 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
       pTree.append(" ");
     }
     return pTree.substring(0, pTree.length()) + "]";
-  }
-
-/**
- * Returns boolean indicating whether pid
- * is in process tree.
- */
-  public boolean contains(String pid) {
-    return processTree.containsKey(pid);
   }
 
   /**
@@ -794,10 +804,7 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
             if (LOG.isDebugEnabled()) {
               LOG.debug("MemInfo : " + key + " : Value  : " + value);
             }
-
-            if (memoryMappingInfo != null) {
-              memoryMappingInfo.setMemInfo(key, value);
-            }
+            memoryMappingInfo.setMemInfo(key, value);
           }
         } catch (Throwable t) {
           LOG
@@ -870,7 +877,6 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
     private int sharedDirty;
     private int privateClean;
     private int privateDirty;
-    private int anonymous;
     private int referenced;
     private String regionName;
     private String permission;
@@ -923,10 +929,6 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
       return referenced;
     }
 
-    public int getAnonymous() {
-      return anonymous;
-    }
-
     public void setMemInfo(String key, String value) {
       MemInfo info = MemInfo.getMemInfoByName(key);
       int val = 0;
@@ -967,9 +969,6 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
       case REFERENCED:
         referenced = val;
         break;
-      case ANONYMOUS:
-        anonymous = val;
-        break;
       default:
         break;
       }
@@ -1000,7 +999,10 @@ public class ProcfsBasedProcessTree extends ResourceCalculatorProcessTree {
         .append(MemInfo.REFERENCED.name + ":" + this.getReferenced())
         .append(" kB\n");
       sb.append("\t")
-        .append(MemInfo.ANONYMOUS.name + ":" + this.getAnonymous())
+        .append(MemInfo.PRIVATE_DIRTY.name + ":" + this.getPrivateDirty())
+        .append(" kB\n");
+      sb.append("\t")
+        .append(MemInfo.PRIVATE_DIRTY.name + ":" + this.getPrivateDirty())
         .append(" kB\n");
       return sb.toString();
     }

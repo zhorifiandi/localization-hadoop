@@ -95,7 +95,7 @@ public class TestRenameWithSnapshots {
   private static FSDirectory fsdir;
   private static DistributedFileSystem hdfs;
   private static final String testDir =
-      GenericTestUtils.getTestDir().getAbsolutePath();
+      System.getProperty("test.build.data", "build/test/data");
   static private final Path dir = new Path("/testRenameWithSnapshots");
   static private final Path sub1 = new Path(dir, "sub1");
   static private final Path file1 = new Path(sub1, "file1");
@@ -122,7 +122,6 @@ public class TestRenameWithSnapshots {
   public void tearDown() throws Exception {
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 
@@ -520,8 +519,8 @@ public class TestRenameWithSnapshots {
     File fsnAfter = new File(testDir, "dumptree_after");
     
     SnapshotTestHelper.dumpTree2File(fsdir, fsnBefore);
-
-    cluster.shutdown(false, false);
+    
+    cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
         .numDataNodes(REPL).build();
     cluster.waitActive();
@@ -785,7 +784,6 @@ public class TestRenameWithSnapshots {
     
     // delete foo
     hdfs.delete(foo_dir1, true);
-    restartClusterAndCheckImage(true);
     hdfs.delete(bar2_dir1, true);
     
     // restart the cluster and check fsimage
@@ -1570,9 +1568,7 @@ public class TestRenameWithSnapshots {
     FSDirectory fsdir2 = Mockito.spy(fsdir);
     Mockito.doThrow(new NSQuotaExceededException("fake exception")).when(fsdir2)
         .addLastINode((INodesInPath) Mockito.anyObject(),
-            (INode) Mockito.anyObject(),
-            (FsPermission) Mockito.anyObject(),
-            Mockito.anyBoolean());
+            (INode) Mockito.anyObject(), Mockito.anyBoolean());
     Whitebox.setInternalState(fsn, "dir", fsdir2);
     // rename /test/dir1/foo to /test/dir2/subdir2/foo. 
     // FSDirectory#verifyQuota4Rename will pass since the remaining quota is 2.

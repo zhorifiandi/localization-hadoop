@@ -18,28 +18,20 @@
 
 package org.apache.hadoop.mapred;
 
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.FileUtil;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RawLocalFileSystem;
-import org.apache.hadoop.io.NullWritable;
-import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.JobStatus;
-import org.apache.hadoop.test.GenericTestUtils;
-import org.junit.After;
-import org.junit.Test;
-
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.net.URI;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import junit.framework.TestCase;
 
-public class TestMRCJCFileOutputCommitter {
-  private static Path outDir = new Path(GenericTestUtils.getTempPath("output"));
+import org.apache.hadoop.fs.*;
+import org.apache.hadoop.io.*;
+import org.apache.hadoop.mapred.JobContextImpl;
+import org.apache.hadoop.mapred.TaskAttemptContextImpl;
+import org.apache.hadoop.mapreduce.JobStatus;
+
+public class TestMRCJCFileOutputCommitter extends TestCase {
+  private static Path outDir = new Path(
+     System.getProperty("test.build.data", "/tmp"), "output");
 
   // A random task attempt id for testing.
   private static String attempt = "attempt_200707121733_0001_m_000000_0";
@@ -75,7 +67,6 @@ public class TestMRCJCFileOutputCommitter {
   }
 
   @SuppressWarnings("unchecked")
-  @Test
   public void testCommitter() throws Exception {
     JobConf job = new JobConf();
     setConfForFileOutputCommitter(job);
@@ -113,11 +104,11 @@ public class TestMRCJCFileOutputCommitter {
     expectedOutput.append(key2).append('\t').append(val2).append("\n");
     String output = UtilsForTests.slurp(expectedFile);
     assertEquals(output, expectedOutput.toString());
+
+    FileUtil.fullyDelete(new File(outDir.toString()));
   }
 
-  @Test
   public void testAbort() throws IOException {
-    FileUtil.fullyDelete(new File(outDir.toString()));
     JobConf job = new JobConf();
     setConfForFileOutputCommitter(job);
     JobContext jContext = new JobContextImpl(job, taskID.getJobID());
@@ -152,6 +143,7 @@ public class TestMRCJCFileOutputCommitter {
     assertFalse("job temp dir "+expectedFile+" still exists", expectedFile.exists());
     assertEquals("Output directory not empty", 0, new File(outDir.toString())
         .listFiles().length);
+    FileUtil.fullyDelete(new File(outDir.toString()));
   }
 
   public static class FakeFileSystem extends RawLocalFileSystem {
@@ -169,7 +161,6 @@ public class TestMRCJCFileOutputCommitter {
     }
   }
 
-  @Test
   public void testFailAbort() throws IOException {
     JobConf job = new JobConf();
     job.set(FileSystem.FS_DEFAULT_NAME_KEY, "faildel:///");
@@ -221,10 +212,5 @@ public class TestMRCJCFileOutputCommitter {
     assertTrue(th instanceof IOException);
     assertTrue(th.getMessage().contains("fake delete failed"));
     assertTrue("job temp dir does not exists", jobTmpDir.exists());
-  }
-
-  @After
-  public void teardown() {
-    FileUtil.fullyDelete(new File(outDir.toString()));
   }
 }

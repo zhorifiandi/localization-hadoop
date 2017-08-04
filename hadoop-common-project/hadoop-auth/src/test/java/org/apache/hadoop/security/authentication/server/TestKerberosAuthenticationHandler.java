@@ -18,6 +18,7 @@ import org.apache.hadoop.security.authentication.KerberosTestUtils;
 import org.apache.hadoop.security.authentication.client.AuthenticationException;
 import org.apache.hadoop.security.authentication.client.KerberosAuthenticator;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.security.authentication.util.KerberosName;
 import org.apache.hadoop.security.authentication.util.KerberosUtil;
 import org.ietf.jgss.GSSContext;
@@ -108,7 +109,12 @@ public class TestKerberosAuthenticationHandler
     kn = new KerberosName("bar@BAR");
     Assert.assertEquals("bar", kn.getShortName());
     kn = new KerberosName("bar@FOO");
-    Assert.assertEquals("bar@FOO", kn.getShortName());
+    try {
+      kn.getShortName();
+      Assert.fail();
+    }
+    catch (Exception ex) {      
+    }
   }
 
   @Test(timeout=60000)

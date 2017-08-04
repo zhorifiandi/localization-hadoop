@@ -20,21 +20,15 @@ package org.apache.hadoop.mapreduce.tools;
 import static org.junit.Assert.*;
 
 import java.io.IOException;
-
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.mapreduce.Cluster;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.JobID;
-import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.apache.hadoop.mapreduce.TaskReport;
 import org.apache.hadoop.mapreduce.TaskType;
 import org.apache.hadoop.mapreduce.JobPriority;
 import org.apache.hadoop.mapreduce.JobStatus;
 import org.apache.hadoop.mapreduce.JobStatus.State;
-import org.junit.Assert;
 import org.junit.Test;
-
-import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.times;
@@ -50,7 +44,7 @@ public class TestCLI {
     JobID jobId = JobID.forName(jobIdStr);
     Cluster mockCluster = mock(Cluster.class);
     Job job = mock(Job.class);
-    CLI cli = spy(new CLI(new Configuration()));
+    CLI cli = spy(new CLI());
 
     doReturn(mockCluster).when(cli).createCluster();
     when(job.getTaskReports(TaskType.MAP)).thenReturn(
@@ -88,7 +82,7 @@ public class TestCLI {
     JobID jobId = JobID.forName(jobIdStr);
     Cluster mockCluster = mock(Cluster.class);
     Job job = mock(Job.class);
-    CLI cli = spy(new CLI(new Configuration()));
+    CLI cli = spy(new CLI());
 
     doReturn(mockCluster).when(cli).createCluster();
     when(mockCluster.getJob(jobId)).thenReturn(job);
@@ -102,18 +96,12 @@ public class TestCLI {
     int retCode_invalidTaskState = cli.run(new String[] { "-list-attempt-ids",
         jobIdStr, "REDUCE", "complete" });
 
-    String jobIdStr2 = "job_1015298225799_0016";
-    int retCode_invalidJobId = cli.run(new String[] { "-list-attempt-ids",
-        jobIdStr2, "MAP", "running" });
-
     assertEquals("JOB_SETUP is an invalid input,exit code should be -1", -1,
         retCode_JOB_SETUP);
     assertEquals("JOB_CLEANUP is an invalid input,exit code should be -1", -1,
         retCode_JOB_CLEANUP);
     assertEquals("complete is an invalid input,exit code should be -1", -1,
         retCode_invalidTaskState);
-    assertEquals("Non existing job id should be skippted with -1", -1,
-        retCode_invalidJobId);
 
   }
 
@@ -124,7 +112,7 @@ public class TestCLI {
   @Test
   public void testJobKIll() throws Exception {
     Cluster mockCluster = mock(Cluster.class);
-    CLI cli = spy(new CLI(new Configuration()));
+    CLI cli = spy(new CLI());
     doReturn(mockCluster).when(cli).createCluster();
     String jobId1 = "job_1234654654_001";
     String jobId2 = "job_1234654654_002";
@@ -160,65 +148,5 @@ public class TestCLI {
         JobPriority.HIGH, null, null, null, null);
     when(mockJob.getStatus()).thenReturn(status);
     return mockJob;
-  }
-
-  @Test
-  public void testGetJobWithoutRetry() throws Exception {
-    Configuration conf = new Configuration();
-    conf.setInt(MRJobConfig.MR_CLIENT_JOB_MAX_RETRIES, 0);
-
-    final Cluster mockCluster = mock(Cluster.class);
-    when(mockCluster.getJob(any(JobID.class))).thenReturn(null);
-    CLI cli = new CLI(conf);
-    cli.cluster = mockCluster;
-
-    Job job = cli.getJob(JobID.forName("job_1234654654_001"));
-    Assert.assertTrue("job is not null", job == null);
-  }
-
-  @Test
-  public void testGetJobWithRetry() throws Exception {
-    Configuration conf = new Configuration();
-    conf.setInt(MRJobConfig.MR_CLIENT_JOB_MAX_RETRIES, 1);
-
-    final Cluster mockCluster = mock(Cluster.class);
-    final Job mockJob = Job.getInstance(conf);
-    when(mockCluster.getJob(any(JobID.class))).thenReturn(
-        null).thenReturn(mockJob);
-    CLI cli = new CLI(conf);
-    cli.cluster = mockCluster;
-
-    Job job = cli.getJob(JobID.forName("job_1234654654_001"));
-    Assert.assertTrue("job is null", job != null);
-  }
-
-  @Test
-  public void testListEvents() throws Exception {
-    Cluster mockCluster = mock(Cluster.class);
-    CLI cli = spy(new CLI(new Configuration()));
-    doReturn(mockCluster).when(cli).createCluster();
-    String jobId1 = "job_1234654654_001";
-    String jobId2 = "job_1234654656_002";
-
-    Job mockJob1 = mockJob(mockCluster, jobId1, State.RUNNING);
-
-    // Check exiting with non existing job
-    int exitCode = cli.run(new String[]{"-events", jobId2, "0", "10"});
-    assertEquals(-1, exitCode);
-  }
-
-  @Test
-  public void testLogs() throws Exception {
-    Cluster mockCluster = mock(Cluster.class);
-    CLI cli = spy(new CLI(new Configuration()));
-    doReturn(mockCluster).when(cli).createCluster();
-    String jobId1 = "job_1234654654_001";
-    String jobId2 = "job_1234654656_002";
-
-    Job mockJob1 = mockJob(mockCluster, jobId1, State.SUCCEEDED);
-
-    // Check exiting with non existing job
-    int exitCode = cli.run(new String[]{"-logs", jobId2});
-    assertEquals(-1, exitCode);
   }
 }

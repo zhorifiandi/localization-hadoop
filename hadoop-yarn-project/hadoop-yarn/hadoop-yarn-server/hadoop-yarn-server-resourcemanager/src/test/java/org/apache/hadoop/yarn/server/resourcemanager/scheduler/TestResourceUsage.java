@@ -37,8 +37,8 @@ public class TestResourceUsage {
 
   @Parameterized.Parameters
   public static Collection<String[]> getParameters() {
-    return Arrays.asList(new String[][]{{"Pending"}, {"Used"}, {"Reserved"},
-        {"AMUsed"}, {"AMLimit"}, {"CachedUsed"}, {"CachedPending"}});
+    return Arrays.asList(new String[][] { { "Pending" }, { "Used" },
+        { "Reserved" }, { "AMUsed" } });
   }
 
   public TestResourceUsage(String suffix) {
@@ -112,30 +112,20 @@ public class TestResourceUsage {
     check(0, 0, res);
 
     // Add 1,1 should returns 1,1
-    try {
-      inc(usage, suffix, Resource.newInstance(1, 1), label);
-      check(1, 1, get(usage, suffix, label));
-    } catch (NoSuchMethodException e) {
-      // Few operations need not have to be verified as some resources doesn't
-      // inc/dec apis exposed (For Eg: CachedUsed and CachedPending).
-    }
+    inc(usage, suffix, Resource.newInstance(1, 1), label);
+    check(1, 1, get(usage, suffix, label));
 
     // Set 2,2
     set(usage, suffix, Resource.newInstance(2, 2), label);
     check(2, 2, get(usage, suffix, label));
 
     // dec 2,2
-    try {
-      dec(usage, suffix, Resource.newInstance(2, 2), label);
-      check(0, 0, get(usage, suffix, label));
-    } catch (NoSuchMethodException e) {
-      // Few operations need not have to be verified, as some resources doesn't
-      // inc/dec apis exposed (For Eg: CachedUsed and CachedPending).
-    }
+    dec(usage, suffix, Resource.newInstance(2, 2), label);
+    check(0, 0, get(usage, suffix, label));
   }
 
   void check(int mem, int cpu, Resource res) {
-    Assert.assertEquals(mem, res.getMemorySize());
+    Assert.assertEquals(mem, res.getMemory());
     Assert.assertEquals(cpu, res.getVirtualCores());
   }
 

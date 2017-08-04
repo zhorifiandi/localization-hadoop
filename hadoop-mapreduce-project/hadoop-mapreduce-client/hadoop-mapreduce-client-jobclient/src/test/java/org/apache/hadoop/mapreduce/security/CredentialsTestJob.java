@@ -19,7 +19,6 @@
 package org.apache.hadoop.mapreduce.security;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 
 
 import org.apache.hadoop.conf.Configuration;
@@ -59,14 +58,14 @@ public class CredentialsTestJob extends Configured implements Tool {
       String secretName = "alias"+i;
       // get token storage and a key
       byte[] secretValue =  ts.getSecretKey(new Text(secretName));
+      System.out.println(secretValue);
 
       if (secretValue == null){
         throw new RuntimeException("The key "+ secretName + " is not available. "); 
         // fail the test
       }
 
-      String secretValueStr = new String (secretValue, StandardCharsets.UTF_8);
-      System.out.println(secretValueStr);
+      String secretValueStr = new String (secretValue);
 
       if  ( !("password"+i).equals(secretValueStr)){
         throw new RuntimeException("The key "+ secretName +

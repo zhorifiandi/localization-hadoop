@@ -37,11 +37,12 @@ import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.server.nodemanager.Context;
+import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.webapp.NotFoundException;
 import org.apache.hadoop.yarn.webapp.SubView;
 import org.apache.hadoop.yarn.webapp.YarnWebParams;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.PRE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.PRE;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -50,7 +51,7 @@ public class ContainerLogsPage extends NMView {
   
   public static final String REDIRECT_URL = "redirect.url";
   
-  @Override protected void preHead(Page.HTML<__> html) {
+  @Override protected void preHead(Page.HTML<_> html) {
     String redirectUrl = $(REDIRECT_URL);
     if (redirectUrl == null || redirectUrl.isEmpty()) {
       set(TITLE, join("Logs for ", $(CONTAINER_ID)));
@@ -58,6 +59,9 @@ public class ContainerLogsPage extends NMView {
       if (redirectUrl.equals("false")) {
         set(TITLE, join("Failed redirect for ", $(CONTAINER_ID)));
         //Error getting redirect url. Fall through.
+      } else {
+        set(TITLE, join("Redirecting to log server for ", $(CONTAINER_ID)));
+        html.meta_http("refresh", "1; url=" + redirectUrl);
       }
     }
     
@@ -91,7 +95,7 @@ public class ContainerLogsPage extends NMView {
 
       ContainerId containerId;
       try {
-        containerId = ContainerId.fromString($(CONTAINER_ID));
+        containerId = ConverterUtils.toContainerId($(CONTAINER_ID));
       } catch (IllegalArgumentException ex) {
         html.h1("Invalid container ID: " + $(CONTAINER_ID));
         return;
@@ -141,10 +145,10 @@ public class ContainerLogsPage extends NMView {
         try {
           long toRead = end - start;
           if (toRead < logFile.length()) {
-            html.p().__("Showing " + toRead + " bytes. Click ")
+            html.p()._("Showing " + toRead + " bytes. Click ")
                 .a(url("containerlogs", $(CONTAINER_ID), $(APP_OWNER), 
                     logFile.getName(), "?start=0"), "here").
-                __(" for full log").__();
+                    _(" for full log")._();
           }
           
           IOUtils.skipFully(logByteStream, start);
@@ -159,12 +163,12 @@ public class ContainerLogsPage extends NMView {
 
           while ((len = reader.read(cbuf, 0, currentToRead)) > 0
               && toRead > 0) {
-            pre.__(new String(cbuf, 0, len));
+            pre._(new String(cbuf, 0, len));
             toRead = toRead - len;
             currentToRead = toRead > bufferSize ? bufferSize : (int) toRead;
           }
 
-          pre.__();
+          pre._();
           reader.close();
 
         } catch (IOException e) {
@@ -198,7 +202,7 @@ public class ContainerLogsPage extends NMView {
                 .a(url("containerlogs", $(CONTAINER_ID), $(APP_OWNER),
                     logFile.getName(), "?start=-4096"),
                     logFile.getName() + " : Total file length is "
-                        + logFile.length() + " bytes.").__();
+                        + logFile.length() + " bytes.")._();
           }
         }
       }

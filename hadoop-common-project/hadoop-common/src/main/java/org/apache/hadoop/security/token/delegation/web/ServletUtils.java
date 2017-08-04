@@ -45,11 +45,8 @@ class ServletUtils {
    */
   public static String getParameter(HttpServletRequest request, String name)
       throws IOException {
-    String queryString = request.getQueryString();
-    if (queryString == null) {
-      return null;
-    }
-    List<NameValuePair> list = URLEncodedUtils.parse(queryString, UTF8_CHARSET);
+    List<NameValuePair> list = URLEncodedUtils.parse(request.getQueryString(),
+        UTF8_CHARSET);
     if (list != null) {
       for (NameValuePair nv : list) {
         if (name.equals(nv.getName())) {

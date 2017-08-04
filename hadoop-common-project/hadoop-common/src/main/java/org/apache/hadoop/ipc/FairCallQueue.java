@@ -27,44 +27,47 @@ import java.util.AbstractQueue;
 import java.util.HashMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.ipc.CallQueueManager.CallQueueOverflowException;
 import org.apache.hadoop.metrics2.util.MBeans;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A queue with multiple levels for each priority.
  */
 public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
   implements BlockingQueue<E> {
-  @Deprecated
+  // Configuration Keys
   public static final int    IPC_CALLQUEUE_PRIORITY_LEVELS_DEFAULT = 4;
-  @Deprecated
   public static final String IPC_CALLQUEUE_PRIORITY_LEVELS_KEY =
     "faircallqueue.priority-levels";
 
-  public static final Logger LOG = LoggerFactory.getLogger(FairCallQueue.class);
+  public static final Log LOG = LogFactory.getLog(FairCallQueue.class);
 
   /* The queues */
   private final ArrayList<BlockingQueue<E>> queues;
 
-  /* Track available permits for scheduled objects.  All methods that will
-   * mutate a subqueue must acquire or release a permit on the semaphore.
-   * A semaphore is much faster than an exclusive lock because producers do
-   * not contend with consumers and consumers do not block other consumers
-   * while polling.
-   */
-  private final Semaphore semaphore = new Semaphore(0);
+  /* Read locks */
+  private final ReentrantLock takeLock = new ReentrantLock();
+  private final Condition notEmpty = takeLock.newCondition();
   private void signalNotEmpty() {
-    semaphore.release();
+    takeLock.lock();
+    try {
+      notEmpty.signal();
+    } finally {
+      takeLock.unlock();
+    }
   }
+
+  /* Scheduler picks which queue to place in */
+  private RpcScheduler scheduler;
 
   /* Multiplexer picks which queue to draw from */
   private RpcMultiplexer multiplexer;
@@ -74,177 +77,194 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
 
   /**
    * Create a FairCallQueue.
-   * @param capacity the total size of all sub-queues
+   * @param capacity the maximum size of each sub-queue
    * @param ns the prefix to use for configuration
    * @param conf the configuration to read from
-   * Notes: Each sub-queue has a capacity of `capacity / numSubqueues`.
-   * The first or the highest priority sub-queue has an excess capacity
-   * of `capacity % numSubqueues`
+   * Notes: the FairCallQueue has no fixed capacity. Rather, it has a minimum
+   * capacity of `capacity` and a maximum capacity of `capacity * number_queues`
    */
-  public FairCallQueue(int priorityLevels, int capacity, String ns,
-      Configuration conf) {
-    if(priorityLevels < 1) {
-      throw new IllegalArgumentException("Number of Priority Levels must be " +
-          "at least 1");
-    }
-    int numQueues = priorityLevels;
-    LOG.info("FairCallQueue is in use with " + numQueues +
-        " queues with total capacity of " + capacity);
+  public FairCallQueue(int capacity, String ns, Configuration conf) {
+    int numQueues = parseNumQueues(ns, conf);
+    LOG.info("FairCallQueue is in use with " + numQueues + " queues.");
 
     this.queues = new ArrayList<BlockingQueue<E>>(numQueues);
     this.overflowedCalls = new ArrayList<AtomicLong>(numQueues);
-    int queueCapacity = capacity / numQueues;
-    int capacityForFirstQueue = queueCapacity + (capacity % numQueues);
+
     for(int i=0; i < numQueues; i++) {
-      if (i == 0) {
-        this.queues.add(new LinkedBlockingQueue<E>(capacityForFirstQueue));
-      } else {
-        this.queues.add(new LinkedBlockingQueue<E>(queueCapacity));
-      }
+      this.queues.add(new LinkedBlockingQueue<E>(capacity));
       this.overflowedCalls.add(new AtomicLong(0));
     }
 
+    this.scheduler = new DecayRpcScheduler(numQueues, ns, conf);
     this.multiplexer = new WeightedRoundRobinMultiplexer(numQueues, ns, conf);
+
     // Make this the active source of metrics
     MetricsProxy mp = MetricsProxy.getInstance(ns);
     mp.setDelegate(this);
   }
 
   /**
-   * Returns an element first non-empty queue equal to the priority returned
-   * by the multiplexer or scans from highest to lowest priority queue.
+   * Read the number of queues from the configuration.
+   * This will affect the FairCallQueue's overall capacity.
+   * @throws IllegalArgumentException on invalid queue count
+   */
+  private static int parseNumQueues(String ns, Configuration conf) {
+    int retval = conf.getInt(ns + "." + IPC_CALLQUEUE_PRIORITY_LEVELS_KEY,
+      IPC_CALLQUEUE_PRIORITY_LEVELS_DEFAULT);
+    if(retval < 1) {
+      throw new IllegalArgumentException("numQueues must be at least 1");
+    }
+    return retval;
+  }
+
+  /**
+   * Returns the first non-empty queue with equal or lesser priority
+   * than <i>startIdx</i>. Wraps around, searching a maximum of N
+   * queues, where N is this.queues.size().
    *
-   * Caller must always acquire a semaphore permit before invoking.
-   *
+   * @param startIdx the queue number to start searching at
    * @return the first non-empty queue with less priority, or null if
    * everything was empty
    */
-  private E removeNextElement() {
-    int priority = multiplexer.getAndAdvanceCurrentIndex();
-    E e = queues.get(priority).poll();
-    if (e == null) {
-      for (int idx = 0; e == null && idx < queues.size(); idx++) {
-        e = queues.get(idx).poll();
+  private BlockingQueue<E> getFirstNonEmptyQueue(int startIdx) {
+    final int numQueues = this.queues.size();
+    for(int i=0; i < numQueues; i++) {
+      int idx = (i + startIdx) % numQueues; // offset and wrap around
+      BlockingQueue<E> queue = this.queues.get(idx);
+      if (queue.size() != 0) {
+        return queue;
       }
     }
-    // guaranteed to find an element if caller acquired permit.
-    assert e != null : "consumer didn't acquire semaphore!";
-    return e;
+
+    // All queues were empty
+    return null;
   }
 
   /* AbstractQueue and BlockingQueue methods */
 
   /**
-   * Add, put, and offer follow the same pattern:
-   * 1. Get the assigned priorityLevel from the call by scheduler
+   * Put and offer follow the same pattern:
+   * 1. Get a priorityLevel from the scheduler
    * 2. Get the nth sub-queue matching this priorityLevel
    * 3. delegate the call to this sub-queue.
    *
    * But differ in how they handle overflow:
-   * - Add will move on to the next queue, throw on last queue overflow
-   * - Put will move on to the next queue, block on last queue overflow
+   * - Put will move on to the next queue until it lands on the last queue
    * - Offer does not attempt other queues on overflow
    */
-
-  @Override
-  public boolean add(E e) {
-    final int priorityLevel = e.getPriorityLevel();
-    // try offering to all queues.
-    if (!offerQueues(priorityLevel, e, true)) {
-      // only disconnect the lowest priority users that overflow the queue.
-      throw (priorityLevel == queues.size() - 1)
-          ? CallQueueOverflowException.DISCONNECT
-          : CallQueueOverflowException.KEEPALIVE;
-    }
-    return true;
-  }
-
   @Override
   public void put(E e) throws InterruptedException {
-    final int priorityLevel = e.getPriorityLevel();
-    // try offering to all but last queue, put on last.
-    if (!offerQueues(priorityLevel, e, false)) {
-      putQueue(queues.size() - 1, e);
-    }
-  }
+    int priorityLevel = scheduler.getPriorityLevel(e);
 
-  /**
-   * Put the element in a queue of a specific priority.
-   * @param priority - queue priority
-   * @param e - element to add
-   */
-  @VisibleForTesting
-  void putQueue(int priority, E e) throws InterruptedException {
-    queues.get(priority).put(e);
-    signalNotEmpty();
-  }
+    final int numLevels = this.queues.size();
+    while (true) {
+      BlockingQueue<E> q = this.queues.get(priorityLevel);
+      boolean res = q.offer(e);
+      if (!res) {
+        // Update stats
+        this.overflowedCalls.get(priorityLevel).getAndIncrement();
 
-  /**
-   * Offer the element to queue of a specific priority.
-   * @param priority - queue priority
-   * @param e - element to add
-   * @return boolean if added to the given queue
-   */
-  @VisibleForTesting
-  boolean offerQueue(int priority, E e) {
-    boolean ret = queues.get(priority).offer(e);
-    if (ret) {
-      signalNotEmpty();
-    }
-    return ret;
-  }
+        // If we failed to insert, try again on the next level
+        priorityLevel++;
 
-  /**
-   * Offer the element to queue of the given or lower priority.
-   * @param priority - starting queue priority
-   * @param e - element to add
-   * @param includeLast - whether to attempt last queue
-   * @return boolean if added to a queue
-   */
-  private boolean offerQueues(int priority, E e, boolean includeLast) {
-    int lastPriority = queues.size() - (includeLast ? 1 : 2);
-    for (int i=priority; i <= lastPriority; i++) {
-      if (offerQueue(i, e)) {
-        return true;
+        if (priorityLevel == numLevels) {
+          // That was the last one, we will block on put in the last queue
+          // Delete this line to drop the call
+          this.queues.get(priorityLevel-1).put(e);
+          break;
+        }
+      } else {
+        break;
       }
-      // Update stats
-      overflowedCalls.get(i).getAndIncrement();
     }
-    return false;
+
+
+    signalNotEmpty();
   }
 
   @Override
   public boolean offer(E e, long timeout, TimeUnit unit)
       throws InterruptedException {
-    int priorityLevel = e.getPriorityLevel();
+    int priorityLevel = scheduler.getPriorityLevel(e);
     BlockingQueue<E> q = this.queues.get(priorityLevel);
     boolean ret = q.offer(e, timeout, unit);
-    if (ret) {
-      signalNotEmpty();
-    }
+
+    signalNotEmpty();
+
     return ret;
   }
 
   @Override
   public boolean offer(E e) {
-    int priorityLevel = e.getPriorityLevel();
+    int priorityLevel = scheduler.getPriorityLevel(e);
     BlockingQueue<E> q = this.queues.get(priorityLevel);
     boolean ret = q.offer(e);
-    if (ret) {
-      signalNotEmpty();
-    }
+
+    signalNotEmpty();
+
     return ret;
   }
 
   @Override
   public E take() throws InterruptedException {
-    semaphore.acquire();
-    return removeNextElement();
+    int startIdx = this.multiplexer.getAndAdvanceCurrentIndex();
+
+    takeLock.lockInterruptibly();
+    try {
+      // Wait while queue is empty
+      for (;;) {
+        BlockingQueue<E> q = this.getFirstNonEmptyQueue(startIdx);
+        if (q != null) {
+          // Got queue, so return if we can poll out an object
+          E e = q.poll();
+          if (e != null) {
+            return e;
+          }
+        }
+
+        notEmpty.await();
+      }
+    } finally {
+      takeLock.unlock();
+    }
   }
 
   @Override
-  public E poll(long timeout, TimeUnit unit) throws InterruptedException {
-    return semaphore.tryAcquire(timeout, unit) ? removeNextElement() : null;
+  public E poll(long timeout, TimeUnit unit)
+      throws InterruptedException {
+
+    int startIdx = this.multiplexer.getAndAdvanceCurrentIndex();
+
+    long nanos = unit.toNanos(timeout);
+    takeLock.lockInterruptibly();
+    try {
+      for (;;) {
+        BlockingQueue<E> q = this.getFirstNonEmptyQueue(startIdx);
+        if (q != null) {
+          E e = q.poll();
+          if (e != null) {
+            // Escape condition: there might be something available
+            return e;
+          }
+        }
+
+        if (nanos <= 0) {
+          // Wait has elapsed
+          return null;
+        }
+
+        try {
+          // Now wait on the condition for a bit. If we get
+          // spuriously awoken we'll re-loop
+          nanos = notEmpty.awaitNanos(nanos);
+        } catch (InterruptedException ie) {
+          notEmpty.signal(); // propagate to a non-interrupted thread
+          throw ie;
+        }
+      }
+    } finally {
+      takeLock.unlock();
+    }
   }
 
   /**
@@ -253,7 +273,15 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
    */
   @Override
   public E poll() {
-    return semaphore.tryAcquire() ? removeNextElement() : null;
+    int startIdx = this.multiplexer.getAndAdvanceCurrentIndex();
+
+    BlockingQueue<E> q = this.getFirstNonEmptyQueue(startIdx);
+    if (q == null) {
+      return null; // everything is empty
+    }
+
+    // Delegate to the sub-queue's poll, which could still return null
+    return q.poll();
   }
 
   /**
@@ -261,11 +289,12 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
    */
   @Override
   public E peek() {
-    E e = null;
-    for (int i=0; e == null && i < queues.size(); i++) {
-      e = queues.get(i).peek();
+    BlockingQueue<E> q = this.getFirstNonEmptyQueue(0);
+    if (q == null) {
+      return null;
+    } else {
+      return q.peek();
     }
-    return e;
   }
 
   /**
@@ -276,7 +305,11 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
    */
   @Override
   public int size() {
-    return semaphore.availablePermits();
+    int size = 0;
+    for (BlockingQueue q : this.queues) {
+      size += q.size();
+    }
+    return size;
   }
 
   /**
@@ -295,24 +328,20 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
    */
   @Override
   public int drainTo(Collection<? super E> c, int maxElements) {
-    // initially take all permits to stop consumers from modifying queues
-    // while draining.  will restore any excess when done draining.
-    final int permits = semaphore.drainPermits();
-    final int numElements = Math.min(maxElements, permits);
-    int numRemaining = numElements;
-    for (int i=0; numRemaining > 0 && i < queues.size(); i++) {
-      numRemaining -= queues.get(i).drainTo(c, numRemaining);
+    int sum = 0;
+    for (BlockingQueue<E> q : this.queues) {
+      sum += q.drainTo(c, maxElements);
     }
-    int drained = numElements - numRemaining;
-    if (permits > drained) { // restore unused permits.
-      semaphore.release(permits - drained);
-    }
-    return drained;
+    return sum;
   }
 
   @Override
   public int drainTo(Collection<? super E> c) {
-    return drainTo(c, Integer.MAX_VALUE);
+    int sum = 0;
+    for (BlockingQueue<E> q : this.queues) {
+      sum += q.drainTo(c);
+    }
+    return sum;
   }
 
   /**
@@ -323,7 +352,7 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
   @Override
   public int remainingCapacity() {
     int sum = 0;
-    for (BlockingQueue<E> q : this.queues) {
+    for (BlockingQueue q : this.queues) {
       sum += q.remainingCapacity();
     }
     return sum;
@@ -339,7 +368,7 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
       new HashMap<String, MetricsProxy>();
 
     // Weakref for delegate, so we don't retain it forever if it can be GC'd
-    private WeakReference<FairCallQueue<? extends Schedulable>> delegate;
+    private WeakReference<FairCallQueue> delegate;
 
     // Keep track of how many objects we registered
     private int revisionNumber = 0;
@@ -358,15 +387,14 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
       return mp;
     }
 
-    public void setDelegate(FairCallQueue<? extends Schedulable> obj) {
-      this.delegate
-          = new WeakReference<FairCallQueue<? extends Schedulable>>(obj);
+    public void setDelegate(FairCallQueue obj) {
+      this.delegate = new WeakReference<FairCallQueue>(obj);
       this.revisionNumber++;
     }
 
     @Override
     public int[] getQueueSizes() {
-      FairCallQueue<? extends Schedulable> obj = this.delegate.get();
+      FairCallQueue obj = this.delegate.get();
       if (obj == null) {
         return new int[]{};
       }
@@ -376,7 +404,7 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
 
     @Override
     public long[] getOverflowedCalls() {
-      FairCallQueue<? extends Schedulable> obj = this.delegate.get();
+      FairCallQueue obj = this.delegate.get();
       if (obj == null) {
         return new long[]{};
       }
@@ -406,6 +434,12 @@ public class FairCallQueue<E extends Schedulable> extends AbstractQueue<E>
       calls[i] = overflowedCalls.get(i).get();
     }
     return calls;
+  }
+
+  // For testing
+  @VisibleForTesting
+  public void setScheduler(RpcScheduler newScheduler) {
+    this.scheduler = newScheduler;
   }
 
   @VisibleForTesting

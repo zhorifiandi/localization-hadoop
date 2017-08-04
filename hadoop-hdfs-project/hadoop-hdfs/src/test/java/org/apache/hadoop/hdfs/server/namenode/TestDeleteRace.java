@@ -20,7 +20,6 @@ package org.apache.hadoop.hdfs.server.namenode;
 import java.io.FileNotFoundException;
 import java.util.AbstractMap;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +28,6 @@ import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.AddBlockFlag;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -48,7 +46,7 @@ import org.apache.hadoop.hdfs.server.blockmanagement.BlockPlacementPolicyDefault
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor;
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeStorageInfo;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
-import org.apache.hadoop.hdfs.server.datanode.InternalDataNodeTestUtils;
+import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.SnapshotTestHelper;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.net.Node;
@@ -125,11 +123,10 @@ public class TestDeleteRace {
                                       boolean returnChosenNodes,
                                       Set<Node> excludedNodes,
                                       long blocksize,
-                                      final BlockStoragePolicy storagePolicy,
-                                      EnumSet<AddBlockFlag> flags) {
+                                      final BlockStoragePolicy storagePolicy) {
       DatanodeStorageInfo[] results = super.chooseTarget(srcPath,
           numOfReplicas, writer, chosenNodes, returnChosenNodes, excludedNodes,
-          blocksize, storagePolicy, flags);
+          blocksize, storagePolicy);
       try {
         Thread.sleep(3000);
       } catch (InterruptedException e) {}
@@ -299,7 +296,7 @@ public class TestDeleteRace {
         DataNode primaryDN = cluster.getDataNode(expectedPrimary.getIpcPort());
         DatanodeProtocolClientSideTranslatorPB nnSpy = dnMap.get(primaryDN);
         if (nnSpy == null) {
-          nnSpy = InternalDataNodeTestUtils.spyOnBposToNN(primaryDN, nn);
+          nnSpy = DataNodeTestUtils.spyOnBposToNN(primaryDN, nn);
           dnMap.put(primaryDN, nnSpy);
         }
 

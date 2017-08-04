@@ -20,18 +20,13 @@ package org.apache.hadoop.mapred;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
-import java.lang.management.RuntimeMXBean;
-import java.lang.management.ThreadInfo;
-import java.lang.management.ThreadMXBean;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
-import java.util.Collections;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -65,7 +60,6 @@ import org.apache.hadoop.service.AbstractService;
 import org.apache.hadoop.util.ExitUtil;
 import org.apache.hadoop.util.ShutdownHookManager;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.util.concurrent.HadoopExecutors;
 import org.apache.hadoop.yarn.api.ApplicationConstants.Environment;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 
@@ -83,10 +77,9 @@ public class LocalContainerLauncher extends AbstractService implements
   private static final Log LOG = LogFactory.getLog(LocalContainerLauncher.class);
 
   private FileContext curFC = null;
-  private Set<File> localizedFiles = new HashSet<File>();
+  private final HashSet<File> localizedFiles;
   private final AppContext context;
   private final TaskUmbilicalProtocol umbilical;
-  private final ClassLoader jobClassLoader;
   private ExecutorService taskRunner;
   private Thread eventHandler;
   private byte[] encryptedSpillKey = new byte[] {0};
@@ -95,12 +88,6 @@ public class LocalContainerLauncher extends AbstractService implements
 
   public LocalContainerLauncher(AppContext context,
                                 TaskUmbilicalProtocol umbilical) {
-    this(context, umbilical, null);
-  }
-
-  public LocalContainerLauncher(AppContext context,
-                                TaskUmbilicalProtocol umbilical,
-                                ClassLoader jobClassLoader) {
     super(LocalContainerLauncher.class.getName());
     this.context = context;
     this.umbilical = umbilical;
@@ -108,7 +95,6 @@ public class LocalContainerLauncher extends AbstractService implements
         // (TODO/FIXME:  pointless to use RPC to talk to self; should create
         // LocalTaskAttemptListener or similar:  implement umbilical protocol
         // but skip RPC stuff)
-    this.jobClassLoader = jobClassLoader;
 
     try {
       curFC = FileContext.getFileContext(curDir.toURI());
@@ -123,12 +109,9 @@ public class LocalContainerLauncher extends AbstractService implements
     // users who do that get what they deserve (and will have to disable
     // uberization in order to run correctly).
     File[] curLocalFiles = curDir.listFiles();
-    if (curLocalFiles != null) {
-      HashSet<File> lf = new HashSet<File>(curLocalFiles.length);
-      for (int j = 0; j < curLocalFiles.length; ++j) {
-        lf.add(curLocalFiles[j]);
-      }
-      localizedFiles = Collections.unmodifiableSet(lf);
+    localizedFiles = new HashSet<File>(curLocalFiles.length);
+    for (int j = 0; j < curLocalFiles.length; ++j) {
+      localizedFiles.add(curLocalFiles[j]);
     }
 
     // Relocalization note/future FIXME (per chrisdo, 20110315):  At moment,
@@ -147,22 +130,10 @@ public class LocalContainerLauncher extends AbstractService implements
     // make it a daemon thread so that the process can exit even if the task is
     // not interruptible
     taskRunner =
-        HadoopExecutors.newSingleThreadExecutor(new ThreadFactoryBuilder().
+        Executors.newSingleThreadExecutor(new ThreadFactoryBuilder().
             setDaemon(true).setNameFormat("uber-SubtaskRunner").build());
     // create and start an event handling thread
     eventHandler = new Thread(new EventHandler(), "uber-EventHandler");
-    // if the job classloader is specified, set it onto the event handler as the
-    // thread context classloader so that it can be used by the event handler
-    // as well as the subtask runner threads
-    if (jobClassLoader != null) {
-      LOG.info("Setting " + jobClassLoader +
-          " as the context classloader of thread " + eventHandler.getName());
-      eventHandler.setContextClassLoader(jobClassLoader);
-    } else {
-      // note the current TCCL
-      LOG.info("Context classloader of thread " + eventHandler.getName() +
-          ": " + eventHandler.getContextClassLoader());
-    }
     eventHandler.start();
     super.serviceStart();
   }
@@ -242,7 +213,7 @@ public class LocalContainerLauncher extends AbstractService implements
         try {
           event = eventQueue.take();
         } catch (InterruptedException e) {  // mostly via T_KILL? JOB_KILL?
-          LOG.warn("Returning, interrupted : " + e);
+          LOG.error("Returning, interrupted : " + e);
           break;
         }
 
@@ -264,30 +235,6 @@ public class LocalContainerLauncher extends AbstractService implements
 
         } else if (event.getType() == EventType.CONTAINER_REMOTE_CLEANUP) {
 
-          if (event.getDumpContainerThreads()) {
-            try {
-              // Construct full thread dump header
-              System.out.println(new java.util.Date());
-              RuntimeMXBean rtBean = ManagementFactory.getRuntimeMXBean();
-              System.out.println("Full thread dump " + rtBean.getVmName()
-                  + " (" + rtBean.getVmVersion()
-                  + " " + rtBean.getSystemProperties().get("java.vm.info")
-                  + "):\n");
-              // Dump threads' states and stacks
-              ThreadMXBean tmxBean = ManagementFactory.getThreadMXBean();
-              ThreadInfo[] tInfos = tmxBean.dumpAllThreads(
-                  tmxBean.isObjectMonitorUsageSupported(),
-                  tmxBean.isSynchronizerUsageSupported());
-              for (ThreadInfo ti : tInfos) {
-                System.out.println(ti.toString());
-              }
-            } catch (Throwable t) {
-              // Failure to dump stack shouldn't cause method failure.
-              System.out.println("Could not create full thread dump: "
-                  + t.getMessage());
-            }
-          }
-
           // cancel (and interrupt) the current running task associated with the
           // event
           TaskAttemptId taId = event.getTaskAttemptID();
@@ -303,8 +250,7 @@ public class LocalContainerLauncher extends AbstractService implements
           context.getEventHandler().handle(
               new TaskAttemptEvent(taId,
                   TaskAttemptEventType.TA_CONTAINER_CLEANED));
-        } else if (event.getType() == EventType.CONTAINER_COMPLETED) {
-          LOG.debug("Container completed " + event.toString());
+
         } else {
           LOG.warn("Ignoring unexpected event " + event.toString());
         }
@@ -354,14 +300,7 @@ public class LocalContainerLauncher extends AbstractService implements
         }
         runSubtask(remoteTask, ytask.getType(), attemptID, numMapTasks,
                    (numReduceTasks > 0), localMapFiles);
-
-        // In non-uber mode, TA gets TA_CONTAINER_COMPLETED from MRAppMaster
-        // as part of NM -> RM -> AM notification route.
-        // In uber mode, given the task run inside the MRAppMaster container,
-        // we have to simulate the notification.
-        context.getEventHandler().handle(new TaskAttemptEvent(attemptID,
-            TaskAttemptEventType.TA_CONTAINER_COMPLETED));
-
+        
       } catch (RuntimeException re) {
         JobCounterUpdateEvent jce = new JobCounterUpdateEvent(attemptID.getTaskId().getJobId());
         jce.addCounterUpdate(JobCounter.NUM_FAILED_UBERTASKS, 1);
@@ -526,29 +465,26 @@ public class LocalContainerLauncher extends AbstractService implements
      */
     private void relocalize() {
       File[] curLocalFiles = curDir.listFiles();
-      if (curLocalFiles != null) {
-        for (int j = 0; j < curLocalFiles.length; ++j) {
-          if (!localizedFiles.contains(curLocalFiles[j])) {
-            // found one that wasn't there before:  delete it
-            boolean deleted = false;
-            try {
-              if (curFC != null) {
-                // this is recursive, unlike File delete():
-                deleted =
-                    curFC.delete(new Path(curLocalFiles[j].getName()), true);
-              }
-            } catch (IOException e) {
-              deleted = false;
+      for (int j = 0; j < curLocalFiles.length; ++j) {
+        if (!localizedFiles.contains(curLocalFiles[j])) {
+          // found one that wasn't there before:  delete it
+          boolean deleted = false;
+          try {
+            if (curFC != null) {
+              // this is recursive, unlike File delete():
+              deleted = curFC.delete(new Path(curLocalFiles[j].getName()),true);
             }
-            if (!deleted) {
-              LOG.warn("Unable to delete unexpected local file/dir "
-                  + curLocalFiles[j].getName()
-                  + ": insufficient permissions?");
-            }
+          } catch (IOException e) {
+            deleted = false;
+          }
+          if (!deleted) {
+            LOG.warn("Unable to delete unexpected local file/dir "
+                + curLocalFiles[j].getName() + ": insufficient permissions?");
           }
         }
       }
     }
+
   } // end EventHandler
 
   /**

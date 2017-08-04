@@ -24,7 +24,6 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
@@ -59,19 +58,17 @@ public class TestDataNodeExit {
 
   @After
   public void tearDown() throws Exception {
-    if (cluster != null) {
+    if (cluster != null)
       cluster.shutdown();
-      cluster = null;
-    }
   }
   
   private void stopBPServiceThreads(int numStopThreads, DataNode dn)
       throws Exception {
-    List<BPOfferService> bpoList = dn.getAllBpOs();
+    BPOfferService[] bpoList = dn.getAllBpOs();
     int expected = dn.getBpOsCount() - numStopThreads;
     int index = numStopThreads - 1;
     while (index >= 0) {
-      bpoList.get(index--).stop();
+      bpoList[index--].stop();
     }
     int iterations = 3000; // Total 30 seconds MAX wait time
     while(dn.getBpOsCount() != expected && iterations > 0) {
@@ -98,13 +95,13 @@ public class TestDataNodeExit {
   public void testSendOOBToPeers() throws Exception {
     DataNode dn = cluster.getDataNodes().get(0);
     DataXceiverServer spyXserver = Mockito.spy(dn.getXferServer());
-    NullPointerException npe = new NullPointerException();
-    Mockito.doThrow(npe).when(spyXserver).sendOOBToPeers();
+    NullPointerException e = new NullPointerException();
+    Mockito.doThrow(e).when(spyXserver).sendOOBToPeers();
     dn.xserver = spyXserver;
     try {
       dn.shutdown();
-    } catch (Exception e) {
-      fail("DataNode shutdown should not have thrown exception " + e);
+    } catch (Throwable t) {
+      fail("DataNode shutdown should not have thrown exception " + t);
     }
   }
 }

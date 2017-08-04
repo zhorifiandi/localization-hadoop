@@ -24,13 +24,11 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.EnumSet;
 import java.util.HashMap;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 
-import com.microsoft.azure.storage.AccessCondition;
 import com.microsoft.azure.storage.CloudStorageAccount;
 import com.microsoft.azure.storage.OperationContext;
 import com.microsoft.azure.storage.RetryPolicyFactory;
@@ -38,8 +36,6 @@ import com.microsoft.azure.storage.StorageCredentials;
 import com.microsoft.azure.storage.StorageException;
 import com.microsoft.azure.storage.blob.BlobListingDetails;
 import com.microsoft.azure.storage.blob.BlobProperties;
-import com.microsoft.azure.storage.blob.BlockEntry;
-import com.microsoft.azure.storage.blob.BlockListingFilter;
 import com.microsoft.azure.storage.blob.BlobRequestOptions;
 import com.microsoft.azure.storage.blob.CloudBlob;
 import com.microsoft.azure.storage.blob.CopyState;
@@ -72,8 +68,7 @@ abstract class StorageInterface {
    * property, so that all subsequent requests made via the service client will
    * use the new timeout interval. You can also change this value for an
    * individual request, by setting the
-   * {@link com.microsoft.azure.storage.RequestOptions#timeoutIntervalInMs}
-   * property.
+   * {@link RequestOptions#timeoutIntervalInMs} property.
    * 
    * If you are downloading a large blob, you should increase the value of the
    * timeout beyond the default value.
@@ -95,8 +90,7 @@ abstract class StorageInterface {
 
   /**
    * Creates a new Blob service client.
-   *
-   * @param account cloud storage account.
+   * 
    */
   public abstract void createBlobClient(CloudStorageAccount account);
 
@@ -151,9 +145,8 @@ abstract class StorageInterface {
       throws URISyntaxException, StorageException;
 
   /**
-   * A thin wrapper over the
-   * {@link com.microsoft.azure.storage.blob.CloudBlobDirectory} class
-   * that simply redirects calls to the real object except in unit tests.
+   * A thin wrapper over the {@link CloudBlobDirectory} class that simply
+   * redirects calls to the real object except in unit tests.
    */
   @InterfaceAudience.Private
   public abstract static class CloudBlobDirectoryWrapper implements
@@ -187,7 +180,7 @@ abstract class StorageInterface {
      *          A {@link BlobRequestOptions} object that specifies any
      *          additional options for the request. Specifying <code>null</code>
      *          will use the default request options from the associated service
-     *          client ({@link com.microsoft.azure.storage.blob.CloudBlobClient}).
+     *          client ( {@link CloudBlobClient}).
      * @param opContext
      *          An {@link OperationContext} object that represents the context
      *          for the current operation. This object is used to track requests
@@ -210,9 +203,8 @@ abstract class StorageInterface {
   }
 
   /**
-   * A thin wrapper over the
-   * {@link com.microsoft.azure.storage.blob.CloudBlobContainer} class
-   * that simply redirects calls to the real object except in unit tests.
+   * A thin wrapper over the {@link CloudBlobContainer} class that simply
+   * redirects calls to the real object except in unit tests.
    */
   @InterfaceAudience.Private
   public abstract static class CloudBlobContainerWrapper {
@@ -277,13 +269,13 @@ abstract class StorageInterface {
 
     /**
      * Uploads the container's metadata using the specified operation context.
-     *
+     * 
      * @param opContext
      *          An {@link OperationContext} object that represents the context
      *          for the current operation. This object is used to track requests
      *          to the storage service, and to provide additional runtime
      *          information about the operation.
-     *
+     * 
      * @throws StorageException
      *           If a storage service error occurred.
      */
@@ -389,8 +381,8 @@ abstract class StorageInterface {
      * Copies an existing blob's contents, properties, and metadata to this instance of the <code>CloudBlob</code>
      * class, using the specified operation context.
      *
-     * @param sourceBlob
-     *            A <code>CloudBlob</code> object that represents the source blob to copy.
+     * @param source
+     *            A <code>java.net.URI</code> The URI of a source blob.
      * @param options
      *            A {@link BlobRequestOptions} object that specifies any additional options for the request. Specifying
      *            <code>null</code> will use the default request options from the associated service client (
@@ -405,7 +397,7 @@ abstract class StorageInterface {
      * @throws URISyntaxException
      *
      */
-    public abstract void startCopyFromBlob(CloudBlobWrapper sourceBlob,
+    public abstract void startCopyFromBlob(URI source,
         BlobRequestOptions options, OperationContext opContext)
         throws StorageException, URISyntaxException;
     
@@ -553,46 +545,15 @@ abstract class StorageInterface {
     void uploadMetadata(OperationContext opContext)
         throws StorageException;
 
-    /**
-     * Uploads the blob's metadata to the storage service using the specified
-     * lease ID, request options, and operation context.
-     *
-     * @param accessCondition
-     *           A {@link AccessCondition} object that represents the access conditions for the blob.
-     *
-     * @param options
-     *            A {@link BlobRequestOptions} object that specifies any additional options for the request. Specifying
-     *            <code>null</code> will use the default request options from the associated service client (
-     *            {@link CloudBlobClient}).
-     *
-     * @param opContext
-     *          An {@link OperationContext} object that represents the context
-     *          for the current operation. This object is used to track requests
-     *          to the storage service, and to provide additional runtime
-     *          information about the operation.
-     *
-     * @throws StorageException
-     *           If a storage service error occurred.
-     */
-    void uploadMetadata(AccessCondition accessCondition, BlobRequestOptions options,
-        OperationContext opContext) throws StorageException;
-
     void uploadProperties(OperationContext opContext,
         SelfRenewingLease lease)
         throws StorageException;
 
     SelfRenewingLease acquireLease() throws StorageException;
-
-    /**
-     * Gets the minimum read block size to use with this Blob.
-     *
-     * @return The minimum block size, in bytes, for reading from a block blob.
-     */
-    int getStreamMinimumReadSizeInBytes();
-
+    
     /**
      * Sets the minimum read block size to use with this Blob.
-     *
+     * 
      * @param minimumReadSizeBytes
      *          The maximum block size, in bytes, for reading from a block blob
      *          while using a {@link BlobInputStream} object, ranging from 512
@@ -619,9 +580,8 @@ abstract class StorageInterface {
   }
 
   /**
-   * A thin wrapper over the
-   * {@link com.microsoft.azure.storage.blob.CloudBlockBlob} class
-   * that simply redirects calls to the real object except in unit tests.
+   * A thin wrapper over the {@link CloudBlockBlob} class that simply redirects calls
+   * to the real object except in unit tests.
    */
   public abstract interface CloudBlockBlobWrapper
       extends CloudBlobWrapper {
@@ -642,69 +602,11 @@ abstract class StorageInterface {
     OutputStream openOutputStream(
         BlobRequestOptions options,
         OperationContext opContext) throws StorageException;
-
-    /**
-     *
-     * @param filter    A {@link BlockListingFilter} value that specifies whether to download
-     *                  committed blocks, uncommitted blocks, or all blocks.
-     * @param options   A {@link BlobRequestOptions} object that specifies any additional options for
-     *                  the request. Specifying null will use the default request options from
-     *                  the associated service client ( CloudBlobClient).
-     * @param opContext An {@link OperationContext} object that represents the context for the current
-     *                  operation. This object is used to track requests to the storage service,
-     *                  and to provide additional runtime information about the operation.
-     * @return          An ArrayList object of {@link BlockEntry} objects that represent the list
-     *                  block items downloaded from the block blob.
-     * @throws IOException  If an I/O error occurred.
-     * @throws StorageException If a storage service error occurred.
-     */
-    List<BlockEntry> downloadBlockList(BlockListingFilter filter, BlobRequestOptions options,
-        OperationContext opContext) throws IOException, StorageException;
-
-    /**
-     *
-     * @param blockId      A String that represents the Base-64 encoded block ID. Note for a given blob
-     *                     the length of all Block IDs must be identical.
-     * @param sourceStream An {@link InputStream} object that represents the input stream to write to the
-     *                     block blob.
-     * @param length       A long which represents the length, in bytes, of the stream data,
-     *                     or -1 if unknown.
-     * @param options      A {@link BlobRequestOptions} object that specifies any additional options for the
-     *                     request. Specifying null will use the default request options from the
-     *                     associated service client ( CloudBlobClient).
-     * @param opContext    An {@link OperationContext} object that represents the context for the current operation.
-     *                     This object is used to track requests to the storage service, and to provide
-     *                     additional runtime information about the operation.
-     * @throws IOException  If an I/O error occurred.
-     * @throws StorageException If a storage service error occurred.
-     */
-    void uploadBlock(String blockId, InputStream sourceStream,
-        long length, BlobRequestOptions options,
-        OperationContext opContext) throws IOException, StorageException;
-
-    /**
-     *
-     * @param blockList       An enumerable collection of {@link BlockEntry} objects that represents the list
-     *                        block items being committed. The size field is ignored.
-     * @param accessCondition An {@link AccessCondition} object that represents the access conditions for the blob.
-     * @param options         A {@link BlobRequestOptions} object that specifies any additional options for the
-     *                        request. Specifying null will use the default request options from the associated
-     *                        service client ( CloudBlobClient).
-     * @param opContext       An {@link OperationContext} object that represents the context for the current operation.
-     *                        This object is used to track requests to the storage service, and to provide additional
-     *                        runtime information about the operation.
-     * @throws IOException      If an I/O error occurred.
-     * @throws StorageException If a storage service error occurred.
-     */
-    void commitBlockList(List<BlockEntry> blockList, AccessCondition accessCondition, BlobRequestOptions options,
-        OperationContext opContext) throws IOException, StorageException;
-
   }
 
   /**
-   * A thin wrapper over the
-   * {@link com.microsoft.azure.storage.blob.CloudPageBlob}
-   * class that simply redirects calls to the real object except in unit tests.
+   * A thin wrapper over the {@link CloudPageBlob} class that simply redirects calls
+   * to the real object except in unit tests.
    */
   public abstract interface CloudPageBlobWrapper
       extends CloudBlobWrapper {

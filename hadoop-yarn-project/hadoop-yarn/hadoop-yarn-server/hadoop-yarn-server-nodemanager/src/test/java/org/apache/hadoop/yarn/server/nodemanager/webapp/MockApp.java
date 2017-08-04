@@ -39,9 +39,6 @@ public class MockApp implements Application {
   Map<ContainerId, Container> containers = new HashMap<ContainerId, Container>();
   ApplicationState appState;
   Application app;
-  private String flowName;
-  private String flowVersion;
-  private long flowRunId;
 
   public MockApp(int uniqId) {
     this("mockUser", 1234, uniqId);
@@ -56,14 +53,6 @@ public class MockApp implements Application {
     this.appId = BuilderUtils.newApplicationId(recordFactory, clusterTimeStamp,
         uniqId);
     appState = ApplicationState.NEW;
-  }
-
-  public MockApp(String user, long clusterTimeStamp, int uniqId,
-      String flowName, String flowVersion, long flowRunId) {
-    this(user, clusterTimeStamp, uniqId);
-    this.flowName = flowName;
-    this.flowVersion = flowVersion;
-    this.flowRunId = flowRunId;
   }
 
   public void setState(ApplicationState state) {
@@ -88,15 +77,4 @@ public class MockApp implements Application {
 
   public void handle(ApplicationEvent event) {}
 
-  public String getFlowName() {
-    return flowName;
-  }
-
-  public String getFlowVersion() {
-    return flowVersion;
-  }
-
-  public long getFlowRunId() {
-    return flowRunId;
-  }
 }

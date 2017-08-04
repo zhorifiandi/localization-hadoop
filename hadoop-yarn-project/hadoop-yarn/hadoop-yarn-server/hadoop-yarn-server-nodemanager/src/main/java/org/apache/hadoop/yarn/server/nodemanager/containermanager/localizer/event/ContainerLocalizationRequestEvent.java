@@ -39,12 +39,12 @@ public class ContainerLocalizationRequestEvent extends
 
   /**
    * Event requesting the localization of the rsrc.
-   * @param c Container
-   * @param rsrc LocalResourceRequests map
+   * @param c
+   * @param rsrc
    */
   public ContainerLocalizationRequestEvent(Container c,
       Map<LocalResourceVisibility, Collection<LocalResourceRequest>> rsrc) {
-    super(LocalizationEventType.LOCALIZE_CONTAINER_RESOURCES, c);
+    super(LocalizationEventType.INIT_CONTAINER_RESOURCES, c);
     this.rsrc = rsrc;
   }
 

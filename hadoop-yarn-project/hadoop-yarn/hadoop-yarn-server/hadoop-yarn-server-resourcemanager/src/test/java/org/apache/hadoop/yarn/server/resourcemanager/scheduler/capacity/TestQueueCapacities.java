@@ -43,10 +43,7 @@ public class TestQueueCapacities {
         { "UsedCapacity" }, 
         { "AbsoluteUsedCapacity" },
         { "MaximumCapacity" }, 
-        { "AbsoluteMaximumCapacity" },
-        { "MaxAMResourcePercentage" },
-        { "ReservedCapacity" },
-        { "AbsoluteReservedCapacity" }});
+        { "AbsoluteMaximumCapacity" } });
   }
 
   public TestQueueCapacities(String suffix) {
@@ -117,7 +114,7 @@ public class TestQueueCapacities {
   }
 
   void check(int mem, int cpu, Resource res) {
-    Assert.assertEquals(mem, res.getMemorySize());
+    Assert.assertEquals(mem, res.getMemory());
     Assert.assertEquals(cpu, res.getVirtualCores());
   }
 

@@ -21,18 +21,15 @@ public class BlockPlacementStatusDefault implements BlockPlacementStatus {
 
   private int requiredRacks = 0;
   private int currentRacks = 0;
-  private final int totalRacks;
   
-  public BlockPlacementStatusDefault(int currentRacks, int requiredRacks,
-      int totalRacks){
+  public BlockPlacementStatusDefault(int currentRacks, int requiredRacks){
     this.requiredRacks = requiredRacks;
     this.currentRacks = currentRacks;
-    this.totalRacks = totalRacks;
   }
   
   @Override
   public boolean isPlacementPolicySatisfied() {
-    return requiredRacks <= currentRacks || currentRacks >= totalRacks;
+    return requiredRacks <= currentRacks;
   }
 
   @Override
@@ -41,8 +38,7 @@ public class BlockPlacementStatusDefault implements BlockPlacementStatus {
       return null;
     }
     return "Block should be additionally replicated on " + 
-        (requiredRacks - currentRacks) +
-        " more rack(s). Total number of racks in the cluster: " + totalRacks;
+        (requiredRacks - currentRacks) + " more rack(s).";
   }
 
 }

@@ -34,20 +34,12 @@ public enum Operation {
   KILL_TASK(QueueACL.ADMINISTER_JOBS, JobACL.MODIFY_JOB),
   SET_JOB_PRIORITY(QueueACL.ADMINISTER_JOBS, JobACL.MODIFY_JOB),
   SUBMIT_JOB(QueueACL.SUBMIT_JOB, null);
-
-  private final QueueACL qACLNeeded;
-  private final JobACL jobACLNeeded;
+  
+  public QueueACL qACLNeeded;
+  public JobACL jobACLNeeded;
   
   Operation(QueueACL qACL, JobACL jobACL) {
     this.qACLNeeded = qACL;
     this.jobACLNeeded = jobACL;
-  }
-
-  public QueueACL getqACLNeeded() {
-    return qACLNeeded;
-  }
-
-  public JobACL getJobACLNeeded() {
-    return jobACLNeeded;
   }
 }

@@ -31,11 +31,11 @@ import org.apache.hadoop.yarn.webapp.SubView;
 @InterfaceAudience.LimitedPrivate({"YARN", "MapReduce"})
 public class TwoColumnCssLayout extends HtmlPage {
 
-  @Override protected void render(Page.HTML<__> html) {
+  @Override protected void render(Page.HTML<_> html) {
     preHead(html);
     html.
       title($("title")).
-      link(root_url("static", "yarn.css")).
+      link(root_url("static","yarn.css")).
       style(".main { min-height: 100%; height: auto !important; height: 100%;",
             "  margin: 0 auto -4em; border: 0; }",
             ".footer, .push { height: 4em; clear: both; border: 0 }",
@@ -50,28 +50,28 @@ public class TwoColumnCssLayout extends HtmlPage {
             "  right: 100%; overflow: hidden; }",
             ".leftnav .nav { float: left; width: 11em; position: relative;",
             "  right: 12em; overflow: hidden; }").
-        __(JQueryUI.class);
+      _(JQueryUI.class);
     postHead(html);
     JQueryUI.jsnotice(html);
     html.
       div(".main.ui-widget-content").
-        __(header()).
+        _(header()).
         div(".cmask.leftnav").
           div(".c1right").
             div(".c1wrap").
               div(".content").
-        __(content()).__().__().
+                _(content())._()._().
             div(".nav").
-        __(nav()).
-              div(".push").__().__().__().__().__().
+              _(nav()).
+              div(".push")._()._()._()._()._().
       div(".footer.ui-widget-content").
-        __(footer()).__().__();
+        _(footer())._()._();
   }
 
-  protected void preHead(Page.HTML<__> html) {
+  protected void preHead(Page.HTML<_> html) {
   }
 
-  protected void postHead(Page.HTML<__> html) {
+  protected void postHead(Page.HTML<_> html) {
   }
 
   protected Class<? extends SubView> header() {

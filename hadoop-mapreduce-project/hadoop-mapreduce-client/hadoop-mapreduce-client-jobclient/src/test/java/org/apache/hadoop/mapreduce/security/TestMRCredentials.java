@@ -1,3 +1,5 @@
+package org.apache.hadoop.mapreduce.security;
+
 /** Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
  * distributed with this work for additional information
@@ -15,7 +17,6 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.mapreduce.security;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
@@ -28,7 +29,6 @@ import java.net.URI;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.hdfs.DFSUtilClient;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.mapred.JobConf;
@@ -50,7 +50,7 @@ public class TestMRCredentials {
   static final int NUM_OF_KEYS = 10;
   private static MiniMRClientCluster mrCluster;
   private static MiniDFSCluster dfsCluster;
-  private static int numWorkers = 1;
+  private static int numSlaves = 1;
   private static JobConf jConf;
 
   @SuppressWarnings("deprecation")
@@ -58,7 +58,7 @@ public class TestMRCredentials {
   public static void setUp() throws Exception {
     System.setProperty("hadoop.log.dir", "logs");
     Configuration conf = new Configuration();
-    dfsCluster = new MiniDFSCluster.Builder(conf).numDataNodes(numWorkers)
+    dfsCluster = new MiniDFSCluster.Builder(conf).numDataNodes(numSlaves)
         .build();
     jConf = new JobConf(conf);
     FileSystem.setDefaultUri(conf, dfsCluster.getFileSystem().getUri().toString());
@@ -79,7 +79,7 @@ public class TestMRCredentials {
 
   }
 
-  public static void createKeysAsJson(String fileName)
+  public static void createKeysAsJson (String fileName) 
   throws FileNotFoundException, IOException{
     StringBuilder jsonString = new StringBuilder();
     jsonString.append("{");
@@ -111,8 +111,9 @@ public class TestMRCredentials {
     Configuration jobConf =  new JobConf(mrCluster.getConfig());
 
     // provide namenodes names for the job to get the delegation tokens for
+    //String nnUri = dfsCluster.getNameNode().getUri(namenode).toString();
     NameNode nn = dfsCluster.getNameNode();
-    URI nnUri = DFSUtilClient.getNNUri(nn.getNameNodeAddress());
+    URI nnUri = NameNode.getUri(nn.getNameNodeAddress());
     jobConf.set(JobContext.JOB_NAMENODES, nnUri + "," + nnUri.toString());
 
 

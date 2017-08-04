@@ -33,7 +33,7 @@ import org.apache.hadoop.metrics2.util.MBeans;
 import org.apache.hadoop.yarn.server.resourcemanager.rmnode.RMNode;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.SchedulerNodeReport;
-import org.eclipse.jetty.util.ajax.JSON;
+import org.mortbay.util.ajax.JSON;
 
 /**
  * JMX bean listing statuses of all node managers.
@@ -94,9 +94,9 @@ public class RMNMInfo implements RMNMInfoBeans {
                 ni.getNodeManagerVersion());
         if(report != null) {
           info.put("NumContainers", report.getNumContainers());
-          info.put("UsedMemoryMB", report.getUsedResource().getMemorySize());
+          info.put("UsedMemoryMB", report.getUsedResource().getMemory());
           info.put("AvailableMemoryMB",
-              report.getAvailableResource().getMemorySize());
+              report.getAvailableResource().getMemory());
         }
 
         nodesInfo.add(info);

@@ -1,3 +1,5 @@
+package org.apache.hadoop.security.authentication.util;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -15,8 +17,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package org.apache.hadoop.security.authentication.util;
 
 import java.io.IOException;
 
@@ -72,36 +72,23 @@ public class TestKerberosName {
     }
   }
 
+  private void checkBadTranslation(String from) {
+    System.out.println("Checking bad translation for " + from);
+    KerberosName nm = new KerberosName(from);
+    try {
+      nm.getShortName();
+      Assert.fail("didn't get exception for " + from);
+    } catch (IOException ie) {
+      // PASS
+    }
+  }
+
   @Test
   public void testAntiPatterns() throws Exception {
     checkBadName("owen/owen/owen@FOO.COM");
     checkBadName("owen@foo/bar.com");
-
-    // no rules applied, these should pass
-    checkTranslation("foo@ACME.COM", "foo@ACME.COM");
-    checkTranslation("root/joe@FOO.COM", "root/joe@FOO.COM");
-  }
-
-  @Test
-  public void testParsing() throws Exception {
-    final String principalNameFull = "HTTP/abc.com@EXAMPLE.COM";
-    final String principalNameWoRealm = "HTTP/abc.com";
-    final String principalNameWoHost = "HTTP@EXAMPLE.COM";
-
-    final KerberosName kerbNameFull = new KerberosName(principalNameFull);
-    Assert.assertEquals("HTTP", kerbNameFull.getServiceName());
-    Assert.assertEquals("abc.com", kerbNameFull.getHostName());
-    Assert.assertEquals("EXAMPLE.COM", kerbNameFull.getRealm());
-
-    final KerberosName kerbNamewoRealm = new KerberosName(principalNameWoRealm);
-    Assert.assertEquals("HTTP", kerbNamewoRealm.getServiceName());
-    Assert.assertEquals("abc.com", kerbNamewoRealm.getHostName());
-    Assert.assertEquals(null, kerbNamewoRealm.getRealm());
-
-    final KerberosName kerbNameWoHost = new KerberosName(principalNameWoHost);
-    Assert.assertEquals("HTTP", kerbNameWoHost.getServiceName());
-    Assert.assertEquals(null, kerbNameWoHost.getHostName());
-    Assert.assertEquals("EXAMPLE.COM", kerbNameWoHost.getRealm());
+    checkBadTranslation("foo@ACME.COM");
+    checkBadTranslation("root/joe@FOO.COM");
   }
 
   @Test

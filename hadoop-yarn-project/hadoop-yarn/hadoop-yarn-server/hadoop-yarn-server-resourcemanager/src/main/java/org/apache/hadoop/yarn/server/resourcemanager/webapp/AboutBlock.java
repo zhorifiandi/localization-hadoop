@@ -37,22 +37,20 @@ public class AboutBlock extends HtmlBlock {
 
   @Override
   protected void render(Block html) {
-    html.__(MetricsOverviewTable.class);
+    html._(MetricsOverviewTable.class);
     ResourceManager rm = getInstance(ResourceManager.class);
     ClusterInfo cinfo = new ClusterInfo(rm);
     info("Cluster overview").
-        __("Cluster ID:", cinfo.getClusterId()).
-        __("ResourceManager state:", cinfo.getState()).
-        __("ResourceManager HA state:", cinfo.getHAState()).
-        __("ResourceManager HA zookeeper connection state:",
-          cinfo.getHAZookeeperConnectionState()).
-        __("ResourceManager RMStateStore:", cinfo.getRMStateStore()).
-        __("ResourceManager started on:", Times.format(cinfo.getStartedOn())).
-        __("ResourceManager version:", cinfo.getRMBuildVersion() +
+      _("Cluster ID:", cinfo.getClusterId()).
+      _("ResourceManager state:", cinfo.getState()).
+      _("ResourceManager HA state:", cinfo.getHAState()).
+      _("ResourceManager RMStateStore:", cinfo.getRMStateStore()).
+      _("ResourceManager started on:", Times.format(cinfo.getStartedOn())).
+      _("ResourceManager version:", cinfo.getRMBuildVersion() +
           " on " + cinfo.getRMVersionBuiltOn()).
-        __("Hadoop version:", cinfo.getHadoopBuildVersion() +
+      _("Hadoop version:", cinfo.getHadoopBuildVersion() +
           " on " + cinfo.getHadoopVersionBuiltOn());
-    html.__(InfoBlock.class);
+    html._(InfoBlock.class);
   }
 
 }

@@ -22,27 +22,24 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
+import junit.framework.TestCase;
+
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
-import org.junit.Before;
-import org.junit.Test;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.fail;
 
 /**
  * TestCase for {@link GenericWritable} class.
  * @see TestWritable#testWritable(Writable)
  */
-public class TestGenericWritable {
+public class TestGenericWritable extends TestCase {
 
   private Configuration conf;
   public static final String CONF_TEST_KEY = "test.generic.writable";
   public static final String CONF_TEST_VALUE = "dummy";
 
-  @Before
-  public void setUp() throws Exception {
+  @Override
+  protected void setUp() throws Exception {
+    super.setUp();
     conf = new Configuration();
     //set the configuration parameter
     conf.set(CONF_TEST_KEY, CONF_TEST_VALUE);
@@ -124,7 +121,6 @@ public class TestGenericWritable {
     }
   }
 
-  @Test
   public void testFooWritable() throws Exception {
     System.out.println("Testing Writable wrapped in GenericWritable");
     FooGenericWritable generic = new FooGenericWritable();
@@ -134,7 +130,6 @@ public class TestGenericWritable {
     TestWritable.testWritable(generic);
   }
 
-  @Test
   public void testBarWritable() throws Exception {
     System.out.println("Testing Writable, Configurable wrapped in GenericWritable");
     FooGenericWritable generic = new FooGenericWritable();
@@ -153,7 +148,6 @@ public class TestGenericWritable {
     assertNotNull(((Configurable)after.get()).getConf());
   }
 
-  @Test
   public void testBazWritable() throws Exception {
     System.out.println("Testing for GenericWritable to find class names");
     FooGenericWritable generic = new FooGenericWritable();
@@ -163,7 +157,6 @@ public class TestGenericWritable {
     TestWritable.testWritable(generic, conf);
   }
 
-  @Test
   public void testSet() throws Exception {
     Foo foo = new Foo();
     FooGenericWritable generic = new FooGenericWritable();
@@ -181,7 +174,6 @@ public class TestGenericWritable {
 
   }
 
-  @Test
   public void testGet() throws Exception {
     Foo foo = new Foo();
     FooGenericWritable generic = new FooGenericWritable();

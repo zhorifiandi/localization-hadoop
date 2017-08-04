@@ -69,10 +69,8 @@ public class TaskAttemptInfo {
     this.nodeHttpAddress = ta.getNodeHttpAddress();
     this.startTime = report.getStartTime();
     this.finishTime = report.getFinishTime();
+    this.assignedContainerId = ConverterUtils.toString(report.getContainerId());
     this.assignedContainer = report.getContainerId();
-    if (assignedContainer != null) {
-      this.assignedContainerId = assignedContainer.toString();
-    }
     this.progress = report.getProgress() * 100;
     this.status = report.getStateString();
     this.state = report.getTaskAttemptState();

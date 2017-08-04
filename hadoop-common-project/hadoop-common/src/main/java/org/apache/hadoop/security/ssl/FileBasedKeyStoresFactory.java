@@ -18,12 +18,12 @@
 package org.apache.hadoop.security.ssl;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import javax.net.ssl.KeyManager;
 import javax.net.ssl.KeyManagerFactory;
@@ -47,8 +47,8 @@ import java.text.MessageFormat;
 @InterfaceStability.Evolving
 public class FileBasedKeyStoresFactory implements KeyStoresFactory {
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(FileBasedKeyStoresFactory.class);
+  private static final Log LOG =
+    LogFactory.getLog(FileBasedKeyStoresFactory.class);
 
   public static final String SSL_KEYSTORE_LOCATION_TPL_KEY =
     "ssl.{0}.keystore.location";
@@ -67,8 +67,6 @@ public class FileBasedKeyStoresFactory implements KeyStoresFactory {
     "ssl.{0}.truststore.password";
   public static final String SSL_TRUSTSTORE_TYPE_TPL_KEY =
     "ssl.{0}.truststore.type";
-  public static final String SSL_EXCLUDE_CIPHER_LIST =
-      "ssl.{0}.exclude.cipher.list";
 
   /**
    * Default format of the keystore files.
@@ -136,7 +134,7 @@ public class FileBasedKeyStoresFactory implements KeyStoresFactory {
 
     boolean requireClientCert =
       conf.getBoolean(SSLFactory.SSL_REQUIRE_CLIENT_CERT_KEY,
-          SSLFactory.SSL_REQUIRE_CLIENT_CERT_DEFAULT);
+          SSLFactory.DEFAULT_SSL_REQUIRE_CLIENT_CERT);
 
     // certificate store
     String keystoreType =
@@ -166,9 +164,7 @@ public class FileBasedKeyStoresFactory implements KeyStoresFactory {
       // configuration property for key password.
       keystoreKeyPassword = getPassword(
           conf, keyPasswordProperty, keystorePassword);
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(mode.toString() + " KeyStore: " + keystoreLocation);
-      }
+      LOG.debug(mode.toString() + " KeyStore: " + keystoreLocation);
 
       InputStream is = new FileInputStream(keystoreLocation);
       try {
@@ -176,9 +172,7 @@ public class FileBasedKeyStoresFactory implements KeyStoresFactory {
       } finally {
         is.close();
       }
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(mode.toString() + " Loaded KeyStore: " + keystoreLocation);
-      }
+      LOG.debug(mode.toString() + " Loaded KeyStore: " + keystoreLocation);
     } else {
       keystore.load(null, null);
     }
@@ -202,34 +196,26 @@ public class FileBasedKeyStoresFactory implements KeyStoresFactory {
           SSL_TRUSTSTORE_PASSWORD_TPL_KEY);
       String truststorePassword = getPassword(conf, passwordProperty, "");
       if (truststorePassword.isEmpty()) {
-        // An empty trust store password is legal; the trust store password
-        // is only required when writing to a trust store. Otherwise it's
-        // an optional integrity check.
-        truststorePassword = null;
+        throw new GeneralSecurityException("The property '" + passwordProperty +
+            "' has not been set in the ssl configuration file.");
       }
       long truststoreReloadInterval =
           conf.getLong(
               resolvePropertyName(mode, SSL_TRUSTSTORE_RELOAD_INTERVAL_TPL_KEY),
               DEFAULT_SSL_TRUSTSTORE_RELOAD_INTERVAL);
 
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(mode.toString() + " TrustStore: " + truststoreLocation);
-      }
+      LOG.debug(mode.toString() + " TrustStore: " + truststoreLocation);
 
       trustManager = new ReloadingX509TrustManager(truststoreType,
           truststoreLocation,
           truststorePassword,
           truststoreReloadInterval);
       trustManager.init();
-      if (LOG.isDebugEnabled()) {
-        LOG.debug(mode.toString() + " Loaded TrustStore: " + truststoreLocation);
-      }
+      LOG.debug(mode.toString() + " Loaded TrustStore: " + truststoreLocation);
       trustManagers = new TrustManager[]{trustManager};
     } else {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("The property '" + locationProperty + "' has not been set, " +
-            "no TrustStore will be loaded");
-      }
+      LOG.debug("The property '" + locationProperty + "' has not been set, " +
+          "no TrustStore will be loaded");
       trustManagers = null;
     }
   }

@@ -32,15 +32,11 @@ public class TestAclCLI extends CLITestHelperDFS {
   private String namenode = null;
   private String username = null;
 
-  protected void initConf() {
-    conf.setBoolean(DFSConfigKeys.DFS_NAMENODE_ACLS_ENABLED_KEY, true);
-  }
-
   @Before
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    initConf();
+    conf.setBoolean(DFSConfigKeys.DFS_NAMENODE_ACLS_ENABLED_KEY, true);
     cluster = new MiniDFSCluster.Builder(conf).numDataNodes(1).build();
     fs = cluster.getFileSystem();
     namenode = conf.get(DFSConfigKeys.FS_DEFAULT_NAME_KEY, "file:///");
@@ -53,11 +49,9 @@ public class TestAclCLI extends CLITestHelperDFS {
     super.tearDown();
     if (fs != null) {
       fs.close();
-      fs = null;
     }
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 
@@ -79,7 +73,7 @@ public class TestAclCLI extends CLITestHelperDFS {
 
   @Override
   protected Result execute(CLICommand cmd) throws Exception {
-    return cmd.getExecutor(namenode, conf).executeCommand(cmd.getCmd());
+    return cmd.getExecutor(namenode).executeCommand(cmd.getCmd());
   }
 
   @Test

@@ -24,6 +24,8 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.compress.CodecPool;
 import org.apache.hadoop.io.compress.CompressionCodec;
@@ -33,18 +35,12 @@ import org.apache.hadoop.io.compress.Compressor;
 import org.apache.hadoop.io.compress.Decompressor;
 import org.apache.hadoop.io.compress.DefaultCodec;
 import org.apache.hadoop.util.ReflectionUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static org.apache.hadoop.fs.CommonConfigurationKeys.IO_COMPRESSION_CODEC_LZO_BUFFERSIZE_DEFAULT;
-import static org.apache.hadoop.fs.CommonConfigurationKeys.IO_COMPRESSION_CODEC_LZO_BUFFERSIZE_KEY;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
 
 /**
  * Compression related stuff.
  */
 final class Compression {
-  static final Logger LOG = LoggerFactory.getLogger(Compression.class);
+  static final Log LOG = LogFactory.getLog(Compression.class);
 
   /**
    * Prevent the instantiation of class.
@@ -75,7 +71,7 @@ final class Compression {
   /**
    * Compression algorithms.
    */
-  enum Algorithm {
+  static enum Algorithm {
     LZO(TFile.COMPRESSION_LZO) {
       private transient boolean checked = false;
       private static final String defaultClazz =
@@ -86,9 +82,9 @@ final class Compression {
       public synchronized boolean isSupported() {
         if (!checked) {
           checked = true;
-          String extClazzConf = conf.get(CONF_LZO_CLASS);
-          String extClazz = (extClazzConf != null) ?
-              extClazzConf : System.getProperty(CONF_LZO_CLASS);
+          String extClazz =
+              (conf.get(CONF_LZO_CLASS) == null ? System
+                  .getProperty(CONF_LZO_CLASS) : null);
           String clazz = (extClazz != null) ? extClazz : defaultClazz;
           try {
             LOG.info("Trying to load Lzo codec class: " + clazz);
@@ -128,8 +124,7 @@ final class Compression {
         } else {
           bis1 = downStream;
         }
-        conf.setInt(IO_COMPRESSION_CODEC_LZO_BUFFERSIZE_KEY,
-            IO_COMPRESSION_CODEC_LZO_BUFFERSIZE_DEFAULT);
+        conf.setInt("io.compression.codec.lzo.buffersize", 64 * 1024);
         CompressionInputStream cis =
             codec.createInputStream(bis1, decompressor);
         BufferedInputStream bis2 = new BufferedInputStream(cis, DATA_IBUF_SIZE);
@@ -151,8 +146,7 @@ final class Compression {
         } else {
           bos1 = downStream;
         }
-        conf.setInt(IO_COMPRESSION_CODEC_LZO_BUFFERSIZE_KEY,
-            IO_COMPRESSION_CODEC_LZO_BUFFERSIZE_DEFAULT);
+        conf.setInt("io.compression.codec.lzo.buffersize", 64 * 1024);
         CompressionOutputStream cos =
             codec.createOutputStream(bos1, compressor);
         BufferedOutputStream bos2 =
@@ -181,7 +175,7 @@ final class Compression {
           int downStreamBufferSize) throws IOException {
         // Set the internal buffer size to read from down stream.
         if (downStreamBufferSize > 0) {
-          codec.getConf().setInt(IO_FILE_BUFFER_SIZE_KEY, downStreamBufferSize);
+          codec.getConf().setInt("io.file.buffer.size", downStreamBufferSize);
         }
         CompressionInputStream cis =
             codec.createInputStream(downStream, decompressor);
@@ -199,7 +193,7 @@ final class Compression {
         } else {
           bos1 = downStream;
         }
-        codec.getConf().setInt(IO_FILE_BUFFER_SIZE_KEY, 32 * 1024);
+        codec.getConf().setInt("io.file.buffer.size", 32 * 1024);
         CompressionOutputStream cos =
             codec.createOutputStream(bos1, compressor);
         BufferedOutputStream bos2 =

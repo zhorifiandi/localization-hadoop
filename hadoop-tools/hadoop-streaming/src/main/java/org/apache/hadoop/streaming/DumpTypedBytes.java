@@ -91,7 +91,8 @@ public class DumpTypedBytes implements Tool {
   }
 
   private void printUsage() {
-    System.out.println("Usage: mapred streaming dumptb <glob-pattern>");
+    System.out.println("Usage: $HADOOP_PREFIX/bin/hadoop jar hadoop-streaming.jar"
+        + " dumptb <glob-pattern>");
     System.out.println("  Dumps all files that match the given pattern to " +
         "standard output as typed bytes.");
     System.out.println("  The files can be text or sequence files");

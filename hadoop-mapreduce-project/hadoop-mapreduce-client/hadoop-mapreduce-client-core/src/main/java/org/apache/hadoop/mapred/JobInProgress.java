@@ -30,7 +30,7 @@ public class JobInProgress {
    * @deprecated Provided for compatibility. Use {@link JobCounter} instead.
    */
   @Deprecated
-  public enum Counter {
+  public static enum Counter { 
     NUM_FAILED_MAPS, 
     NUM_FAILED_REDUCES,
     TOTAL_LAUNCHED_MAPS,

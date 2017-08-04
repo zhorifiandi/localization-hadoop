@@ -49,10 +49,4 @@ public class ReplicaRecoveryInfo extends Block {
   public int hashCode() {
     return super.hashCode();
   }
-
-  @Override
-  public String toString() {
-    return super.toString() + "[numBytes=" + this.getNumBytes() +
-        ",originalReplicaState=" + this.originalState.name() + "]";
-  }
 }

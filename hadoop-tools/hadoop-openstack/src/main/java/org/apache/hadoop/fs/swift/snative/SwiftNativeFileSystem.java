@@ -201,7 +201,6 @@ public class SwiftNativeFileSystem extends FileSystem {
   }
 
   @Override
-  @SuppressWarnings("deprecation")
   public boolean isFile(Path f) throws IOException {
     try {
       FileStatus fileStatus = getFileStatus(f);
@@ -211,7 +210,6 @@ public class SwiftNativeFileSystem extends FileSystem {
     }
   }
 
-  @SuppressWarnings("deprecation")
   @Override
   public boolean isDirectory(Path f) throws IOException {
 
@@ -221,15 +219,6 @@ public class SwiftNativeFileSystem extends FileSystem {
     } catch (FileNotFoundException e) {
       return false;               // f does not exist
     }
-  }
-
-  /**
-   * Override getCononicalServiceName because we don't support token in Swift
-   */
-  @Override
-  public String getCanonicalServiceName() {
-    // Does not support Token
-    return null;
   }
 
   /**
@@ -312,7 +301,7 @@ public class SwiftNativeFileSystem extends FileSystem {
    * creating directories until one that exists is found.
    *
    * This strategy means if a file is created in an existing directory,
-   * one quick poll suffices.
+   * one quick poll sufficies.
    *
    * There is a big assumption here: that all parent directories of an existing
    * directory also exists.
@@ -551,7 +540,7 @@ public class SwiftNativeFileSystem extends FileSystem {
    * Low-level operation to also set the block size for this operation
    * @param path       the file name to open
    * @param bufferSize the size of the buffer to be used.
-   * @param readBlockSize how big should the read block/buffer size be?
+   * @param readBlockSize how big should the read blockk/buffer size be?
    * @return the input stream
    * @throws FileNotFoundException if the file is not found
    * @throws IOException any IO problem

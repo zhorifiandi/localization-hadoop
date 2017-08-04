@@ -31,9 +31,9 @@ public class HeaderBlock extends HtmlBlock {
     html.
       div("#header.ui-widget").
         div("#user").
-        __(loggedIn).__().
+          _(loggedIn)._().
         div("#logo").
-          img("/static/hadoop-st.png").__().
-        h1($(TITLE)).__();
+          img("/static/hadoop-st.png")._().
+        h1($(TITLE))._();
   }
 }

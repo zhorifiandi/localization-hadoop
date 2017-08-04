@@ -18,12 +18,18 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.NoSuchElementException;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.UnresolvedLinkException;
 import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants;
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
+import org.apache.hadoop.hdfs.protocol.UnresolvedPathException;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.DirectoryWithSnapshotFeature;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.Snapshot;
 
@@ -43,78 +49,58 @@ public class INodesInPath {
    */
   private static boolean isDotSnapshotDir(byte[] pathComponent) {
     return pathComponent != null &&
-        Arrays.equals(HdfsServerConstants.DOT_SNAPSHOT_DIR_BYTES, pathComponent);
+        Arrays.equals(HdfsConstants.DOT_SNAPSHOT_DIR_BYTES, pathComponent);
   }
 
-  private static INode[] getINodes(final INode inode) {
+  static INodesInPath fromINode(INode inode) {
     int depth = 0, index;
     INode tmp = inode;
     while (tmp != null) {
       depth++;
       tmp = tmp.getParent();
     }
-    INode[] inodes = new INode[depth];
+    final byte[][] path = new byte[depth][];
+    final INode[] inodes = new INode[depth];
     tmp = inode;
     index = depth;
     while (tmp != null) {
       index--;
+      path[index] = tmp.getKey();
       inodes[index] = tmp;
       tmp = tmp.getParent();
     }
-    return inodes;
+    return new INodesInPath(inodes, path);
   }
 
-  private static byte[][] getPaths(final INode[] inodes) {
-    byte[][] paths = new byte[inodes.length][];
-    for (int i = 0; i < inodes.length; i++) {
-      paths[i] = inodes[i].getKey();
+  /**
+   * Given some components, create a path name.
+   * @param components The path components
+   * @param start index
+   * @param end index
+   * @return concatenated path
+   */
+  private static String constructPath(byte[][] components, int start, int end) {
+    StringBuilder buf = new StringBuilder();
+    for (int i = start; i < end; i++) {
+      buf.append(DFSUtil.bytes2String(components[i]));
+      if (i < end - 1) {
+        buf.append(Path.SEPARATOR);
+      }
     }
-    return paths;
+    return buf.toString();
   }
 
   /**
-   * Construct {@link INodesInPath} from {@link INode}.
-   *
-   * @param inode to construct from
-   * @return INodesInPath
-   */
-  static INodesInPath fromINode(INode inode) {
-    INode[] inodes = getINodes(inode);
-    byte[][] paths = getPaths(inodes);
-    return new INodesInPath(inodes, paths);
-  }
-
-  /**
-   * Construct {@link INodesInPath} from {@link INode} and its root
-   * {@link INodeDirectory}. INodesInPath constructed this way will
-   * each have its snapshot and latest snapshot id filled in.
-   *
-   * This routine is specifically for
-   * {@link LeaseManager#getINodeWithLeases(INodeDirectory)} to get
-   * open files along with their snapshot details which is used during
-   * new snapshot creation to capture their meta data.
-   *
-   * @param rootDir the root {@link INodeDirectory} under which inode
-   *                needs to be resolved
-   * @param inode the {@link INode} to be resolved
-   * @return INodesInPath
-   */
-  static INodesInPath fromINode(final INodeDirectory rootDir, INode inode) {
-    byte[][] paths = getPaths(getINodes(inode));
-    return resolve(rootDir, paths);
-  }
-
-  static INodesInPath fromComponents(byte[][] components) {
-    return new INodesInPath(new INode[components.length], components);
-  }
-
-  /**
-   * Retrieve existing INodes from a path.  The number of INodes is equal
-   * to the number of path components.  For a snapshot path
-   * (e.g. /foo/.snapshot/s1/bar), the ".snapshot/s1" will be represented in
-   * one path component corresponding to its Snapshot.Root inode.  This 1-1
-   * mapping ensures the path can always be properly reconstructed.
-   *
+   * Retrieve existing INodes from a path. For non-snapshot path,
+   * the number of INodes is equal to the number of path components. For
+   * snapshot path (e.g., /foo/.snapshot/s1/bar), the number of INodes is
+   * (number_of_path_components - 1).
+   * 
+   * An UnresolvedPathException is always thrown when an intermediate path 
+   * component refers to a symbolic link. If the final path component refers 
+   * to a symbolic link then an UnresolvedPathException is only thrown if
+   * resolveLink is true.  
+   * 
    * <p>
    * Example: <br>
    * Given the path /c1/c2/c3 where only /c1/c2 exists, resulting in the
@@ -128,15 +114,13 @@ public class INodesInPath {
    * 
    * @param startingDir the starting directory
    * @param components array of path component name
+   * @param resolveLink indicates whether UnresolvedLinkException should
+   *        be thrown when the path refers to a symbolic link.
    * @return the specified number of existing INodes in the path
    */
   static INodesInPath resolve(final INodeDirectory startingDir,
-      final byte[][] components) {
-    return resolve(startingDir, components, false);
-  }
-
-  static INodesInPath resolve(final INodeDirectory startingDir,
-      byte[][] components, final boolean isRaw) {
+      final byte[][] components, final boolean resolveLink)
+      throws UnresolvedLinkException {
     Preconditions.checkArgument(startingDir.compareTo(components[0]) == 0);
 
     INode curNode = startingDir;
@@ -185,13 +169,30 @@ public class INodesInPath {
           }
         }
       }
+      if (curNode.isSymlink() && (!lastComp || resolveLink)) {
+        final String path = constructPath(components, 0, components.length);
+        final String preceding = constructPath(components, 0, count);
+        final String remainder =
+          constructPath(components, count + 1, components.length);
+        final String link = DFSUtil.bytes2String(components[count]);
+        final String target = curNode.asSymlink().getSymlinkString();
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("UnresolvedPathException " +
+            " path: " + path + " preceding: " + preceding +
+            " count: " + count + " link: " + link + " target: " + target +
+            " remainder: " + remainder);
+        }
+        throw new UnresolvedPathException(path, preceding, remainder, target);
+      }
       if (lastComp || !isDir) {
         break;
       }
-
-      final byte[] childName = components[++count];
+      final byte[] childName = components[count + 1];
+      
       // check if the next byte[] in components is for ".snapshot"
       if (isDotSnapshotDir(childName) && dir.isSnapshottable()) {
+        // skip the ".snapshot" in components
+        count++;
         isSnapshot = true;
         // check if ".snapshot" is the last element of components
         if (count == components.length - 1) {
@@ -205,27 +206,21 @@ public class INodesInPath {
           curNode = s.getRoot();
           snapshotId = s.getId();
         }
-        // combine .snapshot & name into 1 component element to ensure
-        // 1-to-1 correspondence between components and inodes arrays is
-        // preserved so a path can be reconstructed.
-        byte[][] componentsCopy =
-            Arrays.copyOf(components, components.length - 1);
-        componentsCopy[count] = DFSUtil.string2Bytes(
-            DFSUtil.byteArray2PathString(components, count, 2));
-        // shift the remaining components after snapshot name
-        int start = count + 2;
-        System.arraycopy(components, start, componentsCopy, count + 1,
-            components.length - start);
-        components = componentsCopy;
-        // reduce the inodes array to compensate for reduction in components
-        inodes = Arrays.copyOf(inodes, components.length);
       } else {
         // normal case, and also for resolving file/dir under snapshot root
         curNode = dir.getChild(childName,
             isSnapshot ? snapshotId : CURRENT_STATE_ID);
       }
+      count++;
     }
-    return new INodesInPath(inodes, components, isRaw, isSnapshot, snapshotId);
+    if (isSnapshot && !isDotSnapshotDir(components[components.length - 1])) {
+      // for snapshot path shrink the inode array. however, for path ending with
+      // .snapshot, still keep last the null inode in the array
+      INode[] newNodes = new INode[components.length - 1];
+      System.arraycopy(inodes, 0, newNodes, 0, newNodes.length);
+      inodes = newNodes;
+    }
+    return new INodesInPath(inodes, components, isSnapshot, snapshotId);
   }
 
   private static boolean shouldUpdateLatestId(int sid, int snapshotId) {
@@ -249,8 +244,7 @@ public class INodesInPath {
     INode[] inodes = new INode[iip.inodes.length];
     System.arraycopy(iip.inodes, 0, inodes, 0, inodes.length);
     inodes[pos] = inode;
-    return new INodesInPath(inodes, iip.path, iip.isRaw,
-        iip.isSnapshot, iip.snapshotId);
+    return new INodesInPath(inodes, iip.path, iip.isSnapshot, iip.snapshotId);
   }
 
   /**
@@ -259,7 +253,7 @@ public class INodesInPath {
    */
   public static INodesInPath append(INodesInPath iip, INode child,
       byte[] childName) {
-    Preconditions.checkArgument(iip.length() > 0);
+    Preconditions.checkArgument(!iip.isSnapshot && iip.length() > 0);
     Preconditions.checkArgument(iip.getLastINode() != null && iip
         .getLastINode().isDirectory());
     INode[] inodes = new INode[iip.length() + 1];
@@ -268,13 +262,10 @@ public class INodesInPath {
     byte[][] path = new byte[iip.path.length + 1][];
     System.arraycopy(iip.path, 0, path, 0, path.length - 1);
     path[path.length - 1] = childName;
-    return new INodesInPath(inodes, path, iip.isRaw,
-        iip.isSnapshot, iip.snapshotId);
+    return new INodesInPath(inodes, path, false, iip.snapshotId);
   }
 
   private final byte[][] path;
-  private volatile String pathname;
-
   /**
    * Array with the specified number of INodes resolved for a given path.
    */
@@ -283,13 +274,6 @@ public class INodesInPath {
    * true if this path corresponds to a snapshot
    */
   private final boolean isSnapshot;
-
-  /**
-   * true if this is a /.reserved/raw path.  path component resolution strips
-   * it from the path so need to track it separately.
-   */
-  private final boolean isRaw;
-
   /**
    * For snapshot paths, it is the id of the snapshot; or 
    * {@link Snapshot#CURRENT_STATE_ID} if the snapshot does not exist. For 
@@ -298,18 +282,17 @@ public class INodesInPath {
    */
   private final int snapshotId;
 
-  private INodesInPath(INode[] inodes, byte[][] path, boolean isRaw,
-      boolean isSnapshot,int snapshotId) {
+  private INodesInPath(INode[] inodes, byte[][] path, boolean isSnapshot,
+      int snapshotId) {
     Preconditions.checkArgument(inodes != null && path != null);
     this.inodes = inodes;
     this.path = path;
-    this.isRaw = isRaw;
     this.isSnapshot = isSnapshot;
     this.snapshotId = snapshotId;
   }
 
   private INodesInPath(INode[] inodes, byte[][] path) {
-    this(inodes, path, false, false, CURRENT_STATE_ID);
+    this(inodes, path, false, CURRENT_STATE_ID);
   }
 
   /**
@@ -333,9 +316,17 @@ public class INodesInPath {
    *         otherwise, i < 0, return the (length + i)-th inode.
    */
   public INode getINode(int i) {
-    return inodes[(i < 0) ? inodes.length + i : i];
+    if (inodes == null || inodes.length == 0) {
+      throw new NoSuchElementException("inodes is null or empty");
+    }
+    int index = i >= 0 ? i : inodes.length + i;
+    if (index < inodes.length && index >= 0) {
+      return inodes[index];
+    } else {
+      throw new NoSuchElementException("inodes.length == " + inodes.length);
+    }
   }
-
+  
   /** @return the last inode. */
   public INode getLastINode() {
     return getINode(-1);
@@ -349,28 +340,40 @@ public class INodesInPath {
     return path;
   }
 
-  public byte[] getPathComponent(int i) {
-    return path[i];
-  }
-
   /** @return the full path in string form */
   public String getPath() {
-    if (pathname == null) {
-      pathname = DFSUtil.byteArray2PathString(path);
-    }
-    return pathname;
+    return DFSUtil.byteArray2PathString(path);
   }
 
   public String getParentPath() {
-    return getPath(path.length - 2);
+    return getPath(path.length - 1);
   }
 
   public String getPath(int pos) {
-    return DFSUtil.byteArray2PathString(path, 0, pos + 1); // it's a length...
+    return DFSUtil.byteArray2PathString(path, 0, pos);
+  }
+
+  /**
+   * @param offset start endpoint (inclusive)
+   * @param length number of path components
+   * @return sub-list of the path
+   */
+  public List<String> getPath(int offset, int length) {
+    Preconditions.checkArgument(offset >= 0 && length >= 0 && offset + length
+        <= path.length);
+    ImmutableList.Builder<String> components = ImmutableList.builder();
+    for (int i = offset; i < offset + length; i++) {
+      components.add(DFSUtil.bytes2String(path[i]));
+    }
+    return components.build();
   }
 
   public int length() {
     return inodes.length;
+  }
+
+  public List<INode> getReadOnlyINodes() {
+    return Collections.unmodifiableList(Arrays.asList(inodes));
   }
 
   public INode[] getINodesArray() {
@@ -387,12 +390,12 @@ public class INodesInPath {
    */
   private INodesInPath getAncestorINodesInPath(int length) {
     Preconditions.checkArgument(length >= 0 && length < inodes.length);
-    Preconditions.checkState(isDotSnapshotDir() || !isSnapshot());
+    Preconditions.checkState(!isSnapshot());
     final INode[] anodes = new INode[length];
     final byte[][] apath = new byte[length][];
     System.arraycopy(this.inodes, 0, anodes, 0, length);
     System.arraycopy(this.path, 0, apath, 0, length);
-    return new INodesInPath(anodes, apath, isRaw, false, snapshotId);
+    return new INodesInPath(anodes, apath, false, snapshotId);
   }
 
   /**
@@ -405,47 +408,22 @@ public class INodesInPath {
   }
 
   /**
-   * Verify if this {@link INodesInPath} is a descendant of the
-   * requested {@link INodeDirectory}.
-   *
-   * @param inodeDirectory the ancestor directory
-   * @return true if this INodesInPath is a descendant of inodeDirectory
-   */
-  public boolean isDescendant(final INodeDirectory inodeDirectory) {
-    final INodesInPath dirIIP = fromINode(inodeDirectory);
-    return isDescendant(dirIIP);
-  }
-
-  private boolean isDescendant(final INodesInPath ancestorDirIIP) {
-    int ancestorDirINodesLength = ancestorDirIIP.length();
-    int myParentINodesLength = length() - 1;
-    if (myParentINodesLength < ancestorDirINodesLength) {
-      return false;
-    }
-
-    int index = 0;
-    while (index < ancestorDirINodesLength) {
-      if (inodes[index] != ancestorDirIIP.getINode(index)) {
-        return false;
-      }
-      index++;
-    }
-    return true;
-  }
-
-
-  /**
-   * @return a new INodesInPath instance that only contains existing INodes.
+   * @return a new INodesInPath instance that only contains exisitng INodes.
    * Note that this method only handles non-snapshot paths.
    */
   public INodesInPath getExistingINodes() {
     Preconditions.checkState(!isSnapshot());
-    for (int i = inodes.length; i > 0; i--) {
-      if (inodes[i - 1] != null) {
-        return (i == inodes.length) ? this : getAncestorINodesInPath(i);
+    int i = 0;
+    for (; i < inodes.length; i++) {
+      if (inodes[i] == null) {
+        break;
       }
     }
-    return null;
+    INode[] existing = new INode[i];
+    byte[][] existingPath = new byte[i][];
+    System.arraycopy(inodes, 0, existing, 0, i);
+    System.arraycopy(path, 0, existingPath, 0, i);
+    return new INodesInPath(existing, existingPath, false, snapshotId);
   }
 
   /**
@@ -453,20 +431,6 @@ public class INodesInPath {
    */
   boolean isSnapshot() {
     return this.isSnapshot;
-  }
-
-  /**
-   * @return if .snapshot is the last path component.
-   */
-  boolean isDotSnapshotDir() {
-    return isDotSnapshotDir(getLastLocalName());
-  }
-
-  /**
-   * @return if this is a /.reserved/raw path.
-   */
-  public boolean isRaw() {
-    return isRaw;
   }
 
   private static String toString(INode inode) {

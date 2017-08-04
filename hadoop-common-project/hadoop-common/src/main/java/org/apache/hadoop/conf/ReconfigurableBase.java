@@ -22,10 +22,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.commons.logging.*;
 import org.apache.hadoop.util.Time;
 import org.apache.hadoop.conf.ReconfigurationUtil.PropertyChange;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Collection;
@@ -42,8 +41,8 @@ import java.util.Map;
 public abstract class ReconfigurableBase 
   extends Configured implements Reconfigurable {
   
-  private static final Logger LOG =
-      LoggerFactory.getLogger(ReconfigurableBase.class);
+  private static final Log LOG =
+    LogFactory.getLog(ReconfigurableBase.class);
   // Use for testing purpose.
   private ReconfigurationUtil reconfigurationUtil = new ReconfigurationUtil();
 
@@ -89,11 +88,6 @@ public abstract class ReconfigurableBase
     reconfigurationUtil = Preconditions.checkNotNull(ru);
   }
 
-  /**
-   * Create a new configuration.
-   */
-  protected abstract Configuration getNewConf();
-
   @VisibleForTesting
   public Collection<PropertyChange> getChangedProperties(
       Configuration newConf, Configuration oldConf) {
@@ -113,48 +107,36 @@ public abstract class ReconfigurableBase
     // See {@link ReconfigurationServlet#applyChanges}
     public void run() {
       LOG.info("Starting reconfiguration task.");
-      final Configuration oldConf = parent.getConf();
-      final Configuration newConf = parent.getNewConf();
-      final Collection<PropertyChange> changes =
-          parent.getChangedProperties(newConf, oldConf);
+      Configuration oldConf = this.parent.getConf();
+      Configuration newConf = new Configuration();
+      Collection<PropertyChange> changes =
+          this.parent.getChangedProperties(newConf, oldConf);
       Map<PropertyChange, Optional<String>> results = Maps.newHashMap();
-      ConfigRedactor oldRedactor = new ConfigRedactor(oldConf);
-      ConfigRedactor newRedactor = new ConfigRedactor(newConf);
       for (PropertyChange change : changes) {
         String errorMessage = null;
-        String oldValRedacted = oldRedactor.redact(change.prop, change.oldVal);
-        String newValRedacted = newRedactor.redact(change.prop, change.newVal);
-        if (!parent.isPropertyReconfigurable(change.prop)) {
-          LOG.info(String.format(
-              "Property %s is not configurable: old value: %s, new value: %s",
-              change.prop,
-              oldValRedacted,
-              newValRedacted));
+        if (!this.parent.isPropertyReconfigurable(change.prop)) {
+          errorMessage = "Property " + change.prop +
+              " is not reconfigurable";
+          LOG.info(errorMessage);
+          results.put(change, Optional.of(errorMessage));
           continue;
         }
         LOG.info("Change property: " + change.prop + " from \""
-            + ((change.oldVal == null) ? "<default>" : oldValRedacted)
-            + "\" to \""
-            + ((change.newVal == null) ? "<default>" : newValRedacted)
+            + ((change.oldVal == null) ? "<default>" : change.oldVal)
+            + "\" to \"" + ((change.newVal == null) ? "<default>" : change.newVal)
             + "\".");
         try {
-          String effectiveValue =
-              parent.reconfigurePropertyImpl(change.prop, change.newVal);
-          if (change.newVal != null) {
-            oldConf.set(change.prop, effectiveValue);
-          } else {
-            oldConf.unset(change.prop);
-          }
+          this.parent.reconfigurePropertyImpl(change.prop, change.newVal);
         } catch (ReconfigurationException e) {
           errorMessage = e.getCause().getMessage();
         }
         results.put(change, Optional.fromNullable(errorMessage));
       }
 
-      synchronized (parent.reconfigLock) {
-        parent.endTime = Time.now();
-        parent.status = Collections.unmodifiableMap(results);
-        parent.reconfigThread = null;
+      synchronized (this.parent.reconfigLock) {
+        this.parent.endTime = Time.now();
+        this.parent.status = Collections.unmodifiableMap(results);
+        this.parent.reconfigThread = null;
       }
     }
   }
@@ -217,19 +199,21 @@ public abstract class ReconfigurableBase
    * reconfigureProperty.
    */
   @Override
-  public final void reconfigureProperty(String property, String newVal)
+  public final String reconfigureProperty(String property, String newVal) 
     throws ReconfigurationException {
     if (isPropertyReconfigurable(property)) {
       LOG.info("changing property " + property + " to " + newVal);
+      String oldVal;
       synchronized(getConf()) {
-        getConf().get(property);
-        String effectiveValue = reconfigurePropertyImpl(property, newVal);
+        oldVal = getConf().get(property);
+        reconfigurePropertyImpl(property, newVal);
         if (newVal != null) {
-          getConf().set(property, effectiveValue);
+          getConf().set(property, newVal);
         } else {
           getConf().unset(property);
         }
       }
+      return oldVal;
     } else {
       throw new ReconfigurationException(property, newVal,
                                              getConf().get(property));
@@ -263,15 +247,8 @@ public abstract class ReconfigurableBase
    * that is being changed. If this object owns other Reconfigurable objects
    * reconfigureProperty should be called recursively to make sure that
    * to make sure that the configuration of these objects is updated.
-   *
-   * @param property Name of the property that is being reconfigured.
-   * @param newVal Proposed new value of the property.
-   * @return Effective new value of the property. This may be different from
-   *         newVal.
-   *
-   * @throws ReconfigurationException if there was an error applying newVal.
    */
-  protected abstract String reconfigurePropertyImpl(
-      String property, String newVal) throws ReconfigurationException;
+  protected abstract void reconfigurePropertyImpl(String property, String newVal) 
+    throws ReconfigurationException;
 
 }

@@ -20,17 +20,17 @@ package org.apache.hadoop.metrics2.sink.ganglia;
 
 import java.io.IOException;
 import java.net.*;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.configuration2.SubsetConfiguration;
+import org.apache.commons.configuration.SubsetConfiguration;
+import org.apache.commons.io.Charsets;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.metrics2.MetricsSink;
 import org.apache.hadoop.metrics2.util.Servers;
 import org.apache.hadoop.net.DNS;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This the base class for Ganglia sink classes using metrics2. Lot of the code
@@ -41,7 +41,7 @@ import org.slf4j.LoggerFactory;
  */
 public abstract class AbstractGangliaSink implements MetricsSink {
 
-  public final Logger LOG = LoggerFactory.getLogger(this.getClass());
+  public final Log LOG = LogFactory.getLog(this.getClass());
 
   /*
    * Output of "gmetric --help" showing allowable values
@@ -112,7 +112,6 @@ public abstract class AbstractGangliaSink implements MetricsSink {
    * org.apache.hadoop.metrics2.MetricsPlugin#init(org.apache.commons.configuration
    * .SubsetConfiguration)
    */
-  @Override
   public void init(SubsetConfiguration conf) {
     LOG.debug("Initializing the GangliaSink for Ganglia metrics.");
 
@@ -127,7 +126,7 @@ public abstract class AbstractGangliaSink implements MetricsSink {
             conf.getString("dfs.datanode.dns.interface", "default"),
             conf.getString("dfs.datanode.dns.nameserver", "default"));
       } catch (UnknownHostException uhe) {
-        LOG.error(uhe.toString());
+        LOG.error(uhe);
         hostName = "UNKNOWN.example.com";
       }
     }
@@ -155,7 +154,7 @@ public abstract class AbstractGangliaSink implements MetricsSink {
         datagramSocket = new DatagramSocket();
       }
     } catch (IOException e) {
-      LOG.error(e.toString());
+      LOG.error(e);
     }
 
     // see if sparseMetrics is supported. Default is false
@@ -168,7 +167,6 @@ public abstract class AbstractGangliaSink implements MetricsSink {
    *
    * @see org.apache.hadoop.metrics2.MetricsSink#flush()
    */
-  @Override
   public void flush() {
     // nothing to do as we are not buffering data
   }
@@ -235,7 +233,7 @@ public abstract class AbstractGangliaSink implements MetricsSink {
    * @param s the string to be written to buffer at offset location
    */
   protected void xdr_string(String s) {
-    byte[] bytes = s.getBytes(StandardCharsets.UTF_8);
+    byte[] bytes = s.getBytes(Charsets.UTF_8);
     int len = bytes.length;
     xdr_int(len);
     System.arraycopy(bytes, 0, buffer, offset, len);

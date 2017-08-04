@@ -17,18 +17,19 @@
  */
 package org.apache.hadoop.mapred.gridmix;
 
+import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.tools.rumen.JobStory;
 import org.apache.hadoop.tools.rumen.JobStoryProducer;
 import org.apache.hadoop.util.ExitUtil;
+import org.apache.log4j.Level;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.slf4j.event.Level;
 
 
 import java.io.ByteArrayOutputStream;
@@ -38,9 +39,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.util.zip.GZIPInputStream;
 
-import static org.apache.hadoop.test.GenericTestUtils.assertExceptionContains;
 import static org.junit.Assert.*;
-import static org.slf4j.LoggerFactory.getLogger;
 
 public class TestGridmixSubmission extends CommonJobTest {
   private static File inSpace = new File("src" + File.separator + "test"
@@ -48,8 +47,8 @@ public class TestGridmixSubmission extends CommonJobTest {
 
 
   static {
-    GenericTestUtils.setLogLevel(
-        getLogger("org.apache.hadoop.mapred.gridmix"), Level.DEBUG);
+    ((Log4JLogger) LogFactory.getLog("org.apache.hadoop.mapred.gridmix"))
+            .getLogger().setLevel(Level.DEBUG);
   }
 
 
@@ -186,7 +185,7 @@ public class TestGridmixSubmission extends CommonJobTest {
       DebugGridmix.main(argv);
 
     } catch (ExitUtil.ExitException e) {
-      assertExceptionContains(ExitUtil.EXIT_EXCEPTION_MESSAGE, e);
+      assertEquals("ExitException", e.getMessage());
       ExitUtil.resetFirstExitException();
     } finally {
       System.setErr(oldOut);

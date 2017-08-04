@@ -99,12 +99,10 @@ public class TestRefreshUserMappings {
   public void tearDown() throws Exception {
     if(cluster!=null) {
       cluster.shutdown();
-      cluster = null;
     }
     if(tempResource!=null) {
       File f = new File(tempResource);
       f.delete();
-      tempResource = null;
     }
   }
     
@@ -151,13 +149,9 @@ public class TestRefreshUserMappings {
   @Test
   public void testRefreshSuperUserGroupsConfiguration() throws Exception {
     final String SUPER_USER = "super_user";
-    final List<String> groupNames1 = new ArrayList<>();
-    groupNames1.add("gr1");
-    groupNames1.add("gr2");
-    final List<String> groupNames2 = new ArrayList<>();
-    groupNames2.add("gr3");
-    groupNames2.add("gr4");
-
+    final String [] GROUP_NAMES1 = new String [] {"gr1" , "gr2"};
+    final String [] GROUP_NAMES2 = new String [] {"gr3" , "gr4"};
+    
     //keys in conf
     String userKeyGroups = DefaultImpersonationProvider.getTestProvider().
         getProxySuperuserGroupConfKey(SUPER_USER);
@@ -182,12 +176,12 @@ public class TestRefreshUserMappings {
     
     when(ugi1.getUserName()).thenReturn("userL1");
     when(ugi2.getUserName()).thenReturn("userL2");
-
+   
     // set groups for users
-    when(ugi1.getGroups()).thenReturn(groupNames1);
-    when(ugi2.getGroups()).thenReturn(groupNames2);
-
-
+    when(ugi1.getGroupNames()).thenReturn(GROUP_NAMES1);
+    when(ugi2.getGroupNames()).thenReturn(GROUP_NAMES2);
+   
+    
     // check before
     try {
       ProxyUsers.authorize(ugi1, "127.0.0.1");

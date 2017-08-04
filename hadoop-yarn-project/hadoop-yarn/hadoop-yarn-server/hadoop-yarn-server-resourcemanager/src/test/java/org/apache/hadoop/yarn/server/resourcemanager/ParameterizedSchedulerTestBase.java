@@ -19,18 +19,23 @@
 package org.apache.hadoop.yarn.server.resourcemanager;
 
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.AbstractYarnScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FairScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FairSchedulerConfiguration;
 
+
 import org.junit.Before;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Arrays;
+import java.util.Collection;
 
+@RunWith(Parameterized.class)
 public abstract class ParameterizedSchedulerTestBase {
   protected final static String TEST_DIR =
       new File(System.getProperty("test.build.data", "/tmp")).getAbsolutePath();
@@ -39,32 +44,36 @@ public abstract class ParameterizedSchedulerTestBase {
 
   private SchedulerType schedulerType;
   private YarnConfiguration conf = null;
-  private AbstractYarnScheduler scheduler = null;
 
   public enum SchedulerType {
     CAPACITY, FAIR
+  }
+
+  public ParameterizedSchedulerTestBase(SchedulerType type) {
+    schedulerType = type;
   }
 
   public YarnConfiguration getConf() {
     return conf;
   }
 
+  @Parameterized.Parameters
+  public static Collection<SchedulerType[]> getParameters() {
+    return Arrays.asList(new SchedulerType[][]{
+        {SchedulerType.CAPACITY}, {SchedulerType.FAIR}});
+  }
+
   @Before
-  public void configureScheduler() throws IOException, ClassNotFoundException {
+  public void configureScheduler() throws IOException {
     conf = new YarnConfiguration();
-
-    Class schedulerClass =
-        conf.getClass(YarnConfiguration.RM_SCHEDULER,
-            Class.forName(YarnConfiguration.DEFAULT_RM_SCHEDULER));
-
-    if (schedulerClass == FairScheduler.class) {
-      schedulerType = SchedulerType.FAIR;
-      configureFairScheduler(conf);
-      scheduler = new FairScheduler();
-    } else if (schedulerClass == CapacityScheduler.class) {
-      schedulerType = SchedulerType.CAPACITY;
-      scheduler = new CapacityScheduler();
-      ((CapacityScheduler)scheduler).setConf(conf);
+    switch (schedulerType) {
+      case CAPACITY:
+        conf.set(YarnConfiguration.RM_SCHEDULER,
+            CapacityScheduler.class.getName());
+        break;
+      case FAIR:
+        configureFairScheduler(conf);
+        break;
     }
   }
 
@@ -87,25 +96,9 @@ public abstract class ParameterizedSchedulerTestBase {
 
     conf.set(YarnConfiguration.RM_SCHEDULER, FairScheduler.class.getName());
     conf.set(FairSchedulerConfiguration.ALLOCATION_FILE, FS_ALLOC_FILE);
-    conf.setLong(FairSchedulerConfiguration.UPDATE_INTERVAL_MS, 10);
   }
 
   public SchedulerType getSchedulerType() {
     return schedulerType;
-  }
-
-  /**
-   * Return a scheduler configured by {@code YarnConfiguration.RM_SCHEDULER}
-   *
-   * <p>The scheduler is configured by {@link #configureScheduler()}.
-   * Client test code can obtain the scheduler with this getter method.
-   * Schedulers supported by this class are {@link FairScheduler} or
-   * {@link CapacityScheduler}. </p>
-   *
-   * @return   The scheduler configured by
-   *           {@code YarnConfiguration.RM_SCHEDULER}
-   */
-  public AbstractYarnScheduler getScheduler() {
-    return scheduler;
   }
 }

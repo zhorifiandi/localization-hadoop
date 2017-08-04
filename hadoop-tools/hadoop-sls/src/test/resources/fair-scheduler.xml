@@ -21,7 +21,6 @@
 -->
 
 <allocations>
-  <defaultQueueSchedulingPolicy>drf</defaultQueueSchedulingPolicy>
   <user name="jenkins">
     <!-- Limit on running jobs for the user across all pools. If more
       jobs than this are submitted, only the first <maxRunningJobs> will
@@ -32,21 +31,20 @@
   <userMaxAppsDefault>1000</userMaxAppsDefault>
   <queue name="sls_queue_1">
     <minResources>1024 mb, 1 vcores</minResources>
-    <schedulingPolicy>drf</schedulingPolicy>
+    <schedulingMode>fair</schedulingMode>
     <weight>0.25</weight>
     <minSharePreemptionTimeout>2</minSharePreemptionTimeout>
-    <reservation>true</reservation>
   </queue>
   <queue name="sls_queue_2">
     <minResources>1024 mb, 1 vcores</minResources>
-    <schedulingMode>drf</schedulingMode>
+    <schedulingMode>fair</schedulingMode>
     <weight>0.25</weight>
     <minSharePreemptionTimeout>2</minSharePreemptionTimeout>
   </queue>
   <queue name="sls_queue_3">
     <minResources>1024 mb, 1 vcores</minResources>
     <weight>0.5</weight>
-    <schedulingMode>drf</schedulingMode>
+    <schedulingMode>fair</schedulingMode>
     <minSharePreemptionTimeout>2</minSharePreemptionTimeout>
   </queue>
 </allocations>

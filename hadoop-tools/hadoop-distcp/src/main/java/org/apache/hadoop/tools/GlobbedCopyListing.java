@@ -51,7 +51,7 @@ public class GlobbedCopyListing extends CopyListing {
 
   /** {@inheritDoc} */
   @Override
-  protected void validatePaths(DistCpContext context)
+  protected void validatePaths(DistCpOptions options)
       throws IOException, InvalidInputException {
   }
 
@@ -60,19 +60,19 @@ public class GlobbedCopyListing extends CopyListing {
    * Creates the copy listing by "globbing" all source-paths.
    * @param pathToListingFile The location at which the copy-listing file
    *                           is to be created.
-   * @param context The distcp context with associated input options.
+   * @param options Input Options for DistCp (indicating source/target paths.)
    * @throws IOException
    */
   @Override
-  public void doBuildListing(Path pathToListingFile, DistCpContext context)
-      throws IOException {
+  public void doBuildListing(Path pathToListingFile,
+                             DistCpOptions options) throws IOException {
 
     List<Path> globbedPaths = new ArrayList<Path>();
-    if (context.getSourcePaths().isEmpty()) {
+    if (options.getSourcePaths().isEmpty()) {
       throw new InvalidInputException("Nothing to process. Source paths::EMPTY");  
     }
 
-    for (Path p : context.getSourcePaths()) {
+    for (Path p : options.getSourcePaths()) {
       FileSystem fs = p.getFileSystem(getConf());
       FileStatus[] inputs = fs.globStatus(p);
 
@@ -85,8 +85,9 @@ public class GlobbedCopyListing extends CopyListing {
       }
     }
 
-    context.setSourcePaths(globbedPaths);
-    simpleListing.buildListing(pathToListingFile, context);
+    DistCpOptions optionsGlobbed = new DistCpOptions(options);
+    optionsGlobbed.setSourcePaths(globbedPaths);
+    simpleListing.buildListing(pathToListingFile, optionsGlobbed);
   }
 
   /** {@inheritDoc} */

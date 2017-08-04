@@ -29,10 +29,7 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
-import org.apache.hadoop.yarn.api.records.Container;
-import org.apache.hadoop.yarn.api.records.NMToken;
 import org.apache.hadoop.yarn.api.records.NodeId;
-import org.apache.hadoop.yarn.api.records.Token;
 import org.apache.hadoop.yarn.security.NMTokenIdentifier;
 import org.apache.hadoop.yarn.server.api.records.MasterKey;
 import org.apache.hadoop.yarn.server.nodemanager.recovery.NMNullStateStoreService;
@@ -53,7 +50,7 @@ public class NMTokenSecretManagerInNM extends BaseNMTokenSecretManager {
   private final Map<ApplicationAttemptId, MasterKeyData> oldMasterKeys;
   private final Map<ApplicationId, List<ApplicationAttemptId>> appToAppAttemptMap;
   private final NMStateStoreService stateStore;
-  private NodeId nodeId;
+  private NodeId nodeId;                                                      
   
   public NMTokenSecretManagerInNM() {
     this(new NMNullStateStoreService());
@@ -191,10 +188,8 @@ public class NMTokenSecretManagerInNM extends BaseNMTokenSecretManager {
   public synchronized void appFinished(ApplicationId appId) {
     List<ApplicationAttemptId> appAttemptList = appToAppAttemptMap.get(appId);
     if (appAttemptList != null) {
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("Removing application attempts NMToken keys for application "
-            + appId);
-      }
+      LOG.debug("Removing application attempts NMToken keys for application "
+          + appId);
       for (ApplicationAttemptId appAttemptId : appAttemptList) {
         removeAppAttemptKey(appAttemptId);
       }
@@ -228,10 +223,8 @@ public class NMTokenSecretManagerInNM extends BaseNMTokenSecretManager {
     if (oldKey == null
         || oldKey.getMasterKey().getKeyId() != identifier.getKeyId()) {
       // Update key only if it is modified.
-      if (LOG.isDebugEnabled()) {
-        LOG.debug("NMToken key updated for application attempt : "
-            + identifier.getApplicationAttemptId().toString());
-      }
+      LOG.debug("NMToken key updated for application attempt : "
+          + identifier.getApplicationAttemptId().toString());
       if (identifier.getKeyId() == currentMasterKey.getMasterKey()
         .getKeyId()) {
         updateAppAttemptKey(appAttemptId, currentMasterKey);
@@ -247,9 +240,7 @@ public class NMTokenSecretManagerInNM extends BaseNMTokenSecretManager {
   }
   
   public synchronized void setNodeId(NodeId nodeId) {
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("updating nodeId : " + nodeId);
-    }
+    LOG.debug("updating nodeId : " + nodeId);
     this.nodeId = nodeId;
   }
   
@@ -283,25 +274,6 @@ public class NMTokenSecretManagerInNM extends BaseNMTokenSecretManager {
       stateStore.removeNMTokenApplicationMasterKey(attempt);
     } catch (IOException e) {
       LOG.error("Unable to remove master key for application " + attempt, e);
-    }
-  }
-
-  /**
-   * Used by the Distributed Scheduler framework to generate NMTokens
-   * @param applicationSubmitter
-   * @param container
-   * @return NMToken
-   */
-  public NMToken generateNMToken(
-      String applicationSubmitter, Container container) {
-    this.readLock.lock();
-    try {
-      Token token =
-          createNMToken(container.getId().getApplicationAttemptId(),
-              container.getNodeId(), applicationSubmitter);
-      return NMToken.newInstance(container.getNodeId(), token);
-    } finally {
-      this.readLock.unlock();
     }
   }
 }

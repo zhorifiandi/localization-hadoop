@@ -22,13 +22,10 @@ import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.IOException;
 import java.security.SecureRandom;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.List;
 import java.util.Map;
 
 import org.apache.commons.logging.Log;
@@ -44,26 +41,29 @@ import org.apache.hadoop.util.Time;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.fs.StorageType;
-import org.apache.hadoop.util.Timer;
 
 /**
- * BlockTokenSecretManager can be instantiated in 2 modes, master mode
- * and worker mode. Master can generate new block keys and export block
- * keys to workers, while workers can only import and use block keys
- * received from master. Both master and worker can generate and verify
- * block tokens. Typically, master mode is used by NN and worker mode
- * is used by DN.
+ * BlockTokenSecretManager can be instantiated in 2 modes, master mode and slave
+ * mode. Master can generate new block keys and export block keys to slaves,
+ * while slaves can only import and use block keys received from master. Both
+ * master and slave can generate and verify block tokens. Typically, master mode
+ * is used by NN and slave mode is used by DN.
  */
 @InterfaceAudience.Private
 public class BlockTokenSecretManager extends
     SecretManager<BlockTokenIdentifier> {
-  public static final Log LOG = LogFactory.getLog(BlockTokenSecretManager.class);
-
+  public static final Log LOG = LogFactory
+      .getLog(BlockTokenSecretManager.class);
+  
+  // We use these in an HA setup to ensure that the pair of NNs produce block
+  // token serial numbers that are in different ranges.
+  private static final int LOW_MASK  = ~(1 << 31);
+  
   public static final Token<BlockTokenIdentifier> DUMMY_TOKEN = new Token<BlockTokenIdentifier>();
 
   private final boolean isMaster;
-
+  private int nnIndex;
+  
   /**
    * keyUpdateInterval is the interval that NN updates its block keys. It should
    * be set long enough so that all live DN's and Balancer should have sync'ed
@@ -77,76 +77,61 @@ public class BlockTokenSecretManager extends
   private final Map<Integer, BlockKey> allKeys;
   private String blockPoolId;
   private final String encryptionAlgorithm;
-
-  private final int intRange;
-  private final int nnRangeStart;
-  private final boolean useProto;
-
+  
   private final SecureRandom nonceGenerator = new SecureRandom();
 
+  public static enum AccessMode {
+    READ, WRITE, COPY, REPLACE
+  };
+  
   /**
-   * Timer object for querying the current time. Separated out for
-   * unit testing.
-   */
-  private Timer timer;
-  /**
-   * Constructor for workers.
-   *
+   * Constructor for slaves.
+   * 
    * @param keyUpdateInterval how often a new key will be generated
    * @param tokenLifetime how long an individual token is valid
-   * @param useProto should we use new protobuf style tokens
    */
   public BlockTokenSecretManager(long keyUpdateInterval,
-      long tokenLifetime, String blockPoolId, String encryptionAlgorithm,
-      boolean useProto) {
+      long tokenLifetime, String blockPoolId, String encryptionAlgorithm) {
     this(false, keyUpdateInterval, tokenLifetime, blockPoolId,
-        encryptionAlgorithm, 0, 1, useProto);
+        encryptionAlgorithm);
   }
-
+  
   /**
    * Constructor for masters.
-   *
+   * 
    * @param keyUpdateInterval how often a new key will be generated
    * @param tokenLifetime how long an individual token is valid
-   * @param nnIndex namenode index of the namenode for which we are creating the manager
+   * @param nnIndex namenode index
    * @param blockPoolId block pool ID
    * @param encryptionAlgorithm encryption algorithm to use
-   * @param numNNs number of namenodes possible
-   * @param useProto should we use new protobuf style tokens
    */
   public BlockTokenSecretManager(long keyUpdateInterval,
-      long tokenLifetime, int nnIndex, int numNNs,  String blockPoolId,
-      String encryptionAlgorithm, boolean useProto) {
+      long tokenLifetime, int nnIndex, String blockPoolId,
+      String encryptionAlgorithm) {
     this(true, keyUpdateInterval, tokenLifetime, blockPoolId,
-        encryptionAlgorithm, nnIndex, numNNs, useProto);
-    Preconditions.checkArgument(nnIndex >= 0);
-    Preconditions.checkArgument(numNNs > 0);
+        encryptionAlgorithm);
+    Preconditions.checkArgument(nnIndex == 0 || nnIndex == 1);
+    this.nnIndex = nnIndex;
     setSerialNo(new SecureRandom().nextInt());
     generateKeys();
   }
-
+  
   private BlockTokenSecretManager(boolean isMaster, long keyUpdateInterval,
-      long tokenLifetime, String blockPoolId, String encryptionAlgorithm,
-      int nnIndex, int numNNs, boolean useProto) {
-    this.intRange = Integer.MAX_VALUE / numNNs;
-    this.nnRangeStart = intRange * nnIndex;
+      long tokenLifetime, String blockPoolId, String encryptionAlgorithm) {
     this.isMaster = isMaster;
     this.keyUpdateInterval = keyUpdateInterval;
     this.tokenLifetime = tokenLifetime;
     this.allKeys = new HashMap<Integer, BlockKey>();
     this.blockPoolId = blockPoolId;
     this.encryptionAlgorithm = encryptionAlgorithm;
-    this.useProto = useProto;
-    this.timer = new Timer();
     generateKeys();
   }
-
+  
   @VisibleForTesting
   public synchronized void setSerialNo(int serialNo) {
-    // we mod the serial number by the range and then add that times the index
-    this.serialNo = (serialNo % intRange) + (nnRangeStart);
+    this.serialNo = (serialNo & LOW_MASK) | (nnIndex << 31);
   }
-
+  
   public void setBlockPoolId(String blockPoolId) {
     this.blockPoolId = blockPoolId;
   }
@@ -168,10 +153,10 @@ public class BlockTokenSecretManager extends
      * more.
      */
     setSerialNo(serialNo + 1);
-    currentKey = new BlockKey(serialNo, timer.now() + 2
+    currentKey = new BlockKey(serialNo, Time.now() + 2
         * keyUpdateInterval + tokenLifetime, generateSecret());
     setSerialNo(serialNo + 1);
-    nextKey = new BlockKey(serialNo, timer.now() + 3
+    nextKey = new BlockKey(serialNo, Time.now() + 3
         * keyUpdateInterval + tokenLifetime, generateSecret());
     allKeys.put(currentKey.getKeyId(), currentKey);
     allKeys.put(nextKey.getKeyId(), nextKey);
@@ -188,7 +173,7 @@ public class BlockTokenSecretManager extends
   }
 
   private synchronized void removeExpiredKeys() {
-    long now = timer.now();
+    long now = Time.now();
     for (Iterator<Map.Entry<Integer, BlockKey>> it = allKeys.entrySet()
         .iterator(); it.hasNext();) {
       Map.Entry<Integer, BlockKey> e = it.next();
@@ -199,7 +184,7 @@ public class BlockTokenSecretManager extends
   }
 
   /**
-   * Set block keys, only to be used in worker mode
+   * Set block keys, only to be used in slave mode
    */
   public synchronized void addKeys(ExportedBlockKeys exportedKeys)
       throws IOException {
@@ -238,15 +223,15 @@ public class BlockTokenSecretManager extends
     removeExpiredKeys();
     // set final expiry date of retiring currentKey
     allKeys.put(currentKey.getKeyId(), new BlockKey(currentKey.getKeyId(),
-        timer.now() + keyUpdateInterval + tokenLifetime,
+        Time.now() + keyUpdateInterval + tokenLifetime,
         currentKey.getKey()));
     // update the estimated expiry date of new currentKey
-    currentKey = new BlockKey(nextKey.getKeyId(), timer.now()
+    currentKey = new BlockKey(nextKey.getKeyId(), Time.now()
         + 2 * keyUpdateInterval + tokenLifetime, nextKey.getKey());
     allKeys.put(currentKey.getKeyId(), currentKey);
     // generate a new nextKey
     setSerialNo(serialNo + 1);
-    nextKey = new BlockKey(serialNo, timer.now() + 3
+    nextKey = new BlockKey(serialNo, Time.now() + 3
         * keyUpdateInterval + tokenLifetime, generateSecret());
     allKeys.put(nextKey.getKeyId(), nextKey);
     return true;
@@ -254,20 +239,17 @@ public class BlockTokenSecretManager extends
 
   /** Generate an block token for current user */
   public Token<BlockTokenIdentifier> generateToken(ExtendedBlock block,
-      EnumSet<BlockTokenIdentifier.AccessMode> modes,
-      StorageType[] storageTypes, String[] storageIds) throws IOException {
+      EnumSet<AccessMode> modes) throws IOException {
     UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
     String userID = (ugi == null ? null : ugi.getShortUserName());
-    return generateToken(userID, block, modes, storageTypes, storageIds);
+    return generateToken(userID, block, modes);
   }
 
   /** Generate a block token for a specified user */
   public Token<BlockTokenIdentifier> generateToken(String userId,
-      ExtendedBlock block, EnumSet<BlockTokenIdentifier.AccessMode> modes,
-      StorageType[] storageTypes, String[] storageIds) throws IOException {
+      ExtendedBlock block, EnumSet<AccessMode> modes) throws IOException {
     BlockTokenIdentifier id = new BlockTokenIdentifier(userId, block
-        .getBlockPoolId(), block.getBlockId(), modes, storageTypes,
-        storageIds, useProto);
+        .getBlockPoolId(), block.getBlockId(), modes);
     return new Token<BlockTokenIdentifier>(id, this);
   }
 
@@ -275,25 +257,9 @@ public class BlockTokenSecretManager extends
    * Check if access should be allowed. userID is not checked if null. This
    * method doesn't check if token password is correct. It should be used only
    * when token password has already been verified (e.g., in the RPC layer).
-   *
-   * Some places need to check the access using StorageTypes and for other
-   * places the StorageTypes is not relevant.
    */
   public void checkAccess(BlockTokenIdentifier id, String userId,
-      ExtendedBlock block, BlockTokenIdentifier.AccessMode mode,
-      StorageType[] storageTypes, String[] storageIds) throws InvalidToken {
-    checkAccess(id, userId, block, mode);
-    if (storageTypes != null && storageTypes.length > 0) {
-      checkAccess(id.getStorageTypes(), storageTypes, "StorageTypes");
-    }
-    if (storageIds != null && storageIds.length > 0) {
-      checkAccess(id.getStorageIds(), storageIds, "StorageIDs");
-    }
-  }
-
-  public void checkAccess(BlockTokenIdentifier id, String userId,
-      ExtendedBlock block, BlockTokenIdentifier.AccessMode mode)
-      throws InvalidToken {
+      ExtendedBlock block, AccessMode mode) throws InvalidToken {
     if (LOG.isDebugEnabled()) {
       LOG.debug("Checking access for user=" + userId + ", block=" + block
           + ", access mode=" + mode + " using " + id.toString());
@@ -320,42 +286,9 @@ public class BlockTokenSecretManager extends
     }
   }
 
-  /**
-   * Check if the requested values can be satisfied with the values in the
-   * BlockToken. This is intended for use with StorageTypes and StorageIDs.
-   *
-   * The current node can only verify that one of the storage [Type|ID] is
-   * available. The rest will be on different nodes.
-   */
-  public static <T> void checkAccess(T[] candidates, T[] requested, String msg)
-      throws InvalidToken {
-    if (requested.length == 0) {
-      throw new InvalidToken("The request has no " + msg + ". "
-          + "This is probably a configuration error.");
-    }
-    if (candidates.length == 0) {
-      return;
-    }
-
-    List unseenCandidates = new ArrayList<T>();
-    unseenCandidates.addAll(Arrays.asList(candidates));
-    for (T req : requested) {
-      final int index = unseenCandidates.indexOf(req);
-      if (index == -1) {
-        throw new InvalidToken("Block token with " + msg + " "
-            + Arrays.toString(candidates)
-            + " not valid for access with " + msg + " "
-            + Arrays.toString(requested));
-      }
-      Collections.swap(unseenCandidates, index, unseenCandidates.size()-1);
-      unseenCandidates.remove(unseenCandidates.size()-1);
-    }
-  }
-
   /** Check if access should be allowed. userID is not checked if null */
   public void checkAccess(Token<BlockTokenIdentifier> token, String userId,
-      ExtendedBlock block, BlockTokenIdentifier.AccessMode mode,
-      StorageType[] storageTypes, String[] storageIds) throws InvalidToken {
+      ExtendedBlock block, AccessMode mode) throws InvalidToken {
     BlockTokenIdentifier id = new BlockTokenIdentifier();
     try {
       id.readFields(new DataInputStream(new ByteArrayInputStream(token
@@ -365,7 +298,7 @@ public class BlockTokenSecretManager extends
           "Unable to de-serialize block token identifier for user=" + userId
               + ", block=" + block + ", access mode=" + mode);
     }
-    checkAccess(id, userId, block, mode, storageTypes, storageIds);
+    checkAccess(id, userId, block, mode);
     if (!Arrays.equals(retrievePassword(id), token.getPassword())) {
       throw new InvalidToken("Block token with " + id.toString()
           + " doesn't have the correct token password");
@@ -395,7 +328,7 @@ public class BlockTokenSecretManager extends
 
   /**
    * Create an empty block token identifier
-   *
+   * 
    * @return a newly created empty block token identifier
    */
   @Override
@@ -405,7 +338,7 @@ public class BlockTokenSecretManager extends
 
   /**
    * Create a new password/secret for the given block token identifier.
-   *
+   * 
    * @param identifier
    *          the block token identifier
    * @return token password/secret
@@ -418,7 +351,7 @@ public class BlockTokenSecretManager extends
     }
     if (key == null)
       throw new IllegalStateException("currentKey hasn't been initialized.");
-    identifier.setExpiryDate(timer.now() + tokenLifetime);
+    identifier.setExpiryDate(Time.now() + tokenLifetime);
     identifier.setKeyId(key.getKeyId());
     if (LOG.isDebugEnabled()) {
       LOG.debug("Generating block token for " + identifier.toString());
@@ -428,7 +361,7 @@ public class BlockTokenSecretManager extends
 
   /**
    * Look up the token password/secret for the given block token identifier.
-   *
+   * 
    * @param identifier
    *          the block token identifier to look up
    * @return token password/secret as byte[]
@@ -452,11 +385,11 @@ public class BlockTokenSecretManager extends
     }
     return createPassword(identifier.getBytes(), key.getKey());
   }
-
+  
   /**
    * Generate a data encryption key for this block pool, using the current
    * BlockKey.
-   *
+   * 
    * @return a data encryption key which may be used to encrypt traffic
    *         over the DataTransferProtocol
    */
@@ -469,13 +402,13 @@ public class BlockTokenSecretManager extends
     }
     byte[] encryptionKey = createPassword(nonce, key.getKey());
     return new DataEncryptionKey(key.getKeyId(), blockPoolId, nonce,
-        encryptionKey, timer.now() + tokenLifetime,
+        encryptionKey, Time.now() + tokenLifetime,
         encryptionAlgorithm);
   }
-
+  
   /**
    * Recreate an encryption key based on the given key id and nonce.
-   *
+   * 
    * @param keyId identifier of the secret key used to generate the encryption key.
    * @param nonce random value used to create the encryption key
    * @return the encryption key which corresponds to this (keyId, blockPoolId, nonce)
@@ -494,7 +427,7 @@ public class BlockTokenSecretManager extends
     }
     return createPassword(nonce, key.getKey());
   }
-
+  
   @VisibleForTesting
   public synchronized void setKeyUpdateIntervalForTesting(long millis) {
     this.keyUpdateInterval = millis;
@@ -504,16 +437,10 @@ public class BlockTokenSecretManager extends
   public void clearAllKeysForTesting() {
     allKeys.clear();
   }
-
-  @VisibleForTesting
-  public synchronized boolean hasKey(int keyId) {
-    BlockKey key = allKeys.get(keyId);
-    return key != null;
-  }
-
+  
   @VisibleForTesting
   public synchronized int getSerialNoForTesting() {
     return serialNo;
   }
-
+  
 }

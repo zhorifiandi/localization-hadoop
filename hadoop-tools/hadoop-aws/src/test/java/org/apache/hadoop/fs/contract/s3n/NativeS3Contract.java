@@ -19,11 +19,10 @@
 package org.apache.hadoop.fs.contract.s3n;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.contract.AbstractBondedFSContract;
 
 /**
- * The contract of S3N: only enabled if the test bucket is provided.
+ * The contract of S3N: only enabled if the test bucket is provided
  */
 public class NativeS3Contract extends AbstractBondedFSContract {
 
@@ -41,10 +40,4 @@ public class NativeS3Contract extends AbstractBondedFSContract {
     return "s3n";
   }
 
-  @Override
-  public Path getTestPath() {
-    String testUniqueForkId = System.getProperty("test.unique.fork.id");
-    return testUniqueForkId == null ? super.getTestPath() :
-        new Path("/" + testUniqueForkId, "test");
-  }
 }

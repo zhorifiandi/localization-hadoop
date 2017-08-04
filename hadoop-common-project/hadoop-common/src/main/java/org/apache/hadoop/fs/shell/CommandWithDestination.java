@@ -46,8 +46,6 @@ import org.apache.hadoop.fs.permission.AclUtil;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.io.IOUtils;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
 import static org.apache.hadoop.fs.CreateFlag.CREATE;
 import static org.apache.hadoop.fs.CreateFlag.LAZY_PERSIST;
 
@@ -63,8 +61,7 @@ abstract class CommandWithDestination extends FsCommand {
   private boolean verifyChecksum = true;
   private boolean writeChecksum = true;
   private boolean lazyPersist = false;
-  private boolean direct = false;
-
+  
   /**
    * The name of the raw xattr namespace. It would be nice to use
    * XAttr.RAW.name() but we can't reference the hadoop-hdfs project.
@@ -97,11 +94,7 @@ abstract class CommandWithDestination extends FsCommand {
   protected void setWriteChecksum(boolean flag) {
     writeChecksum = flag;
   }
-
-  protected void setDirectWrite(boolean flag) {
-    direct = flag;
-  }
-
+  
   /**
    * If true, the last modified time, last access time,
    * owner, group and permission information of the source
@@ -118,7 +111,7 @@ abstract class CommandWithDestination extends FsCommand {
     }
   }
   
-  protected enum FileAttribute {
+  protected static enum FileAttribute {
     TIMESTAMPS, OWNERSHIP, PERMISSION, ACL, XATTR;
 
     public static FileAttribute getAttribute(char symbol) {
@@ -222,8 +215,7 @@ abstract class CommandWithDestination extends FsCommand {
         throw new PathExistsException(dst.toString());
       }
     } else if (!dst.parentExists()) {
-      throw new PathNotFoundException(dst.toString())
-          .withFullyQualifiedPath(dst.path.toUri().toString());
+      throw new PathNotFoundException(dst.toString());
     }
     super.processArguments(args);
   }
@@ -241,13 +233,7 @@ abstract class CommandWithDestination extends FsCommand {
         e.setTargetPath(dstPath.toString());
         throw e;
       }
-      // When a path is normalized, all trailing slashes are removed
-      // except for the root
-      if(!srcPath.endsWith(Path.SEPARATOR)) {
-        srcPath += Path.SEPARATOR;
-      }
-
-      if(dstPath.startsWith(srcPath)) {
+      if (dstPath.startsWith(srcPath+Path.SEPARATOR)) {
         PathIOException e = new PathIOException(src.toString(),
             "is a subdirectory of itself");
         e.setTargetPath(target.toString());
@@ -386,11 +372,9 @@ abstract class CommandWithDestination extends FsCommand {
   }
 
   /**
-   * If direct write is disabled ,copies the stream contents to a temporary
-   * file "<target>._COPYING_". If the copy is
+   * Copies the stream contents to a temporary file.  If the copy is
    * successful, the temporary file will be renamed to the real path,
    * else the temporary file will be deleted.
-   * if direct write is enabled , then creation temporary file is skipped.
    * @param in the input stream for the copy
    * @param target where to store the contents of the stream
    * @throws IOException if copy fails
@@ -402,12 +386,10 @@ abstract class CommandWithDestination extends FsCommand {
     }
     TargetFileSystem targetFs = new TargetFileSystem(target.fs);
     try {
-      PathData tempTarget = direct ? target : target.suffix("._COPYING_");
+      PathData tempTarget = target.suffix("._COPYING_");
       targetFs.setWriteChecksum(writeChecksum);
-      targetFs.writeStreamToFile(in, tempTarget, lazyPersist, direct);
-      if (!direct) {
-        targetFs.rename(tempTarget, target);
-      }
+      targetFs.writeStreamToFile(in, tempTarget, lazyPersist);
+      targetFs.rename(tempTarget, target);
     } finally {
       targetFs.close(); // last ditch effort to ensure temp file is removed
     }
@@ -477,11 +459,10 @@ abstract class CommandWithDestination extends FsCommand {
     }
 
     void writeStreamToFile(InputStream in, PathData target,
-        boolean lazyPersist, boolean direct)
-        throws IOException {
+                           boolean lazyPersist) throws IOException {
       FSDataOutputStream out = null;
       try {
-        out = create(target, lazyPersist, direct);
+        out = create(target, lazyPersist);
         IOUtils.copyBytes(in, out, getConf(), true);
       } finally {
         IOUtils.closeStream(out); // just in case copyBytes didn't
@@ -489,8 +470,7 @@ abstract class CommandWithDestination extends FsCommand {
     }
     
     // tag created files as temp files
-    FSDataOutputStream create(PathData item, boolean lazyPersist,
-        boolean direct)
+    FSDataOutputStream create(PathData item, boolean lazyPersist)
         throws IOException {
       try {
         if (lazyPersist) {
@@ -499,9 +479,8 @@ abstract class CommandWithDestination extends FsCommand {
                         FsPermission.getFileDefault().applyUMask(
                             FsPermission.getUMask(getConf())),
                         createFlags,
-                        getConf().getInt(IO_FILE_BUFFER_SIZE_KEY,
-                            IO_FILE_BUFFER_SIZE_DEFAULT),
-                        (short) 1,
+                        getConf().getInt("io.file.buffer.size", 4096),
+                        lazyPersist ? 1 : getDefaultReplication(item.path),
                         getDefaultBlockSize(),
                         null,
                         null);
@@ -509,9 +488,7 @@ abstract class CommandWithDestination extends FsCommand {
           return create(item.path, true);
         }
       } finally { // might have been created but stream was interrupted
-        if (!direct) {
-          deleteOnExit(item.path);
-        }
+        deleteOnExit(item.path);
       }
     }
 

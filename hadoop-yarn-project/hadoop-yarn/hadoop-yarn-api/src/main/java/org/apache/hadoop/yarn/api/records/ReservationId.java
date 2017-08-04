@@ -19,11 +19,11 @@
 package org.apache.hadoop.yarn.api.records;
 
 import java.io.IOException;
+import java.text.NumberFormat;
 
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceAudience.Public;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
-import org.apache.hadoop.util.FastNumberFormat;
 import org.apache.hadoop.yarn.util.Records;
 
 /**
@@ -89,7 +89,16 @@ public abstract class ReservationId implements Comparable<ReservationId> {
 
   protected abstract void build();
 
-  private static final int RESERVATION_ID_MIN_DIGITS = 4;
+  static final ThreadLocal<NumberFormat> reservIdFormat =
+      new ThreadLocal<NumberFormat>() {
+        @Override
+        public NumberFormat initialValue() {
+          NumberFormat fmt = NumberFormat.getInstance();
+          fmt.setGroupingUsed(false);
+          fmt.setMinimumIntegerDigits(4);
+          return fmt;
+        }
+      };
 
   @Override
   public int compareTo(ReservationId other) {
@@ -103,12 +112,8 @@ public abstract class ReservationId implements Comparable<ReservationId> {
 
   @Override
   public String toString() {
-    StringBuilder sb = new StringBuilder(64);
-    sb.append(reserveIdStrPrefix);
-    sb.append(getClusterTimestamp());
-    sb.append('_');
-    FastNumberFormat.format(sb, getId(), RESERVATION_ID_MIN_DIGITS);
-    return sb.toString();
+    return reserveIdStrPrefix + this.getClusterTimestamp() + "_"
+        + reservIdFormat.get().format(getId());
   }
 
   /**

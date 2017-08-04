@@ -57,7 +57,7 @@ public class TestSpeculativeExecutionWithMRApp {
   @Test
   public void testSpeculateSuccessfulWithoutUpdateEvents() throws Exception {
 
-    Clock actualClock = SystemClock.getInstance();
+    Clock actualClock = new SystemClock();
     final ControlledClock clock = new ControlledClock(actualClock);
     clock.setTime(System.currentTimeMillis());
 
@@ -102,7 +102,7 @@ public class TestSpeculativeExecutionWithMRApp {
           appEventHandler.handle(new TaskAttemptEvent(taskAttempt.getKey(),
             TaskAttemptEventType.TA_DONE));
           appEventHandler.handle(new TaskAttemptEvent(taskAttempt.getKey(),
-            TaskAttemptEventType.TA_CONTAINER_COMPLETED));
+            TaskAttemptEventType.TA_CONTAINER_CLEANED));
           app.waitForState(taskAttempt.getValue(), TaskAttemptState.SUCCEEDED);
         }
       }
@@ -128,7 +128,7 @@ public class TestSpeculativeExecutionWithMRApp {
   @Test
   public void testSepculateSuccessfulWithUpdateEvents() throws Exception {
 
-    Clock actualClock = SystemClock.getInstance();
+    Clock actualClock = new SystemClock();
     final ControlledClock clock = new ControlledClock(actualClock);
     clock.setTime(System.currentTimeMillis());
 
@@ -170,7 +170,7 @@ public class TestSpeculativeExecutionWithMRApp {
           appEventHandler.handle(new TaskAttemptEvent(taskAttempt.getKey(),
             TaskAttemptEventType.TA_DONE));
           appEventHandler.handle(new TaskAttemptEvent(taskAttempt.getKey(),
-            TaskAttemptEventType.TA_CONTAINER_COMPLETED));
+            TaskAttemptEventType.TA_CONTAINER_CLEANED));
           numTasksToFinish--;
           app.waitForState(taskAttempt.getValue(), TaskAttemptState.SUCCEEDED);
         } else {
@@ -228,7 +228,7 @@ public class TestSpeculativeExecutionWithMRApp {
     appEventHandler.handle(
         new TaskAttemptEvent(ta[0].getID(), TaskAttemptEventType.TA_DONE));
     appEventHandler.handle(new TaskAttemptEvent(ta[0].getID(),
-        TaskAttemptEventType.TA_CONTAINER_COMPLETED));
+        TaskAttemptEventType.TA_CONTAINER_CLEANED));
     return ta;
   }
 

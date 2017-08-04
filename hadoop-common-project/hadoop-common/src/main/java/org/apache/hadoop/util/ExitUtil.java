@@ -17,127 +17,41 @@
  */
 package org.apache.hadoop.util;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * Facilitates hooking process termination for tests, debugging
- * and embedding.
- * 
- * Hadoop code that attempts to call {@link System#exit(int)} 
- * or {@link Runtime#halt(int)} MUST invoke it via these methods.
+ * Facilitates hooking process termination for tests and debugging.
  */
-@InterfaceAudience.LimitedPrivate({"HDFS", "MapReduce", "YARN"})
+@InterfaceAudience.LimitedPrivate({"HDFS", "MapReduce"})
 @InterfaceStability.Unstable
 public final class ExitUtil {
-  private static final Logger
-      LOG = LoggerFactory.getLogger(ExitUtil.class.getName());
+  private final static Log LOG = LogFactory.getLog(ExitUtil.class.getName());
   private static volatile boolean systemExitDisabled = false;
   private static volatile boolean systemHaltDisabled = false;
   private static volatile ExitException firstExitException;
   private static volatile HaltException firstHaltException;
-  /** Message raised from an exit exception if none were provided: {@value}. */
-  public static final String EXIT_EXCEPTION_MESSAGE = "ExitException";
-  /** Message raised from a halt exception if none were provided: {@value}. */
-  public static final String HALT_EXCEPTION_MESSAGE = "HaltException";
 
-  private ExitUtil() {
-  }
-
-  /**
-   * An exception raised when a call to {@link #terminate(int)} was
-   * called and system exits were blocked.
-   */
-  public static class ExitException extends RuntimeException
-      implements ExitCodeProvider {
+  public static class ExitException extends RuntimeException {
     private static final long serialVersionUID = 1L;
-    /**
-     * The status code.
-     */
     public final int status;
 
     public ExitException(int status, String msg) {
       super(msg);
       this.status = status;
     }
-
-    public ExitException(int status,
-        String message,
-        Throwable cause) {
-      super(message, cause);
-      this.status = status;
-    }
-
-    public ExitException(int status, Throwable cause) {
-      super(cause);
-      this.status = status;
-    }
-
-    @Override
-    public int getExitCode() {
-      return status;
-    }
-
-    /**
-     * String value does not include exception type, just exit code and message.
-     * @return the exit code and any message
-     */
-    @Override
-    public String toString() {
-      String message = getMessage();
-      if (message == null) {
-        message = super.toString();
-      }
-      return Integer.toString(status) + ": " + message;
-    }
   }
 
-  /**
-   * An exception raised when a call to {@link #terminate(int)} was
-   * called and system halts were blocked.
-   */
-  public static class HaltException extends RuntimeException
-      implements ExitCodeProvider {
+  public static class HaltException extends RuntimeException {
     private static final long serialVersionUID = 1L;
     public final int status;
-
-    public HaltException(int status, Throwable cause) {
-      super(cause);
-      this.status = status;
-    }
 
     public HaltException(int status, String msg) {
       super(msg);
       this.status = status;
     }
-
-    public HaltException(int status,
-        String message,
-        Throwable cause) {
-      super(message, cause);
-      this.status = status;
-    }
-
-    @Override
-    public int getExitCode() {
-      return status;
-    }
-
-    /**
-     * String value does not include exception type, just exit code and message.
-     * @return the exit code and any message
-     */
-    @Override
-    public String toString() {
-      String message = getMessage();
-      if (message == null) {
-        message = super.toString();
-      }
-      return Integer.toString(status) + ": " + message;
-    }
-
   }
 
   /**
@@ -155,7 +69,7 @@ public final class ExitUtil {
   }
 
   /**
-   * @return true if terminate has been called.
+   * @return true if terminate has been called
    */
   public static boolean terminateCalled() {
     // Either we set this member or we actually called System#exit
@@ -163,21 +77,21 @@ public final class ExitUtil {
   }
 
   /**
-   * @return true if halt has been called.
+   * @return true if halt has been called
    */
   public static boolean haltCalled() {
     return firstHaltException != null;
   }
 
   /**
-   * @return the first ExitException thrown, null if none thrown yet.
+   * @return the first ExitException thrown, null if none thrown yet
    */
   public static ExitException getFirstExitException() {
     return firstExitException;
   }
 
   /**
-   * @return the first {@code HaltException} thrown, null if none thrown yet.
+   * @return the first {@code HaltException} thrown, null if none thrown yet
    */
   public static HaltException getFirstHaltException() {
     return firstHaltException;
@@ -196,22 +110,22 @@ public final class ExitUtil {
   }
 
   /**
-   * Inner termination: either exit with the exception's exit code,
-   * or, if system exits are disabled, rethrow the exception.
-   * @param ee exit exception
+   * Terminate the current process. Note that terminate is the *only* method
+   * that should be used to terminate the daemon processes.
+   *
+   * @param status
+   *          exit code
+   * @param msg
+   *          message used to create the {@code ExitException}
+   * @throws ExitException
+   *           if System.exit is disabled for test purposes
    */
-  public static synchronized void terminate(ExitException ee)
-      throws ExitException {
-    int status = ee.getExitCode();
-    String msg = ee.getMessage();
-    if (status != 0) {
-      //exit indicates a problem, log it
-      LOG.debug("Exiting with status {}: {}",  status, msg, ee);
-      LOG.info("Exiting with status {}: {}", status, msg);
-    }
+  public static void terminate(int status, String msg) throws ExitException {
+    LOG.info("Exiting with status " + status);
     if (systemExitDisabled) {
-      LOG.error("Terminate called", ee);
-      if (!terminateCalled()) {
+      ExitException ee = new ExitException(status, msg);
+      LOG.fatal("Terminate called", ee);
+      if (null == firstExitException) {
         firstExitException = ee;
       }
       throw ee;
@@ -221,26 +135,20 @@ public final class ExitUtil {
 
   /**
    * Forcibly terminates the currently running Java virtual machine.
-   * The exception argument is rethrown if JVM halting is disabled.
-   * @param ee the exception containing the status code, message and any stack
-   * trace.
-   * @throws HaltException if {@link Runtime#halt(int)} is disabled.
+   *
+   * @param status
+   *          exit code
+   * @param msg
+   *          message used to create the {@code HaltException}
+   * @throws HaltException
+   *           if Runtime.getRuntime().halt() is disabled for test purposes
    */
-  public static synchronized void halt(HaltException ee) throws HaltException {
-    int status = ee.getExitCode();
-    String msg = ee.getMessage();
-    try {
-      if (status != 0) {
-        //exit indicates a problem, log it
-        LOG.debug("Halt with status {}: {}", status, msg, ee);
-        LOG.info("Halt with status {}: {}", status, msg, msg);
-      }
-    } catch (Exception ignored) {
-      // ignore exceptions here, as it may be due to an out of memory situation
-    }
+  public static void halt(int status, String msg) throws HaltException {
+    LOG.info("Halt with status " + status + " Message: " + msg);
     if (systemHaltDisabled) {
-      LOG.error("Halt called", ee);
-      if (!haltCalled()) {
+      HaltException ee = new HaltException(status, msg);
+      LOG.fatal("Halt called", ee);
+      if (null == firstHaltException) {
         firstHaltException = ee;
       }
       throw ee;
@@ -249,94 +157,47 @@ public final class ExitUtil {
   }
 
   /**
-   * Like {@link #terminate(int, String)} but uses the given throwable to
-   * build the message to display or throw as an
-   * {@link ExitException}.
-   * <p>
-   * @param status exit code to use if the exception is not an ExitException.
-   * @param t throwable which triggered the termination. If this exception
-   * is an {@link ExitException} its status overrides that passed in.
-   * @throws ExitException if {@link System#exit(int)}  is disabled.
+   * Like {@link terminate(int, String)} but uses the given throwable to
+   * initialize the ExitException.
+   *
+   * @param status
+   * @param t
+   *          throwable used to create the ExitException
+   * @throws ExitException
+   *           if System.exit is disabled for test purposes
    */
   public static void terminate(int status, Throwable t) throws ExitException {
-    if (t instanceof ExitException) {
-      terminate((ExitException) t);
-    } else {
-      terminate(new ExitException(status, t));
-    }
+    terminate(status, StringUtils.stringifyException(t));
   }
 
   /**
    * Forcibly terminates the currently running Java virtual machine.
    *
-   * @param status exit code to use if the exception is not a HaltException.
-   * @param t throwable which triggered the termination. If this exception
-   * is a {@link HaltException} its status overrides that passed in.
-   * @throws HaltException if {@link System#exit(int)}  is disabled.
+   * @param status
+   * @param t
+   * @throws ExitException
    */
   public static void halt(int status, Throwable t) throws HaltException {
-    if (t instanceof HaltException) {
-      halt((HaltException) t);
-    } else {
-      halt(new HaltException(status, t));
-    }
+    halt(status, StringUtils.stringifyException(t));
   }
 
   /**
-   * Like {@link #terminate(int, Throwable)} without a message.
+   * Like {@link terminate(int, String)} without a message.
    *
-   * @param status exit code
-   * @throws ExitException if {@link System#exit(int)} is disabled.
+   * @param status
+   * @throws ExitException
+   *           if System.exit is disabled for test purposes
    */
   public static void terminate(int status) throws ExitException {
-    terminate(status, EXIT_EXCEPTION_MESSAGE);
-  }
-
-  /**
-   * Terminate the current process. Note that terminate is the *only* method
-   * that should be used to terminate the daemon processes.
-   *
-   * @param status exit code
-   * @param msg message used to create the {@code ExitException}
-   * @throws ExitException if {@link System#exit(int)} is disabled.
-   */
-  public static void terminate(int status, String msg) throws ExitException {
-    terminate(new ExitException(status, msg));
+    terminate(status, "ExitException");
   }
 
   /**
    * Forcibly terminates the currently running Java virtual machine.
-   * @param status status code
-   * @throws HaltException if {@link Runtime#halt(int)} is disabled.
+   * @param status
+   * @throws ExitException
    */
   public static void halt(int status) throws HaltException {
-    halt(status, HALT_EXCEPTION_MESSAGE);
-  }
-
-  /**
-   * Forcibly terminates the currently running Java virtual machine.
-   * @param status status code
-   * @param message message
-   * @throws HaltException if {@link Runtime#halt(int)} is disabled.
-   */
-  public static void halt(int status, String message) throws HaltException {
-    halt(new HaltException(status, message));
-  }
-
-  /**
-   * Handler for out of memory events -no attempt is made here
-   * to cleanly shutdown or support halt blocking; a robust
-   * printing of the event to stderr is all that can be done.
-   * @param oome out of memory event
-   */
-  public static void haltOnOutOfMemory(OutOfMemoryError oome) {
-    //After catching an OOM java says it is undefined behavior, so don't
-    //even try to clean up or we can get stuck on shutdown.
-    try {
-      System.err.println("Halting due to Out Of Memory Error...");
-    } catch (Throwable err) {
-      //Again we done want to exit because of logging issues.
-    }
-    Runtime.getRuntime().halt(-1);
+    halt(status, "HaltException");
   }
 }

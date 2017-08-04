@@ -24,10 +24,8 @@ import java.net.InetSocketAddress;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -54,8 +52,8 @@ import org.apache.hadoop.security.token.Token;
 public class Cluster {
   
   @InterfaceStability.Evolving
-  public enum JobTrackerStatus {INITIALIZING, RUNNING};
-
+  public static enum JobTrackerStatus {INITIALIZING, RUNNING};
+  
   private ClientProtocolProvider clientProtocolProvider;
   private ClientProtocol client;
   private UserGroupInformation ugi;
@@ -66,33 +64,9 @@ public class Cluster {
   private Path jobHistoryDir = null;
   private static final Log LOG = LogFactory.getLog(Cluster.class);
 
-  @VisibleForTesting
-  static Iterable<ClientProtocolProvider> frameworkLoader =
+  private static ServiceLoader<ClientProtocolProvider> frameworkLoader =
       ServiceLoader.load(ClientProtocolProvider.class);
-  private volatile List<ClientProtocolProvider> providerList = null;
-
-  private void initProviderList() {
-    if (providerList == null) {
-      synchronized (frameworkLoader) {
-        if (providerList == null) {
-          List<ClientProtocolProvider> localProviderList =
-              new ArrayList<ClientProtocolProvider>();
-          try {
-            for (ClientProtocolProvider provider : frameworkLoader) {
-              localProviderList.add(provider);
-            }
-          } catch(ServiceConfigurationError e) {
-            LOG.info("Failed to instantiate ClientProtocolProvider, please "
-                         + "check the /META-INF/services/org.apache."
-                         + "hadoop.mapreduce.protocol.ClientProtocolProvider "
-                         + "files on the classpath", e);
-          }
-          providerList = localProviderList;
-        }
-      }
-    }
-  }
-
+  
   static {
     ConfigUtil.loadResources();
   }
@@ -111,46 +85,42 @@ public class Cluster {
   private void initialize(InetSocketAddress jobTrackAddr, Configuration conf)
       throws IOException {
 
-    initProviderList();
-    final IOException initEx = new IOException(
-        "Cannot initialize Cluster. Please check your configuration for "
-            + MRConfig.FRAMEWORK_NAME
-            + " and the correspond server addresses.");
-    if (jobTrackAddr != null) {
-      LOG.info(
-          "Initializing cluster for Job Tracker=" + jobTrackAddr.toString());
-    }
-    for (ClientProtocolProvider provider : providerList) {
-      LOG.debug("Trying ClientProtocolProvider : "
-          + provider.getClass().getName());
-      ClientProtocol clientProtocol = null;
-      try {
-        if (jobTrackAddr == null) {
-          clientProtocol = provider.create(conf);
-        } else {
-          clientProtocol = provider.create(jobTrackAddr, conf);
-        }
+    synchronized (frameworkLoader) {
+      for (ClientProtocolProvider provider : frameworkLoader) {
+        LOG.debug("Trying ClientProtocolProvider : "
+            + provider.getClass().getName());
+        ClientProtocol clientProtocol = null; 
+        try {
+          if (jobTrackAddr == null) {
+            clientProtocol = provider.create(conf);
+          } else {
+            clientProtocol = provider.create(jobTrackAddr, conf);
+          }
 
-        if (clientProtocol != null) {
-          clientProtocolProvider = provider;
-          client = clientProtocol;
-          LOG.debug("Picked " + provider.getClass().getName()
-              + " as the ClientProtocolProvider");
-          break;
-        } else {
-          LOG.debug("Cannot pick " + provider.getClass().getName()
-              + " as the ClientProtocolProvider - returned null protocol");
+          if (clientProtocol != null) {
+            clientProtocolProvider = provider;
+            client = clientProtocol;
+            LOG.debug("Picked " + provider.getClass().getName()
+                + " as the ClientProtocolProvider");
+            break;
+          }
+          else {
+            LOG.debug("Cannot pick " + provider.getClass().getName()
+                + " as the ClientProtocolProvider - returned null protocol");
+          }
+        } 
+        catch (Exception e) {
+          LOG.info("Failed to use " + provider.getClass().getName()
+              + " due to error: " + e.getMessage());
         }
-      } catch (Exception e) {
-        final String errMsg = "Failed to use " + provider.getClass().getName()
-            + " due to error: ";
-        initEx.addSuppressed(new IOException(errMsg, e));
-        LOG.info(errMsg, e);
       }
     }
 
     if (null == clientProtocolProvider || null == client) {
-      throw initEx;
+      throw new IOException(
+          "Cannot initialize Cluster. Please check your configuration for "
+              + MRConfig.FRAMEWORK_NAME
+              + " and the correspond server addresses.");
     }
   }
 

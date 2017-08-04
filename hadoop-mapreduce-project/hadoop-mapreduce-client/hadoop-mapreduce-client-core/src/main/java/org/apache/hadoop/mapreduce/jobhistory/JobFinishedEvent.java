@@ -18,17 +18,11 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.util.Set;
-
 import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.JobID;
-import org.apache.hadoop.mapreduce.util.JobHistoryEventUtils;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 
 /**
  * Event to record successful completion of job
@@ -83,32 +77,31 @@ public class JobFinishedEvent  implements HistoryEvent {
   public Object getDatum() {
     if (datum == null) {
       datum = new JobFinished();
-      datum.setJobid(new Utf8(jobId.toString()));
-      datum.setFinishTime(finishTime);
-      datum.setFinishedMaps(finishedMaps);
-      datum.setFinishedReduces(finishedReduces);
-      datum.setFailedMaps(failedMaps);
-      datum.setFailedReduces(failedReduces);
-      datum.setMapCounters(EventWriter.toAvro(mapCounters, "MAP_COUNTERS"));
-      datum.setReduceCounters(EventWriter.toAvro(reduceCounters,
-          "REDUCE_COUNTERS"));
-      datum.setTotalCounters(EventWriter.toAvro(totalCounters,
-          "TOTAL_COUNTERS"));
+      datum.jobid = new Utf8(jobId.toString());
+      datum.finishTime = finishTime;
+      datum.finishedMaps = finishedMaps;
+      datum.finishedReduces = finishedReduces;
+      datum.failedMaps = failedMaps;
+      datum.failedReduces = failedReduces;
+      datum.mapCounters = EventWriter.toAvro(mapCounters, "MAP_COUNTERS");
+      datum.reduceCounters = EventWriter.toAvro(reduceCounters,
+        "REDUCE_COUNTERS");
+      datum.totalCounters = EventWriter.toAvro(totalCounters, "TOTAL_COUNTERS");
     }
     return datum;
   }
 
   public void setDatum(Object oDatum) {
     this.datum = (JobFinished) oDatum;
-    this.jobId = JobID.forName(datum.getJobid().toString());
-    this.finishTime = datum.getFinishTime();
-    this.finishedMaps = datum.getFinishedMaps();
-    this.finishedReduces = datum.getFinishedReduces();
-    this.failedMaps = datum.getFailedMaps();
-    this.failedReduces = datum.getFailedReduces();
-    this.mapCounters = EventReader.fromAvro(datum.getMapCounters());
-    this.reduceCounters = EventReader.fromAvro(datum.getReduceCounters());
-    this.totalCounters = EventReader.fromAvro(datum.getTotalCounters());
+    this.jobId = JobID.forName(datum.jobid.toString());
+    this.finishTime = datum.finishTime;
+    this.finishedMaps = datum.finishedMaps;
+    this.finishedReduces = datum.finishedReduces;
+    this.failedMaps = datum.failedMaps;
+    this.failedReduces = datum.failedReduces;
+    this.mapCounters = EventReader.fromAvro(datum.mapCounters);
+    this.reduceCounters = EventReader.fromAvro(datum.reduceCounters);
+    this.totalCounters = EventReader.fromAvro(datum.totalCounters);
   }
 
   public EventType getEventType() {
@@ -138,32 +131,5 @@ public class JobFinishedEvent  implements HistoryEvent {
   /** Get the reduce counters for the job */
   public Counters getReduceCounters() {
     return reduceCounters;
-  }
-
-  @Override
-  public TimelineEvent toTimelineEvent() {
-    TimelineEvent tEvent = new TimelineEvent();
-    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
-    tEvent.addInfo("FINISH_TIME", getFinishTime());
-    tEvent.addInfo("NUM_MAPS", getFinishedMaps());
-    tEvent.addInfo("NUM_REDUCES", getFinishedReduces());
-    tEvent.addInfo("FAILED_MAPS", getFailedMaps());
-    tEvent.addInfo("FAILED_REDUCES", getFailedReduces());
-    tEvent.addInfo("FINISHED_MAPS", getFinishedMaps());
-    tEvent.addInfo("FINISHED_REDUCES", getFinishedReduces());
-    // TODO replace SUCCEEDED with JobState.SUCCEEDED.toString()
-    tEvent.addInfo("JOB_STATUS", "SUCCEEDED");
-    return tEvent;
-  }
-
-  @Override
-  public Set<TimelineMetric> getTimelineMetrics() {
-    Set<TimelineMetric> jobMetrics = JobHistoryEventUtils.
-        countersToTimelineMetric(getTotalCounters(), finishTime);
-    jobMetrics.addAll(JobHistoryEventUtils.
-        countersToTimelineMetric(getMapCounters(), finishTime, "MAP:"));
-    jobMetrics.addAll(JobHistoryEventUtils.
-        countersToTimelineMetric(getReduceCounters(), finishTime, "REDUCE:"));
-    return jobMetrics;
   }
 }

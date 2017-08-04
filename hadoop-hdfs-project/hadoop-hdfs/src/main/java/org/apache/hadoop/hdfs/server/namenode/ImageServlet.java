@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
-import org.apache.hadoop.hdfs.server.common.Util;
 import static org.apache.hadoop.util.Time.monotonicNow;
 
 import java.net.HttpURLConnection;
@@ -31,9 +30,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.hadoop.ha.HAServiceProtocol;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.DFSUtilClient;
 import org.apache.hadoop.security.SecurityUtil;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -83,10 +80,6 @@ public class ImageServlet extends HttpServlet {
   private static final String STORAGEINFO_PARAM = "storageInfo";
   private static final String LATEST_FSIMAGE_VALUE = "latest";
   private static final String IMAGE_FILE_TYPE = "imageFile";
-  private static final String IS_BOOTSTRAP_STANDBY = "bootstrapstandby";
-
-  private SortedSet<ImageUploadRequest> currentlyDownloadingCheckpoints = Collections
-      .<ImageUploadRequest> synchronizedSortedSet(new TreeSet<ImageUploadRequest>());
 
   @Override
   public void doGet(final HttpServletRequest request,
@@ -159,10 +152,8 @@ public class ImageServlet extends HttpServlet {
               // detected by the client side as an inaccurate length header.
             }
             // send file
-            DataTransferThrottler throttler = parsedParams.isBootstrapStandby ?
-                getThrottlerForBootstrapStandby(conf) : getThrottler(conf);
             TransferFsImage.copyFileToStream(response.getOutputStream(),
-               file, fis, throttler);
+               file, fis, getThrottler(conf));
           } finally {
             IOUtils.closeStream(fis);
           }
@@ -219,8 +210,8 @@ public class ImageServlet extends HttpServlet {
    * @param conf configuration
    * @return a data transfer throttler
    */
-  public static DataTransferThrottler getThrottler(Configuration conf) {
-    long transferBandwidth =
+  public final static DataTransferThrottler getThrottler(Configuration conf) {
+    long transferBandwidth = 
       conf.getLong(DFSConfigKeys.DFS_IMAGE_TRANSFER_RATE_KEY,
                    DFSConfigKeys.DFS_IMAGE_TRANSFER_RATE_DEFAULT);
     DataTransferThrottler throttler = null;
@@ -229,20 +220,7 @@ public class ImageServlet extends HttpServlet {
     }
     return throttler;
   }
-
-  private static DataTransferThrottler getThrottlerForBootstrapStandby(
-      Configuration conf) {
-    long transferBandwidth =
-        conf.getLong(
-            DFSConfigKeys.DFS_IMAGE_TRANSFER_BOOTSTRAP_STANDBY_RATE_KEY,
-            DFSConfigKeys.DFS_IMAGE_TRANSFER_BOOTSTRAP_STANDBY_RATE_DEFAULT);
-    DataTransferThrottler throttler = null;
-    if (transferBandwidth > 0) {
-      throttler = new DataTransferThrottler(transferBandwidth);
-    }
-    return throttler;
-  }
-
+  
   @VisibleForTesting
   static boolean isValidRequestor(ServletContext context, String remoteUser,
       Configuration conf) throws IOException {
@@ -255,7 +233,7 @@ public class ImageServlet extends HttpServlet {
 
     validRequestors.add(SecurityUtil.getServerPrincipal(conf
         .get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY),
-        DFSUtilClient.getNNAddress(conf).getHostName()));
+        NameNode.getAddress(conf).getHostName()));
     try {
       validRequestors.add(
           SecurityUtil.getServerPrincipal(conf
@@ -275,12 +253,10 @@ public class ImageServlet extends HttpServlet {
     }
 
     if (HAUtil.isHAEnabled(conf, DFSUtil.getNamenodeNameServiceId(conf))) {
-      List<Configuration> otherNnConfs = HAUtil.getConfForOtherNodes(conf);
-      for (Configuration otherNnConf : otherNnConfs) {
-        validRequestors.add(SecurityUtil.getServerPrincipal(otherNnConf
-                .get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY),
-            DFSUtilClient.getNNAddress(otherNnConf).getHostName()));
-      }
+      Configuration otherNnConf = HAUtil.getConfForOtherNode(conf);
+      validRequestors.add(SecurityUtil.getServerPrincipal(otherNnConf
+          .get(DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY),
+          NameNode.getAddress(otherNnConf).getHostName()));
     }
 
     for (String v : validRequestors) {
@@ -305,12 +281,11 @@ public class ImageServlet extends HttpServlet {
    */
   public static void setVerificationHeadersForGet(HttpServletResponse response,
       File file) throws IOException {
-    response.setHeader(
-        Util.CONTENT_LENGTH,
+    response.setHeader(TransferFsImage.CONTENT_LENGTH,
         String.valueOf(file.length()));
     MD5Hash hash = MD5FileUtils.readStoredMd5ForFile(file);
     if (hash != null) {
-      response.setHeader(Util.MD5_HEADER, hash.toString());
+      response.setHeader(TransferFsImage.MD5_HEADER, hash.toString());
     }
   }
   
@@ -319,14 +294,13 @@ public class ImageServlet extends HttpServlet {
   }
 
   static String getParamStringForImage(NameNodeFile nnf, long txid,
-      StorageInfo remoteStorageInfo, boolean isBootstrapStandby) {
+      StorageInfo remoteStorageInfo) {
     final String imageType = nnf == null ? "" : "&" + IMAGE_FILE_TYPE + "="
         + nnf.name();
     return "getimage=1&" + TXID_PARAM + "=" + txid
       + imageType
-      + "&" + STORAGEINFO_PARAM + "="
-      + remoteStorageInfo.toColonSeparatedString() + "&"
-      + IS_BOOTSTRAP_STANDBY + "=" + isBootstrapStandby;
+      + "&" + STORAGEINFO_PARAM + "=" +
+      remoteStorageInfo.toColonSeparatedString();
   }
 
   static String getParamStringForLog(RemoteEditLog log,
@@ -344,7 +318,6 @@ public class ImageServlet extends HttpServlet {
     private long startTxId, endTxId, txId;
     private String storageInfoString;
     private boolean fetchLatest;
-    private boolean isBootstrapStandby;
 
     /**
      * @param request the object from which this servlet reads the url contents
@@ -356,7 +329,7 @@ public class ImageServlet extends HttpServlet {
                            ) throws IOException {
       @SuppressWarnings("unchecked")
       Map<String, String[]> pmap = request.getParameterMap();
-      isGetImage = isGetEdit = fetchLatest = isBootstrapStandby = false;
+      isGetImage = isGetEdit = fetchLatest = false;
 
       for (Map.Entry<String, String[]> entry : pmap.entrySet()) {
         String key = entry.getKey();
@@ -368,10 +341,6 @@ public class ImageServlet extends HttpServlet {
             String imageType = ServletUtil.getParameter(request, IMAGE_FILE_TYPE);
             nnf = imageType == null ? NameNodeFile.IMAGE : NameNodeFile
                 .valueOf(imageType);
-            String bootstrapStandby = ServletUtil.getParameter(request,
-                IS_BOOTSTRAP_STANDBY);
-            isBootstrapStandby = bootstrapStandby != null &&
-                Boolean.parseBoolean(bootstrapStandby);
           } catch (NumberFormatException nfe) {
             if (request.getParameter(TXID_PARAM).equals(LATEST_FSIMAGE_VALUE)) {
               fetchLatest = true;
@@ -439,19 +408,19 @@ public class ImageServlet extends HttpServlet {
    */
   static void setVerificationHeadersForPut(HttpURLConnection connection,
       File file) throws IOException {
-    connection.setRequestProperty(
-        Util.CONTENT_LENGTH,
+    connection.setRequestProperty(TransferFsImage.CONTENT_LENGTH,
         String.valueOf(file.length()));
     MD5Hash hash = MD5FileUtils.readStoredMd5ForFile(file);
     if (hash != null) {
       connection
-          .setRequestProperty(Util.MD5_HEADER, hash.toString());
+          .setRequestProperty(TransferFsImage.MD5_HEADER, hash.toString());
     }
   }
 
   /**
    * Set the required parameters for uploading image
    * 
+   * @param httpMethod instance of method to set the parameters
    * @param storage colon separated storageInfo string
    * @param txid txid of the image
    * @param imageFileSize size of the imagefile to be uploaded
@@ -465,7 +434,7 @@ public class ImageServlet extends HttpServlet {
     params.put(STORAGEINFO_PARAM, storage.toColonSeparatedString());
     // setting the length of the file to be uploaded in separate property as
     // Content-Length only supports up to 2GB
-    params.put(Util.FILE_LENGTH, Long.toString(imageFileSize));
+    params.put(TransferFsImage.FILE_LENGTH, Long.toString(imageFileSize));
     params.put(IMAGE_FILE_TYPE, nnf.name());
     return params;
   }
@@ -490,37 +459,12 @@ public class ImageServlet extends HttpServlet {
 
             @Override
             public Void run() throws Exception {
-              // if its not the active NN, then we need to notify the caller it was was the wrong
-              // target (regardless of the fact that we got the image)
-              HAServiceProtocol.HAServiceState state = NameNodeHttpServer
-                  .getNameNodeStateFromContext(getServletContext());
-              if (state != HAServiceProtocol.HAServiceState.ACTIVE) {
-                // we need a different response type here so the client can differentiate this
-                // from the failure to upload due to (1) security, or (2) other checkpoints already
-                // present
-                response.sendError(HttpServletResponse.SC_EXPECTATION_FAILED,
-                    "Nameode "+request.getLocalAddr()+" is currently not in a state which can "
-                        + "accept uploads of new fsimages. State: "+state);
-                return null;
-              }
 
               final long txid = parsedParams.getTxId();
-              String remoteAddr = request.getRemoteAddr();
-              ImageUploadRequest imageRequest = new ImageUploadRequest(txid, remoteAddr);
 
               final NameNodeFile nnf = parsedParams.getNameNodeFile();
 
-              // if the node is attempting to upload an older transaction, we ignore it
-              SortedSet<ImageUploadRequest> larger = currentlyDownloadingCheckpoints.tailSet(imageRequest);
-              if (larger.size() > 0) {
-                response.sendError(HttpServletResponse.SC_CONFLICT,
-                    "Another checkpointer is already in the process of uploading a" +
-                        " checkpoint made up to transaction ID " + larger.last());
-                return null;
-              }
-
-              //make sure no one else has started uploading one
-              if (!currentlyDownloadingCheckpoints.add(imageRequest)) {
+              if (!nnImage.addToCheckpointing(txid)) {
                 response.sendError(HttpServletResponse.SC_CONFLICT,
                     "Either current namenode is checkpointing or another"
                         + " checkpointer is already in the process of "
@@ -555,10 +499,6 @@ public class ImageServlet extends HttpServlet {
                   // remove some old ones.
                   nnImage.purgeOldStorage(nnf);
                 } finally {
-                  // remove the request once we've processed it, or it threw an error, so we
-                  // aren't using it either
-                  currentlyDownloadingCheckpoints.remove(imageRequest);
-
                   stream.close();
                 }
               } finally {
@@ -589,7 +529,7 @@ public class ImageServlet extends HttpServlet {
       txId = ServletUtil.parseLongParam(request, TXID_PARAM);
       storageInfoString = ServletUtil.getParameter(request, STORAGEINFO_PARAM);
       fileSize = ServletUtil.parseLongParam(request,
-          Util.FILE_LENGTH);
+          TransferFsImage.FILE_LENGTH);
       String imageType = ServletUtil.getParameter(request, IMAGE_FILE_TYPE);
       nnf = imageType == null ? NameNodeFile.IMAGE : NameNodeFile
           .valueOf(imageType);
@@ -613,48 +553,6 @@ public class ImageServlet extends HttpServlet {
 
     public NameNodeFile getNameNodeFile() {
       return nnf;
-    }
-  }
-
-  private static class ImageUploadRequest implements Comparable<ImageUploadRequest> {
-
-    private final long txId;
-    private final String address;
-
-    public ImageUploadRequest(long txid, String remoteAddr) {
-      this.txId = txid;
-      this.address = remoteAddr;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) return true;
-      if (o == null || getClass() != o.getClass()) return false;
-
-      ImageUploadRequest that = (ImageUploadRequest) o;
-
-      if (txId != that.txId) return false;
-      if (!address.equals(that.address)) return false;
-
-      return true;
-    }
-
-    @Override
-    public int hashCode() {
-      int result = (int) (txId ^ (txId >>> 32));
-      result = 31 * result + address.hashCode();
-      return result;
-    }
-
-    @Override public int compareTo(ImageUploadRequest other) {
-      return Long.compare(txId, other.txId);
-    }
-
-    @Override public String toString() {
-      return "ImageRequest{" +
-          "txId=" + txId +
-          ", address='" + address + '\'' +
-          '}';
     }
   }
 }

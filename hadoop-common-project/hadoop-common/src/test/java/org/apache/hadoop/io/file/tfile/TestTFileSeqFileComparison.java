@@ -23,10 +23,7 @@ import java.text.SimpleDateFormat;
 import java.util.Random;
 import java.util.StringTokenizer;
 
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import junit.framework.TestCase;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -45,10 +42,9 @@ import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.io.file.tfile.TFile.Reader.Scanner.Entry;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Time;
 
-public class TestTFileSeqFileComparison {
+public class TestTFileSeqFileComparison extends TestCase {
   MyOptions options;
 
   private FileSystem fs;
@@ -58,7 +54,7 @@ public class TestTFileSeqFileComparison {
   private DateFormat formatter;
   byte[][] dictionary;
 
-  @Before
+  @Override
   public void setUp() throws IOException {
     if (options == null) {
       options = new MyOptions(new String[0]);
@@ -85,7 +81,7 @@ public class TestTFileSeqFileComparison {
     }
   }
 
-  @After
+  @Override
   public void tearDown() throws IOException {
     // do nothing
   }
@@ -154,8 +150,8 @@ public class TestTFileSeqFileComparison {
     @Override
     public void append(BytesWritable key, BytesWritable value)
         throws IOException {
-      writer.append(key.getBytes(), 0, key.getLength(), value.getBytes(), 0,
-          value.getLength());
+      writer.append(key.get(), 0, key.getSize(), value.get(), 0, value
+          .getSize());
     }
 
     @Override
@@ -250,6 +246,7 @@ public class TestTFileSeqFileComparison {
     public SeqFileAppendable(FileSystem fs, Path path, int osBufferSize,
         String compress, int minBlkSize) throws IOException {
       Configuration conf = new Configuration();
+      conf.setBoolean("hadoop.native.lib", true);
 
       CompressionCodec codec = null;
       if ("lzo".equals(compress)) {
@@ -304,22 +301,22 @@ public class TestTFileSeqFileComparison {
 
     @Override
     public byte[] getKey() {
-      return key.getBytes();
+      return key.get();
     }
 
     @Override
     public int getKeyLength() {
-      return key.getLength();
+      return key.getSize();
     }
 
     @Override
     public byte[] getValue() {
-      return value.getBytes();
+      return value.get();
     }
 
     @Override
     public int getValueLength() {
-      return value.getLength();
+      return value.getSize();
     }
 
     @Override
@@ -482,7 +479,6 @@ public class TestTFileSeqFileComparison {
     readSeqFile(parameters, true);
   }
 
-  @Test
   public void testRunComparisons() throws IOException {
     String[] compresses = new String[] { "none", "lzo", "gz" };
     for (String compress : compresses) {
@@ -516,7 +512,9 @@ public class TestTFileSeqFileComparison {
   }
 
   private static class MyOptions {
-    String rootDir = GenericTestUtils.getTestDir().getAbsolutePath();;
+    String rootDir =
+        System
+            .getProperty("test.build.data", "/tmp/tfile-test");
     String compress = "gz";
     String format = "tfile";
     int dictSize = 1000;

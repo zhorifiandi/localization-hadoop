@@ -244,9 +244,7 @@ public class TestDiskFailures {
     for (int i = 0; i < 10; i++) {
       Iterator<RMNode> iter = yarnCluster.getResourceManager().getRMContext()
                               .getRMNodes().values().iterator();
-      // RMNode # might be zero because of timing related issue.
-      if (iter.hasNext() &&
-          (iter.next().getState() != NodeState.UNHEALTHY) == isHealthy) {
+      if ((iter.next().getState() != NodeState.UNHEALTHY) == isHealthy) {
         break;
       }
       // wait for the node health info to go to RM

@@ -39,7 +39,6 @@ import org.apache.hadoop.hdfs.web.resources.DelegationParam;
 import org.apache.hadoop.hdfs.web.resources.DoAsParam;
 import org.apache.hadoop.hdfs.web.resources.GetOpParam;
 import org.apache.hadoop.hdfs.web.resources.PutOpParam;
-import org.apache.hadoop.hdfs.web.resources.StartAfterParam;
 import org.apache.hadoop.hdfs.web.resources.TokenArgumentParam;
 import org.apache.hadoop.hdfs.web.resources.UserParam;
 import org.apache.hadoop.hdfs.web.resources.FsActionParam;
@@ -54,7 +53,7 @@ import org.junit.Test;
 
 public class TestWebHdfsUrl {
   // NOTE: port is never used 
-  final URI uri = URI.create(WebHdfsConstants.WEBHDFS_SCHEME + "://" + "127.0.0.1:0");
+  final URI uri = URI.create(WebHdfsFileSystem.SCHEME + "://" + "127.0.0.1:0");
 
   @Before
   public void resetUGI() {
@@ -196,7 +195,7 @@ public class TestWebHdfsUrl {
     checkQueryParams(
         new String[]{
             GetOpParam.Op.GETFILESTATUS.toQueryString(),
-            new DelegationParam(tokenString).toString()
+            new UserParam(ugi.getShortUserName()).toString()
         },
         fileStatusUrl);    
   }
@@ -281,7 +280,8 @@ public class TestWebHdfsUrl {
     checkQueryParams(
         new String[]{
             GetOpParam.Op.GETFILESTATUS.toQueryString(),
-            new DelegationParam(tokenString).toString()
+            new UserParam(ugi.getRealUser().getShortUserName()).toString(),
+            new DoAsParam(ugi.getShortUserName()).toString()
         },
         fileStatusUrl);    
   }
@@ -307,30 +307,6 @@ public class TestWebHdfsUrl {
         },
         checkAccessUrl);
   }
-
-  @Test(timeout=60000)
-  public void testBatchedListingUrl() throws Exception {
-    Configuration conf = new Configuration();
-
-    UserGroupInformation ugi =
-        UserGroupInformation.createRemoteUser("test-user");
-    UserGroupInformation.setLoginUser(ugi);
-
-    WebHdfsFileSystem webhdfs = getWebHdfsFileSystem(ugi, conf);
-    Path fsPath = new Path("/p1");
-
-    final StartAfterParam startAfter =
-        new StartAfterParam("last");
-    URL url = webhdfs.toUrl(GetOpParam.Op.LISTSTATUS_BATCH,
-        fsPath, startAfter);
-    checkQueryParams(
-        new String[]{
-            GetOpParam.Op.LISTSTATUS_BATCH.toQueryString(),
-            new UserParam(ugi.getShortUserName()).toString(),
-            StartAfterParam.NAME + "=" + "last"
-        },
-        url);
-  }
   
   private void checkQueryParams(String[] expected, URL url) {
     Arrays.sort(expected);
@@ -352,7 +328,7 @@ public class TestWebHdfsUrl {
           dtId, dtSecretManager);
       SecurityUtil.setTokenService(
           token, NetUtils.createSocketAddr(uri.getAuthority()));
-      token.setKind(WebHdfsConstants.WEBHDFS_TOKEN_KIND);
+      token.setKind(WebHdfsFileSystem.TOKEN_KIND);
       ugi.addToken(token);
     }
     return (WebHdfsFileSystem) FileSystem.get(uri, conf);

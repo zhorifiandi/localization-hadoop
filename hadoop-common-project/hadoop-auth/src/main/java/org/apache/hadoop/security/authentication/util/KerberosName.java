@@ -1,3 +1,5 @@
+package org.apache.hadoop.security.authentication.util;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -16,9 +18,6 @@
  * limitations under the License.
  */
 
-package org.apache.hadoop.security.authentication.util;
-
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,7 +25,6 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.slf4j.Logger;
@@ -55,7 +53,7 @@ public class KerberosName {
    * A pattern that matches a Kerberos name with at most 2 components.
    */
   private static final Pattern nameParser =
-      Pattern.compile("([^/@]+)(/([^/@]+))?(@([^/@]+))?");
+    Pattern.compile("([^/@]*)(/([^/@]*))?@([^/@]*)");
 
   /**
    * A pattern that matches a string with out '$' and then a single
@@ -81,15 +79,14 @@ public class KerberosName {
    */
   private static List<Rule> rules;
 
-  private static String defaultRealm = null;
+  private static String defaultRealm;
 
-  @VisibleForTesting
-  public static void resetDefaultRealm() {
+  static {
     try {
       defaultRealm = KerberosUtil.getDefaultRealm();
     } catch (Exception ke) {
-      LOG.debug("resetting default realm failed, "
-          + "current default realm will still be used.", ke);
+        LOG.debug("Kerberos krb5 configuration not found, setting default realm to empty");
+        defaultRealm="";
     }
   }
 
@@ -110,24 +107,15 @@ public class KerberosName {
     } else {
       serviceName = match.group(1);
       hostName = match.group(3);
-      realm = match.group(5);
+      realm = match.group(4);
     }
   }
 
   /**
    * Get the configured default realm.
-   * Used syncronized method here, because double-check locking is overhead.
    * @return the default realm from the krb5.conf
    */
-  public static synchronized String getDefaultRealm() {
-    if (defaultRealm == null) {
-      try {
-        defaultRealm = KerberosUtil.getDefaultRealm();
-      } catch (Exception ke) {
-        LOG.debug("Kerberos krb5 configuration not found, setting default realm to empty");
-        defaultRealm = "";
-      }
-    }
+  public String getDefaultRealm() {
     return defaultRealm;
   }
 
@@ -310,7 +298,7 @@ public class KerberosName {
     String apply(String[] params) throws IOException {
       String result = null;
       if (isDefault) {
-        if (getDefaultRealm().equals(params[0])) {
+        if (defaultRealm.equals(params[0])) {
           result = params[1];
         }
       } else if (params.length - 1 == numOfComponents) {
@@ -324,8 +312,8 @@ public class KerberosName {
         }
       }
       if (result != null && nonSimplePattern.matcher(result).find()) {
-        LOG.info("Non-simple name {} after auth_to_local rule {}",
-            result, this);
+        throw new NoMatchingRule("Non-simple name " + result +
+                                 " after auth_to_local rule " + this);
       }
       if (toLowerCase && result != null) {
         result = result.toLowerCase(Locale.ENGLISH);
@@ -378,7 +366,7 @@ public class KerberosName {
   /**
    * Get the translation of the principal name into an operating system
    * user name.
-   * @return the user name
+   * @return the short name
    * @throws IOException throws if something is wrong with the rules
    */
   public String getShortName() throws IOException {
@@ -398,8 +386,7 @@ public class KerberosName {
         return result;
       }
     }
-    LOG.info("No auth_to_local rules applied to {}", this);
-    return toString();
+    throw new NoMatchingRule("No rules applied to " + toString());
   }
 
   /**
@@ -425,16 +412,16 @@ public class KerberosName {
     }
     return ruleString;
   }
-
+  
   /**
    * Indicates if the name rules have been set.
-   *
+   * 
    * @return if the name rules have been set.
    */
   public static boolean hasRulesBeenSet() {
     return rules != null;
   }
-
+  
   static void printRules() throws IOException {
     int i = 0;
     for(Rule r: rules) {

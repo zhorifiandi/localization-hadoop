@@ -79,14 +79,20 @@ extends ApplicationResourceUsageReport {
   }
 
   private void mergeLocalToBuilder() {
-    if (this.usedResources != null) {
+    if (this.usedResources != null
+        && !((ResourcePBImpl) this.usedResources).getProto().equals(
+            builder.getUsedResources())) {
       builder.setUsedResources(convertToProtoFormat(this.usedResources));
     }
-    if (this.reservedResources != null) {
+    if (this.reservedResources != null
+        && !((ResourcePBImpl) this.reservedResources).getProto().equals(
+            builder.getReservedResources())) {
       builder.setReservedResources(
           convertToProtoFormat(this.reservedResources));
     }
-    if (this.neededResources != null) {
+    if (this.neededResources != null
+        && !((ResourcePBImpl) this.neededResources).getProto().equals(
+            builder.getNeededResources())) {
       builder.setNeededResources(convertToProtoFormat(this.neededResources));
     }
   }
@@ -218,63 +224,11 @@ extends ApplicationResourceUsageReport {
     return (p.getVcoreSeconds());
   }
   
-  @Override
-  public synchronized void setPreemptedMemorySeconds(
-      long preemptedMemorySeconds) {
-    maybeInitBuilder();
-    builder.setPreemptedMemorySeconds(preemptedMemorySeconds);
-  }
-
-  @Override
-  public synchronized long getPreemptedMemorySeconds() {
-    ApplicationResourceUsageReportProtoOrBuilder p =
-        viaProto ? proto : builder;
-    return p.getPreemptedMemorySeconds();
-  }
-
-  @Override
-  public synchronized void setPreemptedVcoreSeconds(
-      long vcoreSeconds) {
-    maybeInitBuilder();
-    builder.setPreemptedVcoreSeconds(vcoreSeconds);
-  }
-
-  @Override
-  public synchronized long getPreemptedVcoreSeconds() {
-    ApplicationResourceUsageReportProtoOrBuilder p =
-        viaProto ? proto : builder;
-    return (p.getPreemptedVcoreSeconds());
-  }
-
   private ResourcePBImpl convertFromProtoFormat(ResourceProto p) {
     return new ResourcePBImpl(p);
   }
 
   private ResourceProto convertToProtoFormat(Resource t) {
-    return ProtoUtils.convertToProtoFormat(t);
-  }
-
-  @Override
-  public synchronized float getQueueUsagePercentage() {
-    ApplicationResourceUsageReportProtoOrBuilder p = viaProto ? proto : builder;
-    return (p.getQueueUsagePercentage());
-  }
-
-  @Override
-  public synchronized void setQueueUsagePercentage(float queueUsagePerc) {
-    maybeInitBuilder();
-    builder.setQueueUsagePercentage((queueUsagePerc));
-  }
-
-  @Override
-  public synchronized float getClusterUsagePercentage() {
-    ApplicationResourceUsageReportProtoOrBuilder p = viaProto ? proto : builder;
-    return (p.getClusterUsagePercentage());
-  }
-
-  @Override
-  public synchronized void setClusterUsagePercentage(float clusterUsagePerc) {
-    maybeInitBuilder();
-    builder.setClusterUsagePercentage((clusterUsagePerc));
+    return ((ResourcePBImpl)t).getProto();
   }
 }

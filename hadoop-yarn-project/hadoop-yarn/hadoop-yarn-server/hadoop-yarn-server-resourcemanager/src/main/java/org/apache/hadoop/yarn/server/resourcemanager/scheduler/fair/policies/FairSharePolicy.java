@@ -21,8 +21,6 @@ import java.io.Serializable;
 import java.util.Collection;
 import java.util.Comparator;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.yarn.api.records.Resource;
@@ -31,7 +29,6 @@ import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FSQueue;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.Schedulable;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.SchedulingPolicy;
 import org.apache.hadoop.yarn.util.resource.DefaultResourceCalculator;
-import org.apache.hadoop.yarn.util.resource.ResourceCalculator;
 import org.apache.hadoop.yarn.util.resource.Resources;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -42,13 +39,11 @@ import com.google.common.annotations.VisibleForTesting;
 @Private
 @Unstable
 public class FairSharePolicy extends SchedulingPolicy {
-  private static final Log LOG = LogFactory.getLog(FairSharePolicy.class);
   @VisibleForTesting
   public static final String NAME = "fair";
   private static final DefaultResourceCalculator RESOURCE_CALCULATOR =
       new DefaultResourceCalculator();
-  private static final FairShareComparator COMPARATOR =
-          new FairShareComparator();
+  private FairShareComparator comparator = new FairShareComparator();
 
   @Override
   public String getName() {
@@ -56,28 +51,17 @@ public class FairSharePolicy extends SchedulingPolicy {
   }
 
   /**
-   * Compare Schedulables mainly via fair share usage to meet fairness.
-   * Specifically, it goes through following four steps.
-   *
-   * 1. Compare demands. Schedulables without resource demand get lower priority
-   * than ones who have demands.
+   * Compare Schedulables via weighted fair sharing. In addition, Schedulables
+   * below their min share get priority over those whose min share is met.
    * 
-   * 2. Compare min share usage. Schedulables below their min share are compared
-   * by how far below it they are as a ratio. For example, if job A has 8 out
-   * of a min share of 10 tasks and job B has 50 out of a min share of 100,
-   * then job B is scheduled next, because B is at 50% of its min share and A
-   * is at 80% of its min share.
+   * Schedulables below their min share are compared by how far below it they
+   * are as a ratio. For example, if job A has 8 out of a min share of 10 tasks
+   * and job B has 50 out of a min share of 100, then job B is scheduled next,
+   * because B is at 50% of its min share and A is at 80% of its min share.
    * 
-   * 3. Compare fair share usage. Schedulables above their min share are
-   * compared by fair share usage by checking (resource usage / weight).
+   * Schedulables above their min share are compared by (runningTasks / weight).
    * If all weights are equal, slots are given to the job with the fewest tasks;
-   * otherwise, jobs with more weight get proportionally more slots. If weight
-   * equals to 0, we can't compare Schedulables by (resource usage/weight).
-   * There are two situations: 1)All weights equal to 0, slots are given
-   * to one with less resource usage. 2)Only one of weight equals to 0, slots
-   * are given to the one with non-zero weight.
-   *
-   * 4. Break the tie by compare submit time and job name.
+   * otherwise, jobs with more weight get proportionally more slots.
    */
   private static class FairShareComparator implements Comparator<Schedulable>,
       Serializable {
@@ -86,126 +70,57 @@ public class FairSharePolicy extends SchedulingPolicy {
 
     @Override
     public int compare(Schedulable s1, Schedulable s2) {
-      int res = compareDemand(s1, s2);
-
-      // Pre-compute resource usages to avoid duplicate calculation
-      Resource resourceUsage1 = s1.getResourceUsage();
-      Resource resourceUsage2 = s2.getResourceUsage();
-
-      if (res == 0) {
-        res = compareMinShareUsage(s1, s2, resourceUsage1, resourceUsage2);
-      }
-
-      if (res == 0) {
-        res = compareFairShareUsage(s1, s2, resourceUsage1, resourceUsage2);
-      }
-
-      // Break the tie by submit time
-      if (res == 0) {
-        res = (int) Math.signum(s1.getStartTime() - s2.getStartTime());
-      }
-
-      // Break the tie by job name
-      if (res == 0) {
-        res = s1.getName().compareTo(s2.getName());
-      }
-
-      return res;
-    }
-
-    private int compareDemand(Schedulable s1, Schedulable s2) {
-      int res = 0;
-      Resource demand1 = s1.getDemand();
-      Resource demand2 = s2.getDemand();
-      if (demand1.equals(Resources.none()) && Resources.greaterThan(
-          RESOURCE_CALCULATOR, null, demand2, Resources.none())) {
-        res = 1;
-      } else if (demand2.equals(Resources.none()) && Resources.greaterThan(
-          RESOURCE_CALCULATOR, null, demand1, Resources.none())) {
-        res = -1;
-      }
-      return res;
-    }
-
-    private int compareMinShareUsage(Schedulable s1, Schedulable s2,
-        Resource resourceUsage1, Resource resourceUsage2) {
-      int res;
+      double minShareRatio1, minShareRatio2;
+      double useToWeightRatio1, useToWeightRatio2;
       Resource minShare1 = Resources.min(RESOURCE_CALCULATOR, null,
           s1.getMinShare(), s1.getDemand());
       Resource minShare2 = Resources.min(RESOURCE_CALCULATOR, null,
           s2.getMinShare(), s2.getDemand());
       boolean s1Needy = Resources.lessThan(RESOURCE_CALCULATOR, null,
-          resourceUsage1, minShare1);
+          s1.getResourceUsage(), minShare1);
       boolean s2Needy = Resources.lessThan(RESOURCE_CALCULATOR, null,
-          resourceUsage2, minShare2);
-
-      if (s1Needy && !s2Needy) {
+          s2.getResourceUsage(), minShare2);
+      minShareRatio1 = (double) s1.getResourceUsage().getMemory()
+          / Resources.max(RESOURCE_CALCULATOR, null, minShare1, ONE).getMemory();
+      minShareRatio2 = (double) s2.getResourceUsage().getMemory()
+          / Resources.max(RESOURCE_CALCULATOR, null, minShare2, ONE).getMemory();
+      useToWeightRatio1 = s1.getResourceUsage().getMemory() /
+          s1.getWeights().getWeight(ResourceType.MEMORY);
+      useToWeightRatio2 = s2.getResourceUsage().getMemory() /
+          s2.getWeights().getWeight(ResourceType.MEMORY);
+      int res = 0;
+      if (s1Needy && !s2Needy)
         res = -1;
-      } else if (s2Needy && !s1Needy) {
+      else if (s2Needy && !s1Needy)
         res = 1;
-      } else if (s1Needy && s2Needy) {
-        double minShareRatio1 = (double) resourceUsage1.getMemorySize() /
-            Resources.max(RESOURCE_CALCULATOR, null, minShare1, ONE)
-                .getMemorySize();
-        double minShareRatio2 = (double) resourceUsage2.getMemorySize() /
-            Resources.max(RESOURCE_CALCULATOR, null, minShare2, ONE)
-                .getMemorySize();
+      else if (s1Needy && s2Needy)
         res = (int) Math.signum(minShareRatio1 - minShareRatio2);
-      } else {
-        res = 0;
+      else
+        // Neither schedulable is needy
+        res = (int) Math.signum(useToWeightRatio1 - useToWeightRatio2);
+      if (res == 0) {
+        // Apps are tied in fairness ratio. Break the tie by submit time and job
+        // name to get a deterministic ordering, which is useful for unit tests.
+        res = (int) Math.signum(s1.getStartTime() - s2.getStartTime());
+        if (res == 0)
+          res = s1.getName().compareTo(s2.getName());
       }
-
       return res;
-    }
-
-    /**
-     * To simplify computation, use weights instead of fair shares to calculate
-     * fair share usage.
-     */
-    private int compareFairShareUsage(Schedulable s1, Schedulable s2,
-        Resource resourceUsage1, Resource resourceUsage2) {
-      double weight1 = s1.getWeights().getWeight(ResourceType.MEMORY);
-      double weight2 = s2.getWeights().getWeight(ResourceType.MEMORY);
-      double useToWeightRatio1;
-      double useToWeightRatio2;
-      if (weight1 > 0.0 && weight2 > 0.0) {
-        useToWeightRatio1 = resourceUsage1.getMemorySize() / weight1;
-        useToWeightRatio2 = resourceUsage2.getMemorySize() / weight2;
-      } else { // Either weight1 or weight2 equals to 0
-        if (weight1 == weight2) {
-          // If they have same weight, just compare usage
-          useToWeightRatio1 = resourceUsage1.getMemorySize();
-          useToWeightRatio2 = resourceUsage2.getMemorySize();
-        } else {
-          // By setting useToWeightRatios to negative weights, we give the
-          // zero-weight one less priority, so the non-zero weight one will
-          // be given slots.
-          useToWeightRatio1 = -weight1;
-          useToWeightRatio2 = -weight2;
-        }
-      }
-
-      return (int) Math.signum(useToWeightRatio1 - useToWeightRatio2);
     }
   }
 
   @Override
   public Comparator<Schedulable> getComparator() {
-    return COMPARATOR;
-  }
-
-  @Override
-  public ResourceCalculator getResourceCalculator() {
-    return RESOURCE_CALCULATOR;
+    return comparator;
   }
 
   @Override
   public Resource getHeadroom(Resource queueFairShare,
                               Resource queueUsage, Resource maxAvailable) {
-    long queueAvailableMemory = Math.max(
-        queueFairShare.getMemorySize() - queueUsage.getMemorySize(), 0);
+    int queueAvailableMemory = Math.max(
+        queueFairShare.getMemory() - queueUsage.getMemory(), 0);
     Resource headroom = Resources.createResource(
-        Math.min(maxAvailable.getMemorySize(), queueAvailableMemory),
+        Math.min(maxAvailable.getMemory(), queueAvailableMemory),
         maxAvailable.getVirtualCores());
     return headroom;
   }
@@ -229,15 +144,12 @@ public class FairSharePolicy extends SchedulingPolicy {
   }
 
   @Override
-  public boolean isChildPolicyAllowed(SchedulingPolicy childPolicy) {
-    if (childPolicy instanceof DominantResourceFairnessPolicy) {
-      LOG.error("Queue policy can't be " + DominantResourceFairnessPolicy.NAME
-          + " if the parent policy is " + getName() + ". Choose " +
-          getName() + " or " + FifoPolicy.NAME + " for child queues instead."
-          + " Please note that " + FifoPolicy.NAME
-          + " is only for leaf queues.");
-      return false;
-    }
-    return true;
+  public boolean checkIfAMResourceUsageOverLimit(Resource usage, Resource maxAMResource) {
+    return usage.getMemory() > maxAMResource.getMemory();
+  }
+
+  @Override
+  public byte getApplicableDepth() {
+    return SchedulingPolicy.DEPTH_ANY;
   }
 }

@@ -29,18 +29,15 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-import com.google.common.base.Supplier;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.UnsupportedFileSystemException;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.yarn.api.protocolrecords.GetContainerStatusesRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.StartContainerRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.StartContainersRequest;
@@ -66,7 +63,6 @@ import org.apache.hadoop.yarn.server.nodemanager.ContainerExecutor;
 import org.apache.hadoop.yarn.server.nodemanager.ContainerExecutor.Signal;
 import org.apache.hadoop.yarn.server.nodemanager.Context;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.BaseContainerManagerTest;
-import org.apache.hadoop.yarn.server.nodemanager.executor.ContainerSignalContext;
 import org.apache.hadoop.yarn.server.utils.BuilderUtils;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.LinuxResourceCalculatorPlugin;
@@ -89,7 +85,7 @@ public class TestContainersMonitor extends BaseContainerManagerTest {
   @Before
   public void setup() throws IOException {
     conf.setClass(
-        YarnConfiguration.NM_MON_RESOURCE_CALCULATOR,
+        YarnConfiguration.NM_CONTAINER_MON_RESOURCE_CALCULATOR,
         LinuxResourceCalculatorPlugin.class, ResourceCalculatorPlugin.class);
     conf.setBoolean(YarnConfiguration.NM_VMEM_CHECK_ENABLED, true);
     super.setup();
@@ -184,42 +180,6 @@ public class TestContainersMonitor extends BaseContainerManagerTest {
     }
   }
 
-  // Test that even if VMEM_PMEM_CHECK is not enabled, container monitor will
-  // run.
-  @Test
-  public void testContainerMonitor() throws Exception {
-    conf.setBoolean(YarnConfiguration.NM_VMEM_CHECK_ENABLED, false);
-    conf.setBoolean(YarnConfiguration.NM_PMEM_CHECK_ENABLED, false);
-    containerManager.start();
-    ContainerLaunchContext context =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    context.setCommands(Arrays.asList("sleep 6"));
-    ContainerId cId = createContainerId(1705);
-
-    // start the container
-    StartContainerRequest scRequest = StartContainerRequest.newInstance(context,
-        createContainerToken(cId, DUMMY_RM_IDENTIFIER, this.context.getNodeId(),
-            user, this.context.getContainerTokenSecretManager()));
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(Arrays.asList(scRequest));
-    containerManager.startContainers(allRequests);
-    BaseContainerManagerTest
-        .waitForContainerState(containerManager, cId, ContainerState.RUNNING);
-    Thread.sleep(2000);
-    GenericTestUtils.waitFor(new Supplier<Boolean>() {
-      public Boolean get() {
-        try {
-          return containerManager.getContainerStatuses(
-              GetContainerStatusesRequest.newInstance(Arrays.asList(cId)))
-              .getContainerStatuses().get(0).getHost() != null;
-        } catch (Exception e) {
-          return false;
-        }
-      }
-
-    }, 300, 10000);
-  }
-
   @Test
   public void testContainerKillOnMemoryOverflow() throws IOException,
       InterruptedException, YarnException {
@@ -247,9 +207,10 @@ public class TestContainersMonitor extends BaseContainerManagerTest {
     ApplicationId appId = ApplicationId.newInstance(0, 0);
     ApplicationAttemptId appAttemptId = ApplicationAttemptId.newInstance(appId, 1);
     ContainerId cId = ContainerId.newContainerId(appAttemptId, 0);
+    int port = 12345;
 
     URL resource_alpha =
-        URL.fromPath(localFS
+        ConverterUtils.getYarnUrlFromPath(localFS
             .makeQualified(new Path(scriptFile.getAbsolutePath())));
     LocalResource rsrc_alpha =
         recordFactory.newRecordInstance(LocalResource.class);
@@ -267,7 +228,7 @@ public class TestContainersMonitor extends BaseContainerManagerTest {
     commands.add("/bin/bash");
     commands.add(scriptFile.getAbsolutePath());
     containerLaunchContext.setCommands(commands);
-    Resource r = BuilderUtils.newResource(0, 0);
+    Resource r = BuilderUtils.newResource(8 * 1024 * 1024, 1);
     ContainerTokenIdentifier containerIdentifier =
         new ContainerTokenIdentifier(cId, context.getNodeId().toString(), user,
           r, System.currentTimeMillis() + 120000, 123, DUMMY_RM_IDENTIFIER,
@@ -327,11 +288,8 @@ public class TestContainersMonitor extends BaseContainerManagerTest {
 
     // Assert that the process is not alive anymore
     Assert.assertFalse("Process is still alive!",
-        exec.signalContainer(new ContainerSignalContext.Builder()
-            .setUser(user)
-            .setPid(pid)
-            .setSignal(Signal.NULL)
-            .build()));
+        exec.signalContainer(user,
+            pid, Signal.NULL));
   }
 
   @Test(timeout = 20000)

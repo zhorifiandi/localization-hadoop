@@ -36,13 +36,9 @@ public class MurmurHash extends Hash {
   public static Hash getInstance() {
     return _instance;
   }
-
+  
   @Override
   public int hash(byte[] data, int length, int seed) {
-    return hash(data, 0, length, seed);
-  }
-
-  public int hash(byte[] data, int offset, int length, int seed) {
     int m = 0x5bd1e995;
     int r = 24;
 
@@ -51,7 +47,7 @@ public class MurmurHash extends Hash {
     int len_4 = length >> 2;
 
     for (int i = 0; i < len_4; i++) {
-      int i_4 = offset + (i << 2);
+      int i_4 = i << 2;
       int k = data[i_4 + 3];
       k = k << 8;
       k = k | (data[i_4 + 2] & 0xff);
@@ -71,7 +67,6 @@ public class MurmurHash extends Hash {
     int left = length - len_m;
 
     if (left != 0) {
-      length += offset;
       if (left >= 3) {
         h ^= (int) data[length - 3] << 16;
       }

@@ -25,6 +25,7 @@ import java.io.PrintWriter;
 import org.apache.hadoop.yarn.webapp.MimeType;
 import org.apache.hadoop.yarn.webapp.WebAppException;
 import org.apache.hadoop.yarn.webapp.test.WebAppTests;
+import org.apache.hadoop.yarn.webapp.view.HtmlPage;
 import org.junit.Test;
 
 import static org.mockito.Mockito.*;
@@ -33,19 +34,19 @@ public class TestHtmlPage {
   
   public static class TestView extends HtmlPage {
     @Override
-    public void render(Page.HTML<__> html) {
+    public void render(Page.HTML<_> html) {
       html.
         title("test").
-        p("#testid").__("test note").__().__();
+        p("#testid")._("test note")._()._();
     }
   }
 
   public static class ShortView extends HtmlPage {
     @Override
-    public void render(Page.HTML<__> html) {
+    public void render(Page.HTML<_> html) {
       html.
         title("short test").
-        p().__("should throw");
+        p()._("should throw");
     }
   }
 

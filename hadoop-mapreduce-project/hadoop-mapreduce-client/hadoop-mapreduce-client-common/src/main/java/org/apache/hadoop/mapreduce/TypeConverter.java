@@ -84,25 +84,6 @@ public class TypeConverter {
     return jobId;
   }
 
-  public static int toYarnApplicationPriority(String priority) {
-    JobPriority jobPriority = JobPriority.valueOf(priority);
-    switch (jobPriority) {
-    case VERY_HIGH :
-      return 5;
-    case HIGH :
-      return 4;
-    case NORMAL :
-      return 3;
-    case LOW :
-      return 2;
-    case VERY_LOW :
-      return 1;
-    case DEFAULT :
-      return 0;
-    }
-    throw new IllegalArgumentException("Unrecognized priority: " + priority);
-  }
-
   private static String fromClusterTimeStamp(long clusterTimeStamp) {
     return Long.toString(clusterTimeStamp);
   }
@@ -184,8 +165,6 @@ public class TypeConverter {
       return Phase.REDUCE;
     case CLEANUP:
       return Phase.CLEANUP;
-    default:
-      break;
     }
     throw new YarnRuntimeException("Unrecognized Phase: " + phase);
   }
@@ -317,63 +296,19 @@ public class TypeConverter {
     }
     return yCntrs;
   }
-
+  
   public static JobStatus fromYarn(JobReport jobreport, String trackingUrl) {
-    JobPriority jobPriority = (jobreport.getJobPriority() == null)
-        ? JobPriority.DEFAULT
-        : fromYarnPriority(jobreport.getJobPriority().getPriority());
+    JobPriority jobPriority = JobPriority.NORMAL;
     JobStatus jobStatus = new org.apache.hadoop.mapred.JobStatus(
-        fromYarn(jobreport.getJobId()), jobreport.getSetupProgress(),
-        jobreport.getMapProgress(), jobreport.getReduceProgress(),
-        jobreport.getCleanupProgress(), fromYarn(jobreport.getJobState()),
-        jobPriority, jobreport.getUser(), jobreport.getJobName(),
-        jobreport.getJobFile(), trackingUrl, jobreport.isUber(),
-        jobreport.getHistoryFile());
+        fromYarn(jobreport.getJobId()), jobreport.getSetupProgress(), jobreport
+            .getMapProgress(), jobreport.getReduceProgress(), jobreport
+            .getCleanupProgress(), fromYarn(jobreport.getJobState()),
+        jobPriority, jobreport.getUser(), jobreport.getJobName(), jobreport
+            .getJobFile(), trackingUrl, jobreport.isUber());
     jobStatus.setStartTime(jobreport.getStartTime());
     jobStatus.setFinishTime(jobreport.getFinishTime());
     jobStatus.setFailureInfo(jobreport.getDiagnostics());
     return jobStatus;
-  }
-
-  private static JobPriority fromYarnPriority(int priority) {
-    switch (priority) {
-    case 5 :
-      return JobPriority.VERY_HIGH;
-    case 4 :
-      return JobPriority.HIGH;
-    case 3 :
-      return JobPriority.NORMAL;
-    case 2 :
-      return JobPriority.LOW;
-    case 1 :
-      return JobPriority.VERY_LOW;
-    case 0 :
-      return JobPriority.DEFAULT;
-    default :
-      break;
-    }
-    return JobPriority.UNDEFINED_PRIORITY;
-  }
-
-  public static org.apache.hadoop.mapreduce.JobPriority
-      fromYarnApplicationPriority(int priority) {
-    switch (priority) {
-    case 5 :
-      return org.apache.hadoop.mapreduce.JobPriority.VERY_HIGH;
-    case 4 :
-      return org.apache.hadoop.mapreduce.JobPriority.HIGH;
-    case 3 :
-      return org.apache.hadoop.mapreduce.JobPriority.NORMAL;
-    case 2 :
-      return org.apache.hadoop.mapreduce.JobPriority.LOW;
-    case 1 :
-      return org.apache.hadoop.mapreduce.JobPriority.VERY_LOW;
-    case 0 :
-      return org.apache.hadoop.mapreduce.JobPriority.DEFAULT;
-    default :
-      break;
-    }
-    return org.apache.hadoop.mapreduce.JobPriority.UNDEFINED_PRIORITY;
   }
 
   public static org.apache.hadoop.mapreduce.QueueState fromYarn(
@@ -507,9 +442,7 @@ public class TypeConverter {
           TypeConverter.fromYarn(application.getApplicationId()),
           0.0f, 0.0f, 0.0f, 0.0f,
           TypeConverter.fromYarn(application.getYarnApplicationState(), application.getFinalApplicationStatus()),
-          fromYarnApplicationPriority(
-            (application.getPriority() == null) ? 0 :
-            application.getPriority().getPriority()),
+          org.apache.hadoop.mapreduce.JobPriority.NORMAL,
           application.getUser(), application.getName(),
           application.getQueue(), jobFile, trackingUrl, false
       );
@@ -521,14 +454,13 @@ public class TypeConverter {
         application.getApplicationResourceUsageReport();
     if (resourceUsageReport != null) {
       jobStatus.setNeededMem(
-          (int)resourceUsageReport.getNeededResources().getMemorySize());
+          resourceUsageReport.getNeededResources().getMemory());
       jobStatus.setNumReservedSlots(
           resourceUsageReport.getNumReservedContainers());
       jobStatus.setNumUsedSlots(resourceUsageReport.getNumUsedContainers());
       jobStatus.setReservedMem(
-          (int)resourceUsageReport.getReservedResources().getMemorySize());
-      jobStatus.setUsedMem(
-          (int) resourceUsageReport.getUsedResources().getMemorySize());
+          resourceUsageReport.getReservedResources().getMemory());
+      jobStatus.setUsedMem(resourceUsageReport.getUsedResources().getMemory());
     }
     return jobStatus;
   }

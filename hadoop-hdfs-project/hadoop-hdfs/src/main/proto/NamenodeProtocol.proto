@@ -32,7 +32,6 @@ option java_generate_equals_and_hash = true;
 package hadoop.hdfs.namenode;
 
 import "hdfs.proto";
-import "HdfsServer.proto";
 
 /**
  * Get list of blocks for a given datanode with the total length 
@@ -193,16 +192,6 @@ message IsUpgradeFinalizedResponseProto {
 }
 
 /**
- * void request
- */
-message IsRollingUpgradeRequestProto {
-}
-
-message IsRollingUpgradeResponseProto {
-  required bool isRollingUpgrade = 1;
-}
-
-/**
  * Protocol used by the sub-ordinate namenode to send requests
  * the active/primary namenode.
  *
@@ -277,10 +266,4 @@ service NamenodeProtocolService {
    */
   rpc isUpgradeFinalized(IsUpgradeFinalizedRequestProto)
       returns (IsUpgradeFinalizedResponseProto);
-
-  /**
-   * Return whether the NameNode is in rolling upgrade (true) or not (false).
-   */
-  rpc isRollingUpgrade(IsRollingUpgradeRequestProto)
-      returns (IsRollingUpgradeResponseProto);
 }

@@ -17,13 +17,11 @@
  */
 package org.apache.hadoop.hdfs.server.datanode.fsdataset.impl;
 
-import org.apache.hadoop.hdfs.server.datanode.StorageLocation;
-
 /**
  * Tracks information about failure of a data volume.
  */
 final class VolumeFailureInfo {
-  private final StorageLocation failedStorageLocation;
+  private final String failedStorageLocation;
   private final long failureDate;
   private final long estimatedCapacityLost;
 
@@ -35,8 +33,7 @@ final class VolumeFailureInfo {
    * @param failedStorageLocation storage location that has failed
    * @param failureDate date/time of failure in milliseconds since epoch
    */
-  public VolumeFailureInfo(StorageLocation failedStorageLocation,
-      long failureDate) {
+  public VolumeFailureInfo(String failedStorageLocation, long failureDate) {
     this(failedStorageLocation, failureDate, 0);
   }
 
@@ -47,8 +44,8 @@ final class VolumeFailureInfo {
    * @param failureDate date/time of failure in milliseconds since epoch
    * @param estimatedCapacityLost estimate of capacity lost in bytes
    */
-  public VolumeFailureInfo(StorageLocation failedStorageLocation,
-      long failureDate, long estimatedCapacityLost) {
+  public VolumeFailureInfo(String failedStorageLocation, long failureDate,
+      long estimatedCapacityLost) {
     this.failedStorageLocation = failedStorageLocation;
     this.failureDate = failureDate;
     this.estimatedCapacityLost = estimatedCapacityLost;
@@ -59,7 +56,7 @@ final class VolumeFailureInfo {
    *
    * @return storage location that has failed
    */
-  public StorageLocation getFailedStorageLocation() {
+  public String getFailedStorageLocation() {
     return this.failedStorageLocation;
   }
 

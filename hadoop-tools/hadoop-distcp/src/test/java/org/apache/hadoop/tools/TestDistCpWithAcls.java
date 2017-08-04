@@ -196,7 +196,7 @@ public class TestDistCpWithAcls {
 
     @Override
     public FileStatus[] listStatus(Path f) throws IOException {
-      return new FileStatus[0];
+      return null;
     }
 
     @Override

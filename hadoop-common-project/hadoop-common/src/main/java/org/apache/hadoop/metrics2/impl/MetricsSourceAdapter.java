@@ -31,8 +31,9 @@ import javax.management.ReflectionException;
 
 import static com.google.common.base.Preconditions.*;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import org.apache.hadoop.metrics2.AbstractMetric;
 import org.apache.hadoop.metrics2.MetricsFilter;
@@ -41,8 +42,6 @@ import org.apache.hadoop.metrics2.MetricsTag;
 import static org.apache.hadoop.metrics2.impl.MetricsConfig.*;
 import org.apache.hadoop.metrics2.util.MBeans;
 import org.apache.hadoop.util.Time;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.apache.hadoop.metrics2.util.Contracts.*;
 
@@ -51,8 +50,7 @@ import static org.apache.hadoop.metrics2.util.Contracts.*;
  */
 class MetricsSourceAdapter implements DynamicMBean {
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(MetricsSourceAdapter.class);
+  private static final Log LOG = LogFactory.getLog(MetricsSourceAdapter.class);
 
   private final String prefix, name;
   private final MetricsSource source;
@@ -61,9 +59,9 @@ class MetricsSourceAdapter implements DynamicMBean {
   private final MBeanInfoBuilder infoBuilder;
   private final Iterable<MetricsTag> injectedTags;
 
-  private boolean lastRecsCleared;
+  private Iterable<MetricsRecordImpl> lastRecs;
   private long jmxCacheTS = 0;
-  private long jmxCacheTTL;
+  private int jmxCacheTTL;
   private MBeanInfo infoCache;
   private ObjectName mbeanName;
   private final boolean startMBeans;
@@ -71,7 +69,7 @@ class MetricsSourceAdapter implements DynamicMBean {
   MetricsSourceAdapter(String prefix, String name, String description,
                        MetricsSource source, Iterable<MetricsTag> injectedTags,
                        MetricsFilter recordFilter, MetricsFilter metricFilter,
-                       long jmxCacheTTL, boolean startMBeans) {
+                       int jmxCacheTTL, boolean startMBeans) {
     this.prefix = checkNotNull(prefix, "prefix");
     this.name = checkNotNull(name, "name");
     this.source = checkNotNull(source, "source");
@@ -82,14 +80,11 @@ class MetricsSourceAdapter implements DynamicMBean {
     this.metricFilter = metricFilter;
     this.jmxCacheTTL = checkArg(jmxCacheTTL, jmxCacheTTL > 0, "jmxCacheTTL");
     this.startMBeans = startMBeans;
-    // Initialize to true so we always trigger update MBeanInfo cache the first
-    // time calling updateJmxCache
-    this.lastRecsCleared = true;
   }
 
   MetricsSourceAdapter(String prefix, String name, String description,
                        MetricsSource source, Iterable<MetricsTag> injectedTags,
-                       long period, MetricsConfig conf) {
+                       int period, MetricsConfig conf) {
     this(prefix, name, description, source, injectedTags,
          conf.getFilter(RECORD_FILTER_KEY),
          conf.getFilter(METRIC_FILTER_KEY),
@@ -163,12 +158,8 @@ class MetricsSourceAdapter implements DynamicMBean {
       if (Time.now() - jmxCacheTS >= jmxCacheTTL) {
         // temporarilly advance the expiry while updating the cache
         jmxCacheTS = Time.now() + jmxCacheTTL;
-        // lastRecs might have been set to an object already by another thread.
-        // Track the fact that lastRecs has been reset once to make sure refresh
-        // is correctly triggered.
-        if (lastRecsCleared) {
+        if (lastRecs == null) {
           getAllMetrics = true;
-          lastRecsCleared = false;
         }
       }
       else {
@@ -176,29 +167,33 @@ class MetricsSourceAdapter implements DynamicMBean {
       }
     }
 
-    // HADOOP-11361: Release lock here for avoid deadlock between
-    // MetricsSystemImpl's lock and MetricsSourceAdapter's lock.
-    Iterable<MetricsRecordImpl> lastRecs = null;
     if (getAllMetrics) {
-      lastRecs = getMetrics(new MetricsCollectorImpl(), true);
+      MetricsCollectorImpl builder = new MetricsCollectorImpl();
+      getMetrics(builder, true);
     }
 
-    synchronized (this) {
-      if (lastRecs != null) {
-        updateAttrCache(lastRecs);
-        updateInfoCache(lastRecs);
+    synchronized(this) {
+      updateAttrCache();
+      if (getAllMetrics) {
+        updateInfoCache();
       }
       jmxCacheTS = Time.now();
-      lastRecsCleared = true;
+      lastRecs = null;  // in case regular interval update is not running
     }
   }
 
   Iterable<MetricsRecordImpl> getMetrics(MetricsCollectorImpl builder,
                                          boolean all) {
     builder.setRecordFilter(recordFilter).setMetricFilter(metricFilter);
+    synchronized(this) {
+      if (lastRecs == null && jmxCacheTS == 0) {
+        all = true; // Get all the metrics to populate the sink caches
+      }
+    }
     try {
       source.getMetrics(builder, all);
-    } catch (Exception e) {
+    }
+    catch (Exception e) {
       LOG.error("Error getting metrics from source "+ name, e);
     }
     for (MetricsRecordBuilderImpl rb : builder) {
@@ -206,7 +201,10 @@ class MetricsSourceAdapter implements DynamicMBean {
         rb.add(t);
       }
     }
-    return builder.getRecords();
+    synchronized(this) {
+      lastRecs = builder.getRecords();
+      return lastRecs;
+    }
   }
 
   synchronized void stop() {
@@ -235,20 +233,14 @@ class MetricsSourceAdapter implements DynamicMBean {
     return mbeanName;
   }
 
-  @VisibleForTesting
-  long getJmxCacheTTL() {
-    return jmxCacheTTL;
-  }
-
-  private void updateInfoCache(Iterable<MetricsRecordImpl> lastRecs) {
-    Preconditions.checkNotNull(lastRecs, "LastRecs should not be null");
+  
+  private void updateInfoCache() {
     LOG.debug("Updating info cache...");
     infoCache = infoBuilder.reset(lastRecs).get();
     LOG.debug("Done");
   }
 
-  private int updateAttrCache(Iterable<MetricsRecordImpl> lastRecs) {
-    Preconditions.checkNotNull(lastRecs, "LastRecs should not be null");
+  private int updateAttrCache() {
     LOG.debug("Updating attr cache...");
     int recNo = 0;
     int numMetrics = 0;

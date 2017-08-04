@@ -77,7 +77,6 @@ import org.apache.hadoop.mapreduce.v2.app.launcher.ContainerLauncherEvent;
 import org.apache.hadoop.mapreduce.v2.app.rm.ContainerAllocator;
 import org.apache.hadoop.mapreduce.v2.app.rm.ContainerAllocatorEvent;
 import org.apache.hadoop.mapreduce.v2.app.rm.RMHeartbeatHandler;
-import org.apache.hadoop.mapreduce.v2.app.rm.preemption.AMPreemptionPolicy;
 import org.apache.hadoop.mapreduce.v2.util.MRApps;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.net.NetUtils;
@@ -111,10 +110,6 @@ import org.junit.Assert;
 public class MRApp extends MRAppMaster {
   private static final Log LOG = LogFactory.getLog(MRApp.class);
 
-  /**
-   * The available resource of each container allocated.
-   */
-  private Resource resource;
   int maps;
   int reduces;
 
@@ -157,7 +152,7 @@ public class MRApp extends MRAppMaster {
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, String assignedQueue) {
     this(maps, reduces, autoComplete, testName, cleanOnStart, 1,
-        SystemClock.getInstance(), assignedQueue);
+        new SystemClock(), assignedQueue);
   }
 
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
@@ -191,13 +186,13 @@ public class MRApp extends MRAppMaster {
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount) {
     this(maps, reduces, autoComplete, testName, cleanOnStart, startCount,
-        SystemClock.getInstance(), null);
+        new SystemClock(), null);
   }
 
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount, boolean unregistered) {
     this(maps, reduces, autoComplete, testName, cleanOnStart, startCount,
-        SystemClock.getInstance(), unregistered);
+        new SystemClock(), unregistered);
   }
 
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
@@ -218,14 +213,14 @@ public class MRApp extends MRAppMaster {
       int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount, boolean unregistered) {
     this(appAttemptId, amContainerId, maps, reduces, autoComplete, testName,
-        cleanOnStart, startCount, SystemClock.getInstance(), unregistered, null);
+        cleanOnStart, startCount, new SystemClock(), unregistered, null);
   }
 
   public MRApp(ApplicationAttemptId appAttemptId, ContainerId amContainerId,
       int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount) {
     this(appAttemptId, amContainerId, maps, reduces, autoComplete, testName,
-        cleanOnStart, startCount, SystemClock.getInstance(), true, null);
+        cleanOnStart, startCount, new SystemClock(), true, null);
   }
 
   public MRApp(ApplicationAttemptId appAttemptId, ContainerId amContainerId,
@@ -254,7 +249,6 @@ public class MRApp extends MRAppMaster {
     // the job can reaches the final state when MRAppMaster shuts down.
     this.successfullyUnregistered.set(unregistered);
     this.assignedQueue = assignedQueue;
-    this.resource = Resource.newInstance(1234L, 2);
   }
 
   @Override
@@ -487,22 +481,7 @@ public class MRApp extends MRAppMaster {
   }
 
   @Override
-  protected TaskAttemptFinishingMonitor
-      createTaskAttemptFinishingMonitor(
-      EventHandler eventHandler) {
-    return new TaskAttemptFinishingMonitor(eventHandler) {
-      @Override
-      public synchronized void register(TaskAttemptId attemptID) {
-        getContext().getEventHandler().handle(
-            new TaskAttemptEvent(attemptID,
-                TaskAttemptEventType.TA_CONTAINER_COMPLETED));
-      }
-    };
-  }
-
-  @Override
-  protected TaskAttemptListener createTaskAttemptListener(
-      AppContext context, AMPreemptionPolicy policy) {
+  protected TaskAttemptListener createTaskAttemptListener(AppContext context) {
     return new TaskAttemptListener(){
       @Override
       public InetSocketAddress getAddress() {
@@ -549,7 +528,10 @@ public class MRApp extends MRAppMaster {
     public void handle(ContainerLauncherEvent event) {
       switch (event.getType()) {
       case CONTAINER_REMOTE_LAUNCH:
-        containerLaunched(event.getTaskAttemptID(), shufflePort);
+        getContext().getEventHandler().handle(
+            new TaskAttemptContainerLaunchedEvent(event.getTaskAttemptID(),
+                shufflePort));
+        
         attemptLaunched(event.getTaskAttemptID());
         break;
       case CONTAINER_REMOTE_CLEANUP:
@@ -557,16 +539,8 @@ public class MRApp extends MRAppMaster {
             new TaskAttemptEvent(event.getTaskAttemptID(),
                 TaskAttemptEventType.TA_CONTAINER_CLEANED));
         break;
-      case CONTAINER_COMPLETED:
-        break;
       }
     }
-  }
-
-  protected void containerLaunched(TaskAttemptId attemptID, int shufflePort) {
-    getContext().getEventHandler().handle(
-      new TaskAttemptContainerLaunchedEvent(attemptID,
-          shufflePort));
   }
 
   protected void attemptLaunched(TaskAttemptId attemptID) {
@@ -594,6 +568,7 @@ public class MRApp extends MRAppMaster {
             ContainerId.newContainerId(getContext().getApplicationAttemptId(),
               containerCount++);
         NodeId nodeId = NodeId.newInstance(NM_HOST, NM_PORT);
+        Resource resource = Resource.newInstance(1234, 2);
         ContainerTokenIdentifier containerTokenIdentifier =
             new ContainerTokenIdentifier(cId, nodeId.toString(), "user",
             resource, System.currentTimeMillis() + 10000, 42, 42,
@@ -716,10 +691,6 @@ public class MRApp extends MRAppMaster {
     }
   }
 
-  public void setAllocatedContainerResource(Resource resource) {
-    this.resource = resource;
-  }
-
   class TestJob extends JobImpl {
     //override the init transition
     private final TestInitTransition initTransition = new TestInitTransition(
@@ -815,6 +786,5 @@ public class MRApp extends MRAppMaster {
             new Text(containerToken.getService()));
     return token.decodeIdentifier();
   }
-
 }
  

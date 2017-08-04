@@ -23,7 +23,6 @@ import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.security.PrivilegedExceptionAction;
 import java.security.Security;
 import java.util.ArrayList;
@@ -45,6 +44,9 @@ import javax.security.sasl.SaslServer;
 import javax.security.sasl.SaslServerFactory;
 
 import org.apache.commons.codec.binary.Base64;
+import org.apache.commons.io.Charsets;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
@@ -55,8 +57,6 @@ import org.apache.hadoop.ipc.StandbyException;
 import org.apache.hadoop.security.token.SecretManager;
 import org.apache.hadoop.security.token.SecretManager.InvalidToken;
 import org.apache.hadoop.security.token.TokenIdentifier;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A utility class for dealing with SASL on RPC server
@@ -64,11 +64,11 @@ import org.slf4j.LoggerFactory;
 @InterfaceAudience.LimitedPrivate({"HDFS", "MapReduce"})
 @InterfaceStability.Evolving
 public class SaslRpcServer {
-  public static final Logger LOG = LoggerFactory.getLogger(SaslRpcServer.class);
+  public static final Log LOG = LogFactory.getLog(SaslRpcServer.class);
   public static final String SASL_DEFAULT_REALM = "default";
   private static SaslServerFactory saslFactory;
 
-  public enum QualityOfProtection {
+  public static enum QualityOfProtection {
     AUTHENTICATION("auth"),
     INTEGRITY("auth-int"),
     PRIVACY("auth-conf");
@@ -185,11 +185,11 @@ public class SaslRpcServer {
   }
   
   static String encodeIdentifier(byte[] identifier) {
-    return new String(Base64.encodeBase64(identifier), StandardCharsets.UTF_8);
+    return new String(Base64.encodeBase64(identifier), Charsets.UTF_8);
   }
 
   static byte[] decodeIdentifier(String identifier) {
-    return Base64.decodeBase64(identifier.getBytes(StandardCharsets.UTF_8));
+    return Base64.decodeBase64(identifier.getBytes(Charsets.UTF_8));
   }
 
   public static <T extends TokenIdentifier> T getIdentifier(String id,
@@ -208,7 +208,7 @@ public class SaslRpcServer {
 
   static char[] encodePassword(byte[] password) {
     return new String(Base64.encodeBase64(password),
-                      StandardCharsets.UTF_8).toCharArray();
+                      Charsets.UTF_8).toCharArray();
   }
 
   /** Splitting fully qualified Kerberos name into parts */
@@ -218,7 +218,7 @@ public class SaslRpcServer {
 
   /** Authentication method */
   @InterfaceStability.Evolving
-  public enum AuthMethod {
+  public static enum AuthMethod {
     SIMPLE((byte) 80, ""),
     KERBEROS((byte) 81, "GSSAPI"),
     @Deprecated
@@ -322,9 +322,8 @@ public class SaslRpcServer {
         }
         if (ac.isAuthorized()) {
           if (LOG.isDebugEnabled()) {
-            UserGroupInformation logUser =
-              getIdentifier(authzid, secretManager).getUser();
-            String username = logUser == null ? null : logUser.getUserName();
+            String username =
+              getIdentifier(authzid, secretManager).getUser().getUserName();
             LOG.debug("SASL server DIGEST-MD5 callback: setting "
                 + "canonicalized client ID: " + username);
           }

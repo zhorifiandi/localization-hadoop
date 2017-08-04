@@ -27,17 +27,16 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 import org.apache.commons.lang.SystemUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.test.GenericTestUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TestSharedFileDescriptorFactory {
-  static final Logger LOG =
-      LoggerFactory.getLogger(TestSharedFileDescriptorFactory.class);
+  static final Log LOG = LogFactory.getLog(TestSharedFileDescriptorFactory.class);
 
-  private static final File TEST_BASE = GenericTestUtils.getTestDir();
+  private static final File TEST_BASE =
+      new File(System.getProperty("test.build.data", "/tmp"));
 
   @Before
   public void setup() throws Exception {

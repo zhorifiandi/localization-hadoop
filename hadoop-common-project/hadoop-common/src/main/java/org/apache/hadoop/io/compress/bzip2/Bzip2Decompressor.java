@@ -23,8 +23,9 @@ import java.nio.Buffer;
 import java.nio.ByteBuffer;
 
 import org.apache.hadoop.io.compress.Decompressor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * A {@link Decompressor} based on the popular 
@@ -35,9 +36,11 @@ import org.slf4j.LoggerFactory;
 public class Bzip2Decompressor implements Decompressor {
   private static final int DEFAULT_DIRECT_BUFFER_SIZE = 64*1024;
   
-  private static final Logger LOG =
-      LoggerFactory.getLogger(Bzip2Decompressor.class);
+  private static final Log LOG = LogFactory.getLog(Bzip2Decompressor.class);
 
+  // HACK - Use this as a global lock in the JNI layer.
+  private static Class<Bzip2Decompressor> clazz = Bzip2Decompressor.class;
+  
   private long stream;
   private boolean conserveMemory;
   private int directBufferSize;

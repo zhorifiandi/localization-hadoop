@@ -30,8 +30,8 @@ public class CryptoAdminCmdExecutor extends CommandExecutor {
   }
 
   @Override
-  protected int execute(final String cmd) throws Exception {
+  protected void execute(final String cmd) throws Exception {
     String[] args = getCommandAsArgs(cmd, "NAMENODE", this.namenode);
-    return ToolRunner.run(admin, args);
+    ToolRunner.run(admin, args);
   }
 }

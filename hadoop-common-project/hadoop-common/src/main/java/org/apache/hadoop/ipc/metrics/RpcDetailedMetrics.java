@@ -17,14 +17,14 @@
  */
 package org.apache.hadoop.ipc.metrics;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.metrics2.annotation.Metric;
 import org.apache.hadoop.metrics2.annotation.Metrics;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.metrics2.lib.MetricsRegistry;
-import org.apache.hadoop.metrics2.lib.MutableRatesWithAggregation;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.hadoop.metrics2.lib.MutableRates;
 
 /**
  * This class is for maintaining RPC method related statistics
@@ -34,10 +34,9 @@ import org.slf4j.LoggerFactory;
 @Metrics(about="Per method RPC metrics", context="rpcdetailed")
 public class RpcDetailedMetrics {
 
-  @Metric MutableRatesWithAggregation rates;
-  @Metric MutableRatesWithAggregation deferredRpcRates;
+  @Metric MutableRates rates;
 
-  static final Logger LOG = LoggerFactory.getLogger(RpcDetailedMetrics.class);
+  static final Log LOG = LogFactory.getLog(RpcDetailedMetrics.class);
   final MetricsRegistry registry;
   final String name;
 
@@ -45,7 +44,7 @@ public class RpcDetailedMetrics {
     name = "RpcDetailedActivityForPort"+ port;
     registry = new MetricsRegistry("rpcdetailed")
         .tag("port", "RPC port", String.valueOf(port));
-    LOG.debug(registry.info().toString());
+    LOG.debug(registry.info());
   }
 
   public String name() { return name; }
@@ -61,7 +60,6 @@ public class RpcDetailedMetrics {
    */
   public void init(Class<?> protocol) {
     rates.init(protocol);
-    deferredRpcRates.init(protocol);
   }
 
   /**
@@ -72,10 +70,6 @@ public class RpcDetailedMetrics {
   //@Override // some instrumentation interface
   public void addProcessingTime(String name, int processingTime) {
     rates.add(name, processingTime);
-  }
-
-  public void addDeferredProcessingTime(String name, long processingTime) {
-    deferredRpcRates.add(name, processingTime);
   }
 
   /**

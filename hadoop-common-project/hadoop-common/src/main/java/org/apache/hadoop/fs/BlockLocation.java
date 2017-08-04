@@ -18,11 +18,9 @@
 package org.apache.hadoop.fs;
 
 import java.io.IOException;
-import java.io.Serializable;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.util.StringInterner;
 
 /**
  * Represents the network location of a block, information about the hosts
@@ -31,22 +29,16 @@ import org.apache.hadoop.util.StringInterner;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable
-public class BlockLocation implements Serializable {
-  private static final long serialVersionUID = 0x22986f6d;
-
+public class BlockLocation {
   private String[] hosts; // Datanode hostnames
   private String[] cachedHosts; // Datanode hostnames with a cached replica
   private String[] names; // Datanode IP:xferPort for accessing the block
   private String[] topologyPaths; // Full path name in network topology
-  private String[] storageIds; // Storage ID of each replica
-  private StorageType[] storageTypes; // Storage type of each replica
   private long offset;  // Offset of the block in the file
   private long length;
   private boolean corrupt;
 
   private static final String[] EMPTY_STR_ARRAY = new String[0];
-  private static final StorageType[] EMPTY_STORAGE_TYPE_ARRAY =
-      new StorageType[0];
 
   /**
    * Default Constructor
@@ -66,8 +58,6 @@ public class BlockLocation implements Serializable {
     this.offset = that.offset;
     this.length = that.length;
     this.corrupt = that.corrupt;
-    this.storageIds = that.storageIds;
-    this.storageTypes = that.storageTypes;
   }
 
   /**
@@ -105,42 +95,25 @@ public class BlockLocation implements Serializable {
 
   public BlockLocation(String[] names, String[] hosts, String[] cachedHosts,
       String[] topologyPaths, long offset, long length, boolean corrupt) {
-    this(names, hosts, cachedHosts, topologyPaths, null, null, offset, length,
-        corrupt);
-  }
-
-  public BlockLocation(String[] names, String[] hosts, String[] cachedHosts,
-      String[] topologyPaths, String[] storageIds, StorageType[] storageTypes,
-      long offset, long length, boolean corrupt) {
     if (names == null) {
       this.names = EMPTY_STR_ARRAY;
     } else {
-      this.names = StringInterner.internStringsInArray(names);
+      this.names = names;
     }
     if (hosts == null) {
       this.hosts = EMPTY_STR_ARRAY;
     } else {
-      this.hosts = StringInterner.internStringsInArray(hosts);
+      this.hosts = hosts;
     }
     if (cachedHosts == null) {
       this.cachedHosts = EMPTY_STR_ARRAY;
     } else {
-      this.cachedHosts = StringInterner.internStringsInArray(cachedHosts);
+      this.cachedHosts = cachedHosts;
     }
     if (topologyPaths == null) {
       this.topologyPaths = EMPTY_STR_ARRAY;
     } else {
-      this.topologyPaths = StringInterner.internStringsInArray(topologyPaths);
-    }
-    if (storageIds == null) {
-      this.storageIds = EMPTY_STR_ARRAY;
-    } else {
-      this.storageIds = StringInterner.internStringsInArray(storageIds);
-    }
-    if (storageTypes == null) {
-      this.storageTypes = EMPTY_STORAGE_TYPE_ARRAY;
-    } else {
-      this.storageTypes = storageTypes;
+      this.topologyPaths = topologyPaths;
     }
     this.offset = offset;
     this.length = length;
@@ -175,21 +148,7 @@ public class BlockLocation implements Serializable {
   public String[] getTopologyPaths() throws IOException {
     return topologyPaths;
   }
-
-  /**
-   * Get the storageID of each replica of the block.
-   */
-  public String[] getStorageIds() {
-    return storageIds;
-  }
-
-  /**
-   * Get the storage type of each replica of the block.
-   */
-  public StorageType[] getStorageTypes() {
-    return storageTypes;
-  }
-
+  
   /**
    * Get the start offset of file associated with this block
    */
@@ -239,7 +198,7 @@ public class BlockLocation implements Serializable {
     if (hosts == null) {
       this.hosts = EMPTY_STR_ARRAY;
     } else {
-      this.hosts = StringInterner.internStringsInArray(hosts);
+      this.hosts = hosts;
     }
   }
 
@@ -250,7 +209,7 @@ public class BlockLocation implements Serializable {
     if (cachedHosts == null) {
       this.cachedHosts = EMPTY_STR_ARRAY;
     } else {
-      this.cachedHosts = StringInterner.internStringsInArray(cachedHosts);
+      this.cachedHosts = cachedHosts;
     }
   }
 
@@ -261,7 +220,7 @@ public class BlockLocation implements Serializable {
     if (names == null) {
       this.names = EMPTY_STR_ARRAY;
     } else {
-      this.names = StringInterner.internStringsInArray(names);
+      this.names = names;
     }
   }
 
@@ -272,23 +231,7 @@ public class BlockLocation implements Serializable {
     if (topologyPaths == null) {
       this.topologyPaths = EMPTY_STR_ARRAY;
     } else {
-      this.topologyPaths = StringInterner.internStringsInArray(topologyPaths);
-    }
-  }
-
-  public void setStorageIds(String[] storageIds) {
-    if (storageIds == null) {
-      this.storageIds = EMPTY_STR_ARRAY;
-    } else {
-      this.storageIds = StringInterner.internStringsInArray(storageIds);
-    }
-  }
-
-  public void setStorageTypes(StorageType[] storageTypes) {
-    if (storageTypes == null) {
-      this.storageTypes = EMPTY_STORAGE_TYPE_ARRAY;
-    } else {
-      this.storageTypes = storageTypes;
+      this.topologyPaths = topologyPaths;
     }
   }
 

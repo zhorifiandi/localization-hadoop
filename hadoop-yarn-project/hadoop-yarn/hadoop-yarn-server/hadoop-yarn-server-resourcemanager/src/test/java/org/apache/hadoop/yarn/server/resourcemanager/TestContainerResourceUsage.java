@@ -123,7 +123,7 @@ public class TestContainerResourceUsage {
     AggregateAppResourceUsage ru = calculateContainerResourceMetrics(rmContainer);
     rmAppMetrics = app0.getRMAppMetrics();
 
-    Assert.assertEquals("Unexpected MemorySeconds value",
+    Assert.assertEquals("Unexcpected MemorySeconds value",
         ru.getMemorySeconds(), rmAppMetrics.getMemorySeconds());
     Assert.assertEquals("Unexpected VcoreSeconds value",
         ru.getVcoreSeconds(), rmAppMetrics.getVcoreSeconds());
@@ -138,8 +138,10 @@ public class TestContainerResourceUsage {
     conf.setInt(YarnConfiguration.RM_AM_MAX_ATTEMPTS, 1);
     conf.setBoolean(YarnConfiguration.RECOVERY_ENABLED, true);
     conf.setBoolean(YarnConfiguration.RM_WORK_PRESERVING_RECOVERY_ENABLED, false);
-    conf.set(YarnConfiguration.RM_STORE, MemoryRMStateStore.class.getName());
-    MockRM rm0 = new MockRM(conf);
+    MemoryRMStateStore memStore = new MemoryRMStateStore();
+    memStore.init(conf);
+
+    MockRM rm0 = new MockRM(conf, memStore);
     rm0.start();
     MockNM nm =
         new MockNM("127.0.0.1:1234", 65536, rm0.getResourceTrackerService());
@@ -221,13 +223,13 @@ public class TestContainerResourceUsage {
     }
 
     RMAppMetrics metricsBefore = app0.getRMAppMetrics();
-    Assert.assertEquals("Unexpected MemorySeconds value",
+    Assert.assertEquals("Unexcpected MemorySeconds value",
         memorySeconds, metricsBefore.getMemorySeconds());
     Assert.assertEquals("Unexpected VcoreSeconds value",
         vcoreSeconds, metricsBefore.getVcoreSeconds());
 
     // create new RM to represent RM restart. Load up the state store.
-    MockRM rm1 = new MockRM(conf, rm0.getRMStateStore());
+    MockRM rm1 = new MockRM(conf, memStore);
     rm1.start();
     RMApp app0After =
         rm1.getRMContext().getRMApps().get(app0.getApplicationId());
@@ -306,8 +308,8 @@ public class TestContainerResourceUsage {
         app.getCurrentAppAttempt().getMasterContainer().getId();
     nm.nodeHeartbeat(am0.getApplicationAttemptId(),
                       amContainerId.getContainerId(), ContainerState.COMPLETE);
-    rm.waitForState(am0.getApplicationAttemptId(), RMAppAttemptState.FAILED);
-    rm.drainEvents();
+    am0.waitForState(RMAppAttemptState.FAILED);
+
     long memorySeconds = 0;
     long vcoreSeconds = 0;
 
@@ -329,8 +331,7 @@ public class TestContainerResourceUsage {
     } else {
       // If keepRunningContainers is false, all live containers should now
       // be completed. Calculate the resource usage metrics for all of them.
-      for (RMContainer c : rmContainers) {
-        waitforContainerCompletion(rm, nm, amContainerId, c);
+      for (RMContainer c : rmContainers) { 
         AggregateAppResourceUsage ru = calculateContainerResourceMetrics(c);
         memorySeconds += ru.getMemorySeconds();
         vcoreSeconds += ru.getVcoreSeconds();
@@ -345,11 +346,11 @@ public class TestContainerResourceUsage {
     Assert.assertFalse(attempt2.getAppAttemptId()
                                .equals(am0.getApplicationAttemptId()));
 
-    rm.waitForState(attempt2.getAppAttemptId(), RMAppAttemptState.SCHEDULED);
+    // launch the new AM
     nm.nodeHeartbeat(true);
     MockAM am1 = rm.sendAMLaunched(attempt2.getAppAttemptId());
     am1.registerAppAttempt();
-    rm.waitForState(am1.getApplicationAttemptId(), RMAppAttemptState.RUNNING);
+    
     // allocate NUM_CONTAINERS containers
     am1.allocate("127.0.0.1", 1024, NUM_CONTAINERS,
       new ArrayList<ContainerId>());
@@ -367,7 +368,7 @@ public class TestContainerResourceUsage {
     }
 
     rm.waitForState(app.getApplicationId(), RMAppState.RUNNING);
-
+    
     // Capture running containers for later use by metrics calculations.
     rmContainers = rm.scheduler.getSchedulerAppInfo(attempt2.getAppAttemptId())
                                .getLiveContainers();
@@ -382,7 +383,6 @@ public class TestContainerResourceUsage {
 
     // Calculate container usage metrics for second attempt.
     for (RMContainer c : rmContainers) {
-      waitforContainerCompletion(rm, nm, amContainerId, c);
       AggregateAppResourceUsage ru = calculateContainerResourceMetrics(c);
       memorySeconds += ru.getMemorySeconds();
       vcoreSeconds += ru.getVcoreSeconds();
@@ -390,7 +390,7 @@ public class TestContainerResourceUsage {
     
     RMAppMetrics rmAppMetrics = app.getRMAppMetrics();
 
-    Assert.assertEquals("Unexpected MemorySeconds value",
+    Assert.assertEquals("Unexcpected MemorySeconds value",
         memorySeconds, rmAppMetrics.getMemorySeconds());
     Assert.assertEquals("Unexpected VcoreSeconds value",
         vcoreSeconds, rmAppMetrics.getVcoreSeconds());
@@ -399,26 +399,12 @@ public class TestContainerResourceUsage {
     return;
   }
 
-  private void waitforContainerCompletion(MockRM rm, MockNM nm,
-      ContainerId amContainerId, RMContainer container) throws Exception {
-    ContainerId containerId = container.getContainerId();
-    if (null != rm.scheduler.getRMContainer(containerId)) {
-      if (containerId.equals(amContainerId)) {
-        rm.waitForState(nm, containerId, RMContainerState.COMPLETED);
-      } else {
-        rm.waitForState(nm, containerId, RMContainerState.KILLED);
-      }
-    } else {
-      rm.drainEvents();
-    }
-  }
-
   private AggregateAppResourceUsage calculateContainerResourceMetrics(
       RMContainer rmContainer) {
     Resource resource = rmContainer.getContainer().getResource();
     long usedMillis =
         rmContainer.getFinishTime() - rmContainer.getCreationTime();
-    long memorySeconds = resource.getMemorySize()
+    long memorySeconds = resource.getMemory()
                           * usedMillis / DateUtils.MILLIS_PER_SECOND;
     long vcoreSeconds = resource.getVirtualCores()
                           * usedMillis / DateUtils.MILLIS_PER_SECOND;

@@ -22,7 +22,6 @@ import java.io.BufferedWriter;
 import java.io.OutputStreamWriter;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.test.GenericTestUtils;
 
 import junit.framework.TestCase;
 
@@ -31,8 +30,14 @@ public class TestAvroFSInput extends TestCase {
   private static final String INPUT_DIR = "AvroFSInput";
 
   private Path getInputPath() {
-    return new Path(GenericTestUtils.getTempPath(INPUT_DIR));
+    String dataDir = System.getProperty("test.build.data");
+    if (null == dataDir) {
+      return new Path(INPUT_DIR);
+    } else {
+      return new Path(new Path(dataDir), INPUT_DIR);
+    }
   }
+
 
   public void testAFSInput() throws Exception {
     Configuration conf = new Configuration();

@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.fs.shell;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeWindows;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -30,17 +29,14 @@ import java.util.Arrays;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Shell;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 public class TestPathData {
-  private static final String TEST_ROOT_DIR =
-      GenericTestUtils.getTestDir("testPD").getAbsolutePath();
+  private static final String TEST_ROOT_DIR = 
+      System.getProperty("test.build.data","build/test/data") + "/testPD";
   protected Configuration conf;
   protected FileSystem fs;
   protected Path testDir;
@@ -129,7 +125,9 @@ public class TestPathData {
 
   @Test (timeout = 5000)
   public void testToFileRawWindowsPaths() throws Exception {
-    assumeWindows();
+    if (!Path.WINDOWS) {
+      return;
+    }
 
     // Can we handle raw Windows paths? The files need not exist for
     // these tests to succeed.
@@ -156,7 +154,9 @@ public class TestPathData {
 
   @Test (timeout = 5000)
   public void testInvalidWindowsPath() throws Exception {
-    assumeWindows();
+    if (!Path.WINDOWS) {
+      return;
+    }
 
     // Verify that the following invalid paths are rejected.
     String [] winPaths = {
@@ -217,23 +217,6 @@ public class TestPathData {
         sortedString("../d2/f3"),
         sortedString(items)
     );
-  }
-
-  @Test
-  public void testGlobThrowsExceptionForUnreadableDir() throws Exception {
-    Path obscuredDir = new Path("foo");
-    Path subDir = new Path(obscuredDir, "bar"); //so foo is non-empty
-    fs.mkdirs(subDir);
-    fs.setPermission(obscuredDir, new FsPermission((short)0)); //no access
-    try {
-      PathData.expandAsGlob("foo/*", conf);
-      Assert.fail("Should throw IOException");
-    } catch (IOException ioe) {
-      // expected
-    } finally {
-      // make sure the test directory can be deleted
-      fs.setPermission(obscuredDir, new FsPermission((short)0755)); //default
-    }
   }
 
   @Test (timeout = 30000)

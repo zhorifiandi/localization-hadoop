@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.http;
 
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Logger;
 import org.junit.Test;
 
@@ -77,8 +76,8 @@ public class TestHttpServerLifecycle extends HttpServerFunctionalTest {
   public void testStartedServerWithRequestLog() throws Throwable {
     HttpRequestLogAppender requestLogAppender = new HttpRequestLogAppender();
     requestLogAppender.setName("httprequestlog");
-    requestLogAppender.setFilename(
-        GenericTestUtils.getTempPath("jetty-name-yyyy_mm_dd.log"));
+    requestLogAppender.setFilename(System.getProperty("test.build.data", "/tmp/")
+        + "jetty-name-yyyy_mm_dd.log");
     Logger.getLogger(HttpServer2.class.getName() + ".test").addAppender(requestLogAppender);
     HttpServer2 server = null;
     server = createTestServer();

@@ -25,7 +25,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.test.TestDirHelper;
 import org.junit.Assert;
 import org.junit.runner.RunWith;
@@ -42,7 +41,9 @@ public class TestHttpFSFileSystemLocalFileSystem extends BaseTestHttpFSWith {
 
   static {
     new TestDirHelper();
-    File file = GenericTestUtils.getTestDir("local");
+    String prefix =
+      System.getProperty("test.build.dir", "target/test-dir") + "/local";
+    File file = new File(prefix);
     file.mkdirs();
     PATH_PREFIX = file.getAbsolutePath();
   }

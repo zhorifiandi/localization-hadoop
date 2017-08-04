@@ -37,7 +37,6 @@ import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.minikdc.MiniKdc;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authentication.KerberosTestUtils;
-import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.server.resourcemanager.MockRM;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
@@ -237,11 +236,11 @@ public class TestRMWebappAuthentication {
     assertEquals(Status.ACCEPTED.getStatusCode(), conn.getResponseCode());
     boolean appExists =
         rm.getRMContext().getRMApps()
-          .containsKey(ApplicationId.fromString(appid));
+          .containsKey(ConverterUtils.toApplicationId(appid));
     assertTrue(appExists);
     RMApp actualApp =
         rm.getRMContext().getRMApps()
-          .get(ApplicationId.fromString(appid));
+          .get(ConverterUtils.toApplicationId(appid));
     String owner = actualApp.getUser();
     assertEquals(
       rm.getConfig().get(CommonConfigurationKeys.HADOOP_HTTP_STATIC_USER,
@@ -260,11 +259,11 @@ public class TestRMWebappAuthentication {
     conn.getInputStream();
     appExists =
         rm.getRMContext().getRMApps()
-          .containsKey(ApplicationId.fromString(appid));
+          .containsKey(ConverterUtils.toApplicationId(appid));
     assertTrue(appExists);
     actualApp =
         rm.getRMContext().getRMApps()
-          .get(ApplicationId.fromString(appid));
+          .get(ConverterUtils.toApplicationId(appid));
     owner = actualApp.getUser();
     assertEquals("client", owner);
 

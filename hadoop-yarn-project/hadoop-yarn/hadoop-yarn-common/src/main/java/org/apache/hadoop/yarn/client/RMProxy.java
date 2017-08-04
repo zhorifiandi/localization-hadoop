@@ -40,7 +40,6 @@ import org.apache.hadoop.io.retry.RetryPolicies;
 import org.apache.hadoop.io.retry.RetryPolicy;
 import org.apache.hadoop.io.retry.RetryProxy;
 import org.apache.hadoop.ipc.RetriableException;
-import org.apache.hadoop.ipc.StandbyException;
 import org.apache.hadoop.net.ConnectTimeoutException;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.ReflectionUtils;
@@ -57,35 +56,27 @@ import com.google.common.annotations.VisibleForTesting;
 public class RMProxy<T> {
 
   private static final Log LOG = LogFactory.getLog(RMProxy.class);
-  private UserGroupInformation user;
 
-  protected RMProxy() {
-    try {
-      this.user = UserGroupInformation.getCurrentUser();
-    } catch (IOException ioe) {
-      throw new YarnRuntimeException("Unable to determine user", ioe);
-    }
-  }
+  protected RMProxy() {}
 
   /**
    * Verify the passed protocol is supported.
    */
   @Private
-  public void checkAllowedProtocols(Class<?> protocol) {}
+  protected void checkAllowedProtocols(Class<?> protocol) {}
 
   /**
    * Get the ResourceManager address from the provided Configuration for the
    * given protocol.
    */
   @Private
-  public InetSocketAddress getRMAddress(
+  protected InetSocketAddress getRMAddress(
       YarnConfiguration conf, Class<?> protocol) throws IOException {
     throw new UnsupportedOperationException("This method should be invoked " +
         "from an instance of ClientRMProxy or ServerRMProxy");
   }
 
   /**
-   * Currently, used by Client and AM only
    * Create a proxy for the specified protocol. For non-HA,
    * this is a direct connection to the ResourceManager address. When HA is
    * enabled, the proxy handles the failover between the ResourceManagers as
@@ -93,47 +84,45 @@ public class RMProxy<T> {
    */
   @Private
   protected static <T> T createRMProxy(final Configuration configuration,
-      final Class<T> protocol, RMProxy<T> instance) throws IOException {
+      final Class<T> protocol, RMProxy instance) throws IOException {
     YarnConfiguration conf = (configuration instanceof YarnConfiguration)
         ? (YarnConfiguration) configuration
         : new YarnConfiguration(configuration);
-    RetryPolicy retryPolicy = createRetryPolicy(conf,
-        (HAUtil.isHAEnabled(conf) || HAUtil.isFederationFailoverEnabled(conf)));
-    return newProxyInstance(conf, protocol, instance, retryPolicy);
-  }
-
-  /**
-   * Currently, used by NodeManagers only.
-   * Create a proxy for the specified protocol. For non-HA,
-   * this is a direct connection to the ResourceManager address. When HA is
-   * enabled, the proxy handles the failover between the ResourceManagers as
-   * well.
-   */
-  @Private
-  protected static <T> T createRMProxy(final Configuration configuration,
-      final Class<T> protocol, RMProxy<T> instance, final long retryTime,
-      final long retryInterval) throws IOException {
-    YarnConfiguration conf = (configuration instanceof YarnConfiguration)
-        ? (YarnConfiguration) configuration
-        : new YarnConfiguration(configuration);
-    RetryPolicy retryPolicy = createRetryPolicy(conf, retryTime, retryInterval,
-        HAUtil.isHAEnabled(conf));
-    return newProxyInstance(conf, protocol, instance, retryPolicy);
-  }
-
-  private static <T> T newProxyInstance(final YarnConfiguration conf,
-      final Class<T> protocol, RMProxy<T> instance, RetryPolicy retryPolicy)
-          throws IOException{
-    if (HAUtil.isHAEnabled(conf) || HAUtil.isFederationEnabled(conf)) {
+    RetryPolicy retryPolicy = createRetryPolicy(conf);
+    if (HAUtil.isHAEnabled(conf)) {
       RMFailoverProxyProvider<T> provider =
           instance.createRMFailoverProxyProvider(conf, protocol);
       return (T) RetryProxy.create(protocol, provider, retryPolicy);
     } else {
       InetSocketAddress rmAddress = instance.getRMAddress(conf, protocol);
       LOG.info("Connecting to ResourceManager at " + rmAddress);
-      T proxy = instance.getProxy(conf, protocol, rmAddress);
+      T proxy = RMProxy.<T>getProxy(conf, protocol, rmAddress);
       return (T) RetryProxy.create(protocol, proxy, retryPolicy);
     }
+  }
+
+  /**
+   * @deprecated
+   * This method is deprecated and is not used by YARN internally any more.
+   * To create a proxy to the RM, use ClientRMProxy#createRMProxy or
+   * ServerRMProxy#createRMProxy.
+   *
+   * Create a proxy to the ResourceManager at the specified address.
+   *
+   * @param conf Configuration to generate retry policy
+   * @param protocol Protocol for the proxy
+   * @param rmAddress Address of the ResourceManager
+   * @param <T> Type information of the proxy
+   * @return Proxy to the RM
+   * @throws IOException
+   */
+  @Deprecated
+  public static <T> T createRMProxy(final Configuration conf,
+      final Class<T> protocol, InetSocketAddress rmAddress) throws IOException {
+    RetryPolicy retryPolicy = createRetryPolicy(conf);
+    T proxy = RMProxy.<T>getProxy(conf, protocol, rmAddress);
+    LOG.info("Connecting to ResourceManager at " + rmAddress);
+    return (T) RetryProxy.create(protocol, proxy, retryPolicy);
   }
 
   /**
@@ -141,10 +130,10 @@ public class RMProxy<T> {
    * RetryProxy.
    */
   @Private
-  public <T> T getProxy(final Configuration conf,
+  static <T> T getProxy(final Configuration conf,
       final Class<T> protocol, final InetSocketAddress rmAddress)
       throws IOException {
-    return user.doAs(
+    return UserGroupInformation.getCurrentUser().doAs(
       new PrivilegedAction<T>() {
         @Override
         public T run() {
@@ -180,8 +169,7 @@ public class RMProxy<T> {
    */
   @Private
   @VisibleForTesting
-  public static RetryPolicy createRetryPolicy(Configuration conf,
-      boolean isHAEnabled) {
+  public static RetryPolicy createRetryPolicy(Configuration conf) {
     long rmConnectWaitMS =
         conf.getLong(
             YarnConfiguration.RESOURCEMANAGER_CONNECT_MAX_WAIT_MS,
@@ -191,19 +179,6 @@ public class RMProxy<T> {
             YarnConfiguration.RESOURCEMANAGER_CONNECT_RETRY_INTERVAL_MS,
             YarnConfiguration
                 .DEFAULT_RESOURCEMANAGER_CONNECT_RETRY_INTERVAL_MS);
-
-    return createRetryPolicy(conf, rmConnectWaitMS, rmConnectionRetryIntervalMS,
-        isHAEnabled);
-  }
-
-  /**
-   * Fetch retry policy from Configuration and create the
-   * retry policy with specified retryTime and retry interval.
-   */
-  protected static RetryPolicy createRetryPolicy(Configuration conf,
-      long retryTime, long retryInterval, boolean isHAEnabled) {
-    long rmConnectWaitMS = retryTime;
-    long rmConnectionRetryIntervalMS = retryInterval;
 
     boolean waitForEver = (rmConnectWaitMS == -1);
     if (!waitForEver) {
@@ -224,7 +199,7 @@ public class RMProxy<T> {
     }
 
     // Handle HA case first
-    if (isHAEnabled) {
+    if (HAUtil.isHAEnabled(conf)) {
       final long failoverSleepBaseMs = conf.getLong(
           YarnConfiguration.CLIENT_FAILOVER_SLEEPTIME_BASE_MS,
           rmConnectionRetryIntervalMS);
@@ -257,8 +232,7 @@ public class RMProxy<T> {
 
     RetryPolicy retryPolicy = null;
     if (waitForEver) {
-      retryPolicy = RetryPolicies.retryForeverWithFixedSleep(
-          rmConnectionRetryIntervalMS, TimeUnit.MILLISECONDS);
+      retryPolicy = RetryPolicies.RETRY_FOREVER;
     } else {
       retryPolicy =
           RetryPolicies.retryUpToMaximumTimeWithFixedSleep(rmConnectWaitMS,
@@ -275,11 +249,8 @@ public class RMProxy<T> {
     exceptionToPolicyMap.put(ConnectTimeoutException.class, retryPolicy);
     exceptionToPolicyMap.put(RetriableException.class, retryPolicy);
     exceptionToPolicyMap.put(SocketException.class, retryPolicy);
-    exceptionToPolicyMap.put(StandbyException.class, retryPolicy);
-    // YARN-4288: local IOException is also possible.
-    exceptionToPolicyMap.put(IOException.class, retryPolicy);
-    // Not retry on remote IO exception.
-    return RetryPolicies.retryOtherThanRemoteException(
+
+    return RetryPolicies.retryByException(
         RetryPolicies.TRY_ONCE_THEN_FAIL, exceptionToPolicyMap);
   }
 }

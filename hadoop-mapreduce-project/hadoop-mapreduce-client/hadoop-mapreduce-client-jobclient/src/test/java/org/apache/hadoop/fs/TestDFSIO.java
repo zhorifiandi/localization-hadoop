@@ -28,8 +28,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.PrintStream;
-import java.text.DecimalFormat;
-import java.util.Collection;
 import java.util.Date;
 import java.util.Random;
 import java.util.StringTokenizer;
@@ -37,10 +35,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.hdfs.protocol.BlockStoragePolicy;
-import org.apache.hadoop.hdfs.protocol.ErasureCodingPolicy;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.SequenceFile.CompressionType;
@@ -107,14 +102,9 @@ public class TestDFSIO implements Tool {
                     " [-nrFiles N]" +
                     " [-size Size[B|KB|MB|GB|TB]]" +
                     " [-resFile resultFileName] [-bufferSize Bytes]" +
-                    " [-storagePolicy storagePolicyName]" +
-                    " [-erasureCodePolicy erasureCodePolicyName]";
+                    " [-rootDir]";
 
   private Configuration config;
-  private static final String STORAGE_POLICY_NAME_KEY =
-      "test.io.block.storage.policy";
-  private static final String ERASURE_CODE_POLICY_NAME_KEY =
-      "test.io.erasure.code.policy";
 
   static{
     Configuration.addDefaultResource("hdfs-default.xml");
@@ -123,7 +113,7 @@ public class TestDFSIO implements Tool {
     Configuration.addDefaultResource("mapred-site.xml");
   }
 
-  private enum TestType {
+  private static enum TestType {
     TEST_TYPE_READ("read"),
     TEST_TYPE_WRITE("write"),
     TEST_TYPE_CLEANUP("cleanup"),
@@ -145,7 +135,7 @@ public class TestDFSIO implements Tool {
     }
   }
 
-  enum ByteMultiple {
+  static enum ByteMultiple {
     B(1L),
     KB(0x400L),
     MB(0x100000L),
@@ -215,11 +205,12 @@ public class TestDFSIO implements Tool {
   @BeforeClass
   public static void beforeClass() throws Exception {
     bench = new TestDFSIO();
+    bench.getConf().setBoolean(DFSConfigKeys.DFS_SUPPORT_APPEND_KEY, true);
     bench.getConf().setInt(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
     cluster = new MiniDFSCluster.Builder(bench.getConf())
-        .numDataNodes(2)
-        .format(true)
-        .build();
+                                .numDataNodes(2)
+                                .format(true)
+                                .build();
     FileSystem fs = cluster.getFileSystem();
     bench.createControlFile(fs, DEFAULT_NR_BYTES, DEFAULT_NR_FILES);
 
@@ -238,45 +229,57 @@ public class TestDFSIO implements Tool {
 
   public static void testWrite() throws Exception {
     FileSystem fs = cluster.getFileSystem();
-    long execTime = bench.writeTest(fs);
+    long tStart = System.currentTimeMillis();
+    bench.writeTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_WRITE, execTime);
   }
 
-  @Test (timeout = 10000)
+  @Test (timeout = 3000)
   public void testRead() throws Exception {
     FileSystem fs = cluster.getFileSystem();
-    long execTime = bench.readTest(fs);
+    long tStart = System.currentTimeMillis();
+    bench.readTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_READ, execTime);
   }
 
-  @Test (timeout = 10000)
+  @Test (timeout = 3000)
   public void testReadRandom() throws Exception {
     FileSystem fs = cluster.getFileSystem();
+    long tStart = System.currentTimeMillis();
     bench.getConf().setLong("test.io.skip.size", 0);
-    long execTime = bench.randomReadTest(fs);
+    bench.randomReadTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_READ_RANDOM, execTime);
   }
 
-  @Test (timeout = 10000)
+  @Test (timeout = 3000)
   public void testReadBackward() throws Exception {
     FileSystem fs = cluster.getFileSystem();
+    long tStart = System.currentTimeMillis();
     bench.getConf().setLong("test.io.skip.size", -DEFAULT_BUFFER_SIZE);
-    long execTime = bench.randomReadTest(fs);
+    bench.randomReadTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_READ_BACKWARD, execTime);
   }
 
-  @Test (timeout = 10000)
+  @Test (timeout = 3000)
   public void testReadSkip() throws Exception {
     FileSystem fs = cluster.getFileSystem();
+    long tStart = System.currentTimeMillis();
     bench.getConf().setLong("test.io.skip.size", 1);
-    long execTime = bench.randomReadTest(fs);
+    bench.randomReadTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_READ_SKIP, execTime);
   }
 
-  @Test (timeout = 10000)
+  @Test (timeout = 6000)
   public void testAppend() throws Exception {
     FileSystem fs = cluster.getFileSystem();
-    long execTime = bench.appendTest(fs);
+    long tStart = System.currentTimeMillis();
+    bench.appendTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_APPEND, execTime);
   }
 
@@ -284,7 +287,9 @@ public class TestDFSIO implements Tool {
   public void testTruncate() throws Exception {
     FileSystem fs = cluster.getFileSystem();
     bench.createControlFile(fs, DEFAULT_NR_BYTES / 2, DEFAULT_NR_FILES);
-    long execTime = bench.truncateTest(fs);
+    long tStart = System.currentTimeMillis();
+    bench.truncateTest(fs);
+    long execTime = System.currentTimeMillis() - tStart;
     bench.analyzeResult(fs, TestType.TEST_TYPE_TRUNCATE, execTime);
   }
 
@@ -294,17 +299,8 @@ public class TestDFSIO implements Tool {
                                   int nrFiles
                                 ) throws IOException {
     LOG.info("creating control file: "+nrBytes+" bytes, "+nrFiles+" files");
-    final int maxDirItems = config.getInt(
-        DFSConfigKeys.DFS_NAMENODE_MAX_DIRECTORY_ITEMS_KEY,
-        DFSConfigKeys.DFS_NAMENODE_MAX_DIRECTORY_ITEMS_DEFAULT);
+
     Path controlDir = getControlDir(config);
-
-    if (nrFiles > maxDirItems) {
-      final String message = "The directory item limit of " + controlDir +
-          " is exceeded: limit=" + maxDirItems + " items=" + nrFiles;
-      throw new IOException(message);
-    }
-
     fs.delete(controlDir, true);
 
     for(int i=0; i < nrFiles; i++) {
@@ -319,13 +315,12 @@ public class TestDFSIO implements Tool {
       } catch(Exception e) {
         throw new IOException(e.getLocalizedMessage());
       } finally {
-        if (writer != null) {
+        if (writer != null)
           writer.close();
-        }
         writer = null;
       }
     }
-    LOG.info("created control files for: " + nrFiles + " files");
+    LOG.info("created control files for: "+nrFiles+" files");
   }
 
   private static String getFileName(int fIdx) {
@@ -346,7 +341,6 @@ public class TestDFSIO implements Tool {
    */
   private abstract static class IOStatMapper extends IOMapperBase<Long> {
     protected CompressionCodec compressionCodec;
-    protected String blockStoragePolicy;
 
     IOStatMapper() {
     }
@@ -371,8 +365,6 @@ public class TestDFSIO implements Tool {
         compressionCodec = (CompressionCodec)
             ReflectionUtils.newInstance(codec, getConf());
       }
-
-      blockStoragePolicy = getConf().get(STORAGE_POLICY_NAME_KEY, null);
     }
 
     @Override // IOMapperBase
@@ -404,20 +396,16 @@ public class TestDFSIO implements Tool {
    */
   public static class WriteMapper extends IOStatMapper {
 
-    public WriteMapper() {
-      for (int i = 0; i < bufferSize; i++) {
-        buffer[i] = (byte) ('0' + i % 50);
-      }
+    public WriteMapper() { 
+      for(int i=0; i < bufferSize; i++)
+        buffer[i] = (byte)('0' + i % 50);
     }
 
     @Override // IOMapperBase
     public Closeable getIOStream(String name) throws IOException {
       // create file
-      Path filePath = new Path(getDataDir(getConf()), name);
-      OutputStream out = fs.create(filePath, true, bufferSize);
-      if (blockStoragePolicy != null) {
-        fs.setStoragePolicy(filePath, blockStoragePolicy);
-      }
+      OutputStream out =
+          fs.create(new Path(getDataDir(getConf()), name), true, bufferSize);
       if(compressionCodec != null)
         out = compressionCodec.createOutputStream(out);
       LOG.info("out = " + out.getClass().getName());
@@ -443,17 +431,12 @@ public class TestDFSIO implements Tool {
     }
   }
 
-  private long writeTest(FileSystem fs) throws IOException {
+  private void writeTest(FileSystem fs) throws IOException {
     Path writeDir = getWriteDir(config);
     fs.delete(getDataDir(config), true);
     fs.delete(writeDir, true);
-    long tStart = System.currentTimeMillis();
-    if (isECEnabled()) {
-      createAndEnableECOnPath(fs, getDataDir(config));
-    }
+    
     runIOTest(WriteMapper.class, writeDir);
-    long execTime = System.currentTimeMillis() - tStart;
-    return execTime;
   }
   
   private void runIOTest(
@@ -514,13 +497,10 @@ public class TestDFSIO implements Tool {
     }
   }
 
-  private long appendTest(FileSystem fs) throws IOException {
+  private void appendTest(FileSystem fs) throws IOException {
     Path appendDir = getAppendDir(config);
     fs.delete(appendDir, true);
-    long tStart = System.currentTimeMillis();
     runIOTest(AppendMapper.class, appendDir);
-    long execTime = System.currentTimeMillis() - tStart;
-    return execTime;
   }
 
   /**
@@ -560,13 +540,10 @@ public class TestDFSIO implements Tool {
     }
   }
 
-  private long readTest(FileSystem fs) throws IOException {
+  private void readTest(FileSystem fs) throws IOException {
     Path readDir = getReadDir(config);
     fs.delete(readDir, true);
-    long tStart = System.currentTimeMillis();
     runIOTest(ReadMapper.class, readDir);
-    long execTime = System.currentTimeMillis() - tStart;
-    return execTime;
   }
 
   /**
@@ -644,13 +621,10 @@ public class TestDFSIO implements Tool {
     }
   }
 
-  private long randomReadTest(FileSystem fs) throws IOException {
+  private void randomReadTest(FileSystem fs) throws IOException {
     Path readDir = getRandomReadDir(config);
     fs.delete(readDir, true);
-    long tStart = System.currentTimeMillis();
     runIOTest(RandomReadMapper.class, readDir);
-    long execTime = System.currentTimeMillis() - tStart;
-    return execTime;
   }
 
   /**
@@ -692,13 +666,10 @@ public class TestDFSIO implements Tool {
     }
   }
 
-  private long truncateTest(FileSystem fs) throws IOException {
+  private void truncateTest(FileSystem fs) throws IOException {
     Path TruncateDir = getTruncateDir(config);
     fs.delete(TruncateDir, true);
-    long tStart = System.currentTimeMillis();
     runIOTest(TruncateMapper.class, TruncateDir);
-    long execTime = System.currentTimeMillis() - tStart;
-    return execTime;
   }
 
   private void sequentialTest(FileSystem fs, 
@@ -743,9 +714,8 @@ public class TestDFSIO implements Tool {
       System.err.print(StringUtils.stringifyException(e));
       res = -2;
     }
-    if (res == -1) {
-      System.err.println(USAGE);
-    }
+    if(res == -1)
+      System.err.print(USAGE);
     System.exit(res);
   }
 
@@ -754,12 +724,10 @@ public class TestDFSIO implements Tool {
     TestType testType = null;
     int bufferSize = DEFAULT_BUFFER_SIZE;
     long nrBytes = 1*MEGA;
-    String erasureCodePolicyName = null;
     int nrFiles = 1;
     long skipSize = 0;
     String resFileName = DEFAULT_RES_FILE_NAME;
     String compressionClass = null;
-    String storagePolicy = null;
     boolean isSequential = false;
     String version = TestDFSIO.class.getSimpleName() + ".1.8";
 
@@ -769,87 +737,68 @@ public class TestDFSIO implements Tool {
       return -1;
     }
 
-    for (int i = 0; i < args.length; i++) { // parse command line
-      if (StringUtils.toLowerCase(args[i]).startsWith("-read")) {
+    for (int i = 0; i < args.length; i++) {       // parse command line
+      if (args[i].startsWith("-read")) {
         testType = TestType.TEST_TYPE_READ;
-      } else if (args[i].equalsIgnoreCase("-write")) {
+      } else if (args[i].equals("-write")) {
         testType = TestType.TEST_TYPE_WRITE;
-      } else if (args[i].equalsIgnoreCase("-append")) {
+      } else if (args[i].equals("-append")) {
         testType = TestType.TEST_TYPE_APPEND;
-      } else if (args[i].equalsIgnoreCase("-random")) {
-        if (testType != TestType.TEST_TYPE_READ) return -1;
+      } else if (args[i].equals("-random")) {
+        if(testType != TestType.TEST_TYPE_READ) return -1;
         testType = TestType.TEST_TYPE_READ_RANDOM;
-      } else if (args[i].equalsIgnoreCase("-backward")) {
-        if (testType != TestType.TEST_TYPE_READ) return -1;
+      } else if (args[i].equals("-backward")) {
+        if(testType != TestType.TEST_TYPE_READ) return -1;
         testType = TestType.TEST_TYPE_READ_BACKWARD;
-      } else if (args[i].equalsIgnoreCase("-skip")) {
-        if (testType != TestType.TEST_TYPE_READ) return -1;
+      } else if (args[i].equals("-skip")) {
+        if(testType != TestType.TEST_TYPE_READ) return -1;
         testType = TestType.TEST_TYPE_READ_SKIP;
       } else if (args[i].equalsIgnoreCase("-truncate")) {
         testType = TestType.TEST_TYPE_TRUNCATE;
-      } else if (args[i].equalsIgnoreCase("-clean")) {
+      } else if (args[i].equals("-clean")) {
         testType = TestType.TEST_TYPE_CLEANUP;
-      } else if (StringUtils.toLowerCase(args[i]).startsWith("-seq")) {
+      } else if (args[i].startsWith("-seq")) {
         isSequential = true;
-      } else if (StringUtils.toLowerCase(args[i]).startsWith("-compression")) {
+      } else if (args[i].startsWith("-compression")) {
         compressionClass = args[++i];
-      } else if (args[i].equalsIgnoreCase("-nrfiles")) {
+      } else if (args[i].equals("-nrFiles")) {
         nrFiles = Integer.parseInt(args[++i]);
-      } else if (args[i].equalsIgnoreCase("-filesize")
-          || args[i].equalsIgnoreCase("-size")) {
+      } else if (args[i].equals("-fileSize") || args[i].equals("-size")) {
         nrBytes = parseSize(args[++i]);
-      } else if (args[i].equalsIgnoreCase("-skipsize")) {
+      } else if (args[i].equals("-skipSize")) {
         skipSize = parseSize(args[++i]);
-      } else if (args[i].equalsIgnoreCase("-buffersize")) {
+      } else if (args[i].equals("-bufferSize")) {
         bufferSize = Integer.parseInt(args[++i]);
-      } else if (args[i].equalsIgnoreCase("-resfile")) {
+      } else if (args[i].equals("-resFile")) {
         resFileName = args[++i];
-      } else if (args[i].equalsIgnoreCase("-storagePolicy")) {
-        storagePolicy = args[++i];
-      } else if (args[i].equalsIgnoreCase("-erasureCodePolicy")) {
-        erasureCodePolicyName = args[++i];
       } else {
         System.err.println("Illegal argument: " + args[i]);
         return -1;
       }
     }
-    if (testType == null) {
+    if(testType == null)
       return -1;
-    }
-    if (testType == TestType.TEST_TYPE_READ_BACKWARD) {
+    if(testType == TestType.TEST_TYPE_READ_BACKWARD)
       skipSize = -bufferSize;
-    } else if (testType == TestType.TEST_TYPE_READ_SKIP && skipSize == 0) {
+    else if(testType == TestType.TEST_TYPE_READ_SKIP && skipSize == 0)
       skipSize = bufferSize;
-    }
 
     LOG.info("nrFiles = " + nrFiles);
     LOG.info("nrBytes (MB) = " + toMB(nrBytes));
     LOG.info("bufferSize = " + bufferSize);
-    if (skipSize > 0) {
+    if(skipSize > 0)
       LOG.info("skipSize = " + skipSize);
-    }
     LOG.info("baseDir = " + getBaseDir(config));
     
-    if (compressionClass != null) {
+    if(compressionClass != null) {
       config.set("test.io.compression.class", compressionClass);
       LOG.info("compressionClass = " + compressionClass);
     }
 
     config.setInt("test.io.file.buffer.size", bufferSize);
     config.setLong("test.io.skip.size", skipSize);
+    config.setBoolean(DFSConfigKeys.DFS_SUPPORT_APPEND_KEY, true);
     FileSystem fs = FileSystem.get(config);
-
-    if (erasureCodePolicyName != null) {
-      if (!checkErasureCodePolicy(erasureCodePolicyName, fs, testType)) {
-        return -1;
-      }
-    }
-
-    if (storagePolicy != null) {
-      if (!checkStoragePolicy(storagePolicy, fs)) {
-        return -1;
-      }
-    }
 
     if (isSequential) {
       long tStart = System.currentTimeMillis();
@@ -919,94 +868,6 @@ public class TestDFSIO implements Tool {
     return ((float)bytes)/MEGA;
   }
 
-  private boolean checkErasureCodePolicy(String erasureCodePolicyName,
-      FileSystem fs, TestType testType) throws IOException {
-    Collection<ErasureCodingPolicy> list =
-        ((DistributedFileSystem) fs).getAllErasureCodingPolicies();
-    boolean isValid = false;
-    for (ErasureCodingPolicy ec : list) {
-      if (erasureCodePolicyName.equals(ec.getName())) {
-        isValid = true;
-        break;
-      }
-    }
-
-    if (!isValid) {
-      System.out.println("Invalid erasure code policy: " +
-          erasureCodePolicyName);
-      System.out.println("Current supported erasure code policy list: ");
-      for (ErasureCodingPolicy ec : list) {
-        System.out.println(ec.getName());
-      }
-      return false;
-    }
-
-    if (testType == TestType.TEST_TYPE_APPEND ||
-        testType == TestType.TEST_TYPE_TRUNCATE) {
-      System.out.println("So far append or truncate operation" +
-          " does not support erasureCodePolicy");
-      return false;
-    }
-
-    config.set(ERASURE_CODE_POLICY_NAME_KEY, erasureCodePolicyName);
-    LOG.info("erasureCodePolicy = " + erasureCodePolicyName);
-    return true;
-  }
-
-  private boolean checkStoragePolicy(String storagePolicy, FileSystem fs)
-      throws IOException {
-    boolean isValid = false;
-    Collection<BlockStoragePolicy> storagePolicies =
-        ((DistributedFileSystem) fs).getAllStoragePolicies();
-    try {
-      for (BlockStoragePolicy policy : storagePolicies) {
-        if (policy.getName().equals(storagePolicy)) {
-          isValid = true;
-          break;
-        }
-      }
-    } catch (Exception e) {
-      throw new IOException("Get block storage policies error: ", e);
-    }
-
-    if (!isValid) {
-      System.out.println("Invalid block storage policy: " + storagePolicy);
-      System.out.println("Current supported storage policy list: ");
-      for (BlockStoragePolicy policy : storagePolicies) {
-        System.out.println(policy.getName());
-      }
-      return false;
-    }
-
-    config.set(STORAGE_POLICY_NAME_KEY, storagePolicy);
-    LOG.info("storagePolicy = " + storagePolicy);
-    return true;
-  }
-
-  private boolean isECEnabled() {
-    String erasureCodePolicyName =
-        getConf().get(ERASURE_CODE_POLICY_NAME_KEY, null);
-    return erasureCodePolicyName != null ? true : false;
-  }
-
-  void createAndEnableECOnPath(FileSystem fs, Path path)
-      throws IOException {
-    String erasureCodePolicyName =
-        getConf().get(ERASURE_CODE_POLICY_NAME_KEY, null);
-
-    fs.mkdirs(path);
-    Collection<ErasureCodingPolicy> list =
-        ((DistributedFileSystem) fs).getAllErasureCodingPolicies();
-    for (ErasureCodingPolicy ec : list) {
-      if (erasureCodePolicyName.equals(ec.getName())) {
-        ((DistributedFileSystem) fs).setErasureCodingPolicy(path, ec.getName());
-        LOG.info("enable erasureCodePolicy = " + erasureCodePolicyName  +
-            " on " + path.toString());
-        break;
-      }
-    }
-  }
-
   private void analyzeResult( FileSystem fs,
                               TestType testType,
                               long execTime,
@@ -1042,21 +903,19 @@ public class TestDFSIO implements Tool {
       if(in != null) in.close();
       if(lines != null) lines.close();
     }
-
+    
     double med = rate / 1000 / tasks;
     double stdDev = Math.sqrt(Math.abs(sqrate / 1000 / tasks - med*med));
-    DecimalFormat df = new DecimalFormat("#.##");
     String resultLines[] = {
-        "----- TestDFSIO ----- : " + testType,
-        "            Date & time: " + new Date(System.currentTimeMillis()),
-        "        Number of files: " + tasks,
-        " Total MBytes processed: " + df.format(toMB(size)),
-        "      Throughput mb/sec: " + df.format(size * 1000.0 / (time * MEGA)),
-        "Total Throughput mb/sec: " + df.format(toMB(size) / ((float)execTime)),
-        " Average IO rate mb/sec: " + df.format(med),
-        "  IO rate std deviation: " + df.format(stdDev),
-        "     Test exec time sec: " + df.format((float)execTime / 1000),
-        "" };
+      "----- TestDFSIO ----- : " + testType,
+      "           Date & time: " + new Date(System.currentTimeMillis()),
+      "       Number of files: " + tasks,
+      "Total MBytes processed: " + toMB(size),
+      "     Throughput mb/sec: " + size * 1000.0 / (time * MEGA),
+      "Average IO rate mb/sec: " + med,
+      " IO rate std deviation: " + stdDev,
+      "    Test exec time sec: " + (float)execTime / 1000,
+      "" };
 
     PrintStream res = null;
     try {

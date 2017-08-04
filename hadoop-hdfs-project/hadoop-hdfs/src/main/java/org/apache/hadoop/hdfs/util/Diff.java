@@ -73,7 +73,7 @@ import com.google.common.base.Preconditions;
  * @param <E> The element type, which must implement {@link Element} interface.
  */
 public class Diff<K, E extends Diff.Element<K>> {
-  public enum ListType {
+  public static enum ListType {
     CREATED, DELETED
   }
 

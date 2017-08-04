@@ -29,7 +29,6 @@ import java.util.ServiceLoader;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 
 /**
  * A factory to create a list of KeyProvider based on the path given in a
@@ -40,7 +39,7 @@ import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 @InterfaceStability.Unstable
 public abstract class KeyProviderFactory {
   public static final String KEY_PROVIDER_PATH =
-      CommonConfigurationKeysPublic.HADOOP_SECURITY_KEY_PROVIDER_PATH;
+      "hadoop.security.key.provider.path";
 
   public abstract KeyProvider createProvider(URI providerName,
                                              Configuration conf
@@ -58,7 +57,7 @@ public abstract class KeyProviderFactory {
       iterServices.next();
     }
   }
-  
+
   public static List<KeyProvider> getProviders(Configuration conf
                                                ) throws IOException {
     List<KeyProvider> result = new ArrayList<KeyProvider>();

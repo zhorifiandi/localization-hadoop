@@ -23,8 +23,8 @@ import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIP
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.URL;
 import java.security.PrivilegedAction;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -38,10 +38,9 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSUtil;
-import org.apache.hadoop.hdfs.DFSUtilClient;
 import org.apache.hadoop.hdfs.HAUtil;
 import org.apache.hadoop.hdfs.NameNodeProxies;
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
+import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
@@ -51,11 +50,10 @@ import org.apache.hadoop.hdfs.server.namenode.EditLogInputStream;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
+import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.namenode.NNUpgradeUtil;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.hdfs.server.namenode.TransferFsImage;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.tools.DFSHAAdmin;
@@ -79,8 +77,10 @@ public class BootstrapStandby implements Tool, Configurable {
   private static final Log LOG = LogFactory.getLog(BootstrapStandby.class);
   private String nsId;
   private String nnId;
-  private List<RemoteNameNodeInfo> remoteNNs;
+  private String otherNNId;
 
+  private URL otherHttpAddr;
+  private InetSocketAddress otherIpcAddr;
   private Collection<URI> dirsToFormat;
   private List<URI> editUrisToFormat;
   private List<URI> sharedEditsUris;
@@ -103,7 +103,7 @@ public class BootstrapStandby implements Tool, Configurable {
     parseConfAndFindOtherNN();
     NameNode.checkAllowFormat(conf);
 
-    InetSocketAddress myAddr = DFSUtilClient.getNNAddress(conf);
+    InetSocketAddress myAddr = NameNode.getAddress(conf);
     SecurityUtil.login(conf, DFS_NAMENODE_KEYTAB_FILE_KEY,
         DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY, myAddr.getHostName());
 
@@ -136,17 +136,11 @@ public class BootstrapStandby implements Tool, Configurable {
   }
 
   private void printUsage() {
-    System.out.println("Usage: " + this.getClass().getSimpleName() +
-        " [-force] [-nonInteractive] [-skipSharedEditsCheck]\n"
-        + "\t-force: formats if the name directory exists.\n"
-        + "\t-nonInteractive: formats aborts if the name directory exists,\n"
-        + "\tunless -force option is specified.\n"
-        + "\t-skipSharedEditsCheck: skips edits check which ensures that\n"
-        + "\twe have enough edits already in the shared directory to start\n"
-        + "\tup from the last checkpoint on the active.");
+    System.err.println("Usage: " + this.getClass().getSimpleName() +
+        " [-force] [-nonInteractive] [-skipSharedEditsCheck]");
   }
-
-  private NamenodeProtocol createNNProtocolProxy(InetSocketAddress otherIpcAddr)
+  
+  private NamenodeProtocol createNNProtocolProxy()
       throws IOException {
     return NameNodeProxies.createNonHAProxy(getConf(),
         otherIpcAddr, NamenodeProtocol.class,
@@ -155,43 +149,25 @@ public class BootstrapStandby implements Tool, Configurable {
   }
   
   private int doRun() throws IOException {
-    // find the active NN
-    NamenodeProtocol proxy = null;
-    NamespaceInfo nsInfo = null;
-    boolean isUpgradeFinalized = false;
-    RemoteNameNodeInfo proxyInfo = null;
-    for (int i = 0; i < remoteNNs.size(); i++) {
-      proxyInfo = remoteNNs.get(i);
-      InetSocketAddress otherIpcAddress = proxyInfo.getIpcAddress();
-      proxy = createNNProtocolProxy(otherIpcAddress);
-      try {
-        // Get the namespace from any active NN. If you just formatted the primary NN and are
-        // bootstrapping the other NNs from that layout, it will only contact the single NN.
-        // However, if there cluster is already running and you are adding a NN later (e.g.
-        // replacing a failed NN), then this will bootstrap from any node in the cluster.
-        nsInfo = proxy.versionRequest();
-        isUpgradeFinalized = proxy.isUpgradeFinalized();
-        break;
-      } catch (IOException ioe) {
-        LOG.warn("Unable to fetch namespace information from remote NN at " + otherIpcAddress
-            + ": " + ioe.getMessage());
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Full exception trace", ioe);
-        }
+    NamenodeProtocol proxy = createNNProtocolProxy();
+    NamespaceInfo nsInfo;
+    boolean isUpgradeFinalized;
+    try {
+      nsInfo = proxy.versionRequest();
+      isUpgradeFinalized = proxy.isUpgradeFinalized();
+    } catch (IOException ioe) {
+      LOG.fatal("Unable to fetch namespace information from active NN at " +
+          otherIpcAddr + ": " + ioe.getMessage());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Full exception trace", ioe);
       }
-    }
-
-    if (nsInfo == null) {
-      LOG.fatal(
-          "Unable to fetch namespace information from any remote NN. Possible NameNodes: "
-              + remoteNNs);
       return ERR_CODE_FAILED_CONNECT;
     }
 
     if (!checkLayoutVersion(nsInfo)) {
       LOG.fatal("Layout version on remote node (" + nsInfo.getLayoutVersion()
           + ") does not match " + "this node's layout version ("
-          + HdfsServerConstants.NAMENODE_LAYOUT_VERSION + ")");
+          + HdfsConstants.NAMENODE_LAYOUT_VERSION + ")");
       return ERR_CODE_INVALID_VERSION;
     }
 
@@ -199,9 +175,9 @@ public class BootstrapStandby implements Tool, Configurable {
         "=====================================================\n" +
         "About to bootstrap Standby ID " + nnId + " from:\n" +
         "           Nameservice ID: " + nsId + "\n" +
-        "        Other Namenode ID: " + proxyInfo.getNameNodeID() + "\n" +
-        "  Other NN's HTTP address: " + proxyInfo.getHttpAddress() + "\n" +
-        "  Other NN's IPC  address: " + proxyInfo.getIpcAddress() + "\n" +
+        "        Other Namenode ID: " + otherNNId + "\n" +
+        "  Other NN's HTTP address: " + otherHttpAddr + "\n" +
+        "  Other NN's IPC  address: " + otherIpcAddr + "\n" +
         "             Namespace ID: " + nsInfo.getNamespaceID() + "\n" +
         "            Block pool ID: " + nsInfo.getBlockPoolID() + "\n" +
         "               Cluster ID: " + nsInfo.getClusterID() + "\n" +
@@ -225,7 +201,7 @@ public class BootstrapStandby implements Tool, Configurable {
     }
 
     // download the fsimage from active namenode
-    int download = downloadImage(storage, proxy, proxyInfo);
+    int download = downloadImage(storage, proxy);
     if (download != 0) {
       return download;
     }
@@ -316,7 +292,7 @@ public class BootstrapStandby implements Tool, Configurable {
     }
   }
 
-  private int downloadImage(NNStorage storage, NamenodeProtocol proxy, RemoteNameNodeInfo proxyInfo)
+  private int downloadImage(NNStorage storage, NamenodeProtocol proxy)
       throws IOException {
     // Load the newly formatted image, using all of the directories
     // (including shared edits)
@@ -336,18 +312,16 @@ public class BootstrapStandby implements Tool, Configurable {
         return ERR_CODE_LOGS_UNAVAILABLE;
       }
 
+      image.getStorage().writeTransactionIdFileToStorage(curTxId);
+
       // Download that checkpoint into our storage directories.
       MD5Hash hash = TransferFsImage.downloadImageToStorage(
-        proxyInfo.getHttpAddress(), imageTxId, storage, true, true);
+          otherHttpAddr, imageTxId, storage, true);
       image.saveDigestAndRenameCheckpointImage(NameNodeFile.IMAGE, imageTxId,
           hash);
-
-      // Write seen_txid to the formatted image directories.
-      storage.writeTransactionIdFileToStorage(imageTxId, NameNodeDirType.IMAGE);
     } catch (IOException ioe) {
-      throw ioe;
-    } finally {
       image.close();
+      throw ioe;
     }
     return 0;
   }
@@ -382,14 +356,17 @@ public class BootstrapStandby implements Tool, Configurable {
           "Please copy these logs into the shared edits storage " + 
           "or call saveNamespace on the active node.\n" +
           "Error: " + e.getLocalizedMessage();
-      LOG.fatal(msg, e);
-
+      if (LOG.isDebugEnabled()) {
+        LOG.fatal(msg, e);
+      } else {
+        LOG.fatal(msg);
+      }
       return false;
     }
   }
 
   private boolean checkLayoutVersion(NamespaceInfo nsInfo) throws IOException {
-    return (nsInfo.getLayoutVersion() == HdfsServerConstants.NAMENODE_LAYOUT_VERSION);
+    return (nsInfo.getLayoutVersion() == HdfsConstants.NAMENODE_LAYOUT_VERSION);
   }
   
   private void parseConfAndFindOtherNN() throws IOException {
@@ -407,26 +384,18 @@ public class BootstrapStandby implements Tool, Configurable {
       throw new HadoopIllegalArgumentException(
         "Shared edits storage is not enabled for this namenode.");
     }
+    
+    Configuration otherNode = HAUtil.getConfForOtherNode(conf);
+    otherNNId = HAUtil.getNameNodeId(otherNode, nsId);
+    otherIpcAddr = NameNode.getServiceAddress(otherNode, true);
+    Preconditions.checkArgument(otherIpcAddr.getPort() != 0 &&
+        !otherIpcAddr.getAddress().isAnyLocalAddress(),
+        "Could not determine valid IPC address for other NameNode (%s)" +
+        ", got: %s", otherNNId, otherIpcAddr);
 
-
-    remoteNNs = RemoteNameNodeInfo.getRemoteNameNodes(conf, nsId);
-    // validate the configured NNs
-    List<RemoteNameNodeInfo> remove = new ArrayList<RemoteNameNodeInfo>(remoteNNs.size());
-    for (RemoteNameNodeInfo info : remoteNNs) {
-      InetSocketAddress address = info.getIpcAddress();
-      LOG.info("Found nn: " + info.getNameNodeID() + ", ipc: " + info.getIpcAddress());
-      if (address.getPort() == 0 || address.getAddress().isAnyLocalAddress()) {
-        LOG.error("Could not determine valid IPC address for other NameNode ("
-            + info.getNameNodeID() + ") , got: " + address);
-        remove.add(info);
-      }
-    }
-
-    // remove any invalid nns
-    remoteNNs.removeAll(remove);
-
-    // make sure we have at least one left to read
-    Preconditions.checkArgument(!remoteNNs.isEmpty(), "Could not find any valid namenodes!");
+    final String scheme = DFSUtil.getHttpClientScheme(conf);
+    otherHttpAddr = DFSUtil.getInfoServerWithDefaultHost(
+        otherIpcAddr.getHostName(), otherNode, scheme).toURL();
 
     dirsToFormat = FSNamesystem.getNamespaceDirs(conf);
     editUrisToFormat = FSNamesystem.getNamespaceEditsDirs(

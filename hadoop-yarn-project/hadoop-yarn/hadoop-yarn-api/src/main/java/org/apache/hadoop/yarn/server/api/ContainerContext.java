@@ -23,7 +23,6 @@ import org.apache.hadoop.classification.InterfaceAudience.Public;
 import org.apache.hadoop.classification.InterfaceStability.Evolving;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.yarn.api.records.ContainerId;
-import org.apache.hadoop.yarn.api.records.ExecutionType;
 import org.apache.hadoop.yarn.api.records.Resource;
 
 /**
@@ -36,34 +35,14 @@ public class ContainerContext {
   private final String user;
   private final ContainerId containerId;
   private final Resource resource;
-  private final ContainerType containerType;
-  private final ExecutionType executionType;
 
   @Private
   @Unstable
   public ContainerContext(String user, ContainerId containerId,
       Resource resource) {
-    this(user, containerId, resource, ContainerType.TASK);
-  }
-
-  @Private
-  @Unstable
-  public ContainerContext(String user, ContainerId containerId,
-      Resource resource, ContainerType containerType) {
-    this(user, containerId, resource, containerType,
-        ExecutionType.GUARANTEED);
-  }
-
-  @Private
-  @Unstable
-  public ContainerContext(String user, ContainerId containerId,
-      Resource resource, ContainerType containerType,
-      ExecutionType executionType) {
     this.user = user;
     this.containerId = containerId;
     this.resource = resource;
-    this.containerType = containerType;
-    this.executionType = executionType;
   }
 
   /**
@@ -92,25 +71,5 @@ public class ContainerContext {
    */
   public Resource getResource() {
     return resource;
-  }
-
-  /**
-   * Get {@link ContainerType} the type of the container
-   * being initialized or stopped.
-   *
-   * @return the type of the container
-   */
-  public ContainerType getContainerType() {
-    return containerType;
-  }
-
-  /**
-   * Get {@link ExecutionType} the execution type of the container
-   * being initialized or stopped.
-   *
-   * @return the execution type of the container
-   */
-  public ExecutionType getExecutionType() {
-    return executionType;
   }
 }

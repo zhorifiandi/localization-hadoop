@@ -28,7 +28,7 @@ public class NodeManagerBuilderUtils {
 
   public static ResourceLocalizationSpec newResourceLocalizationSpec(
       LocalResource rsrc, Path path) {
-    URL local = URL.fromPath(path);
+    URL local = ConverterUtils.getYarnUrlFromPath(path);
     ResourceLocalizationSpec resourceLocalizationSpec =
         Records.newRecord(ResourceLocalizationSpec.class);
     resourceLocalizationSpec.setDestinationDirectory(local);

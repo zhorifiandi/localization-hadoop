@@ -33,7 +33,7 @@ import com.google.common.base.Preconditions;
 @InterfaceAudience.Private
 public abstract class INodeWithAdditionalFields extends INode
     implements LinkedElement {
-  enum PermissionStatusFormat {
+  static enum PermissionStatusFormat {
     MODE(null, 16),
     GROUP(MODE.BITS, 25),
     USER(GROUP.BITS, 23);
@@ -283,14 +283,12 @@ public abstract class INodeWithAdditionalFields extends INode
 
   protected void removeFeature(Feature f) {
     int size = features.length;
-    if (size == 0) {
-      throwFeatureNotFoundException(f);
-    }
+    Preconditions.checkState(size > 0, "Feature "
+        + f.getClass().getSimpleName() + " not found.");
 
     if (size == 1) {
-      if (features[0] != f) {
-        throwFeatureNotFoundException(f);
-      }
+      Preconditions.checkState(features[0] == f, "Feature "
+          + f.getClass().getSimpleName() + " not found.");
       features = EMPTY_FEATURE;
       return;
     }
@@ -309,22 +307,14 @@ public abstract class INodeWithAdditionalFields extends INode
       }
     }
 
-    if (overflow || j != size - 1) {
-      throwFeatureNotFoundException(f);
-    }
+    Preconditions.checkState(!overflow && j == size - 1, "Feature "
+        + f.getClass().getSimpleName() + " not found.");
     features = arr;
-  }
-
-  private void throwFeatureNotFoundException(Feature f) {
-    throw new IllegalStateException(
-        "Feature " + f.getClass().getSimpleName() + " not found.");
   }
 
   protected <T extends Feature> T getFeature(Class<? extends Feature> clazz) {
     Preconditions.checkArgument(clazz != null);
-    final int size = features.length;
-    for (int i=0; i < size; i++) {
-      Feature f = features[i];
+    for (Feature f : features) {
       if (clazz.isAssignableFrom(f.getClass())) {
         @SuppressWarnings("unchecked")
         T ret = (T) f;

@@ -31,7 +31,6 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.IOException;
-import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -47,6 +46,7 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.AppendTestUtil;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSTestUtil;
+import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
@@ -55,18 +55,16 @@ import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguous;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguousUnderConstruction;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.datanode.FsDatasetTestUtils;
-import org.apache.hadoop.hdfs.server.namenode.FSDirectory.DirOp;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Time;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.Level;
-import org.junit.After;
-import org.junit.Before;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 public class TestFileTruncate {
@@ -90,35 +88,27 @@ public class TestFileTruncate {
   static MiniDFSCluster cluster;
   static DistributedFileSystem fs;
 
- private Path parent;
-
-  @Before
-  public void setUp() throws IOException {
+  @BeforeClass
+  public static void startUp() throws IOException {
     conf = new HdfsConfiguration();
     conf.setLong(DFSConfigKeys.DFS_NAMENODE_MIN_BLOCK_SIZE_KEY, BLOCK_SIZE);
     conf.setInt(DFSConfigKeys.DFS_BYTES_PER_CHECKSUM_KEY, BLOCK_SIZE);
     conf.setInt(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, SHORT_HEARTBEAT);
     conf.setLong(
-        DFSConfigKeys.DFS_NAMENODE_RECONSTRUCTION_PENDING_TIMEOUT_SEC_KEY, 1);
+        DFSConfigKeys.DFS_NAMENODE_REPLICATION_PENDING_TIMEOUT_SEC_KEY, 1);
     cluster = new MiniDFSCluster.Builder(conf)
         .format(true)
         .numDataNodes(DATANODE_NUM)
+        .nameNodePort(NameNode.DEFAULT_PORT)
         .waitSafeMode(true)
         .build();
     fs = cluster.getFileSystem();
-    parent = new Path("/test");
   }
 
-  @After
-  public void tearDown() throws IOException {
-    if(fs != null) {
-      fs.close();
-      fs = null;
-    }
-    if(cluster != null) {
-      cluster.shutdown();
-      cluster = null;
-    }
+  @AfterClass
+  public static void tearDown() throws IOException {
+    if(fs != null)      fs.close();
+    if(cluster != null) cluster.shutdown();
   }
 
   /**
@@ -128,6 +118,7 @@ public class TestFileTruncate {
   public void testBasicTruncate() throws IOException {
     int startingFileSize = 3 * BLOCK_SIZE;
 
+    Path parent = new Path("/test");
     fs.mkdirs(parent);
     fs.setQuota(parent, 100, 1000);
     byte[] contents = AppendTestUtil.initBuffer(startingFileSize);
@@ -166,11 +157,11 @@ public class TestFileTruncate {
     fs.mkdirs(dir);
     final Path p = new Path(dir, "file");
     final byte[] data = new byte[100 * BLOCK_SIZE];
-    ThreadLocalRandom.current().nextBytes(data);
+    DFSUtil.getRandom().nextBytes(data);
     writeContents(data, data.length, p);
 
     for(int n = data.length; n > 0; ) {
-      final int newLength = ThreadLocalRandom.current().nextInt(n);
+      final int newLength = DFSUtil.getRandom().nextInt(n);
       final boolean isReady = fs.truncate(p, newLength);
       LOG.info("newLength=" + newLength + ", isReady=" + isReady);
       assertEquals("File must be closed for truncating at the block boundary",
@@ -195,7 +186,7 @@ public class TestFileTruncate {
     fs.allowSnapshot(dir);
     final Path p = new Path(dir, "file");
     final byte[] data = new byte[BLOCK_SIZE];
-    ThreadLocalRandom.current().nextBytes(data);
+    DFSUtil.getRandom().nextBytes(data);
     writeContents(data, data.length, p);
     final String snapshot = "s0";
     fs.createSnapshot(dir, snapshot);
@@ -228,7 +219,7 @@ public class TestFileTruncate {
     final Path p = new Path(dir, "file");
     final byte[] data = new byte[2 * BLOCK_SIZE];
 
-    ThreadLocalRandom.current().nextBytes(data);
+    DFSUtil.getRandom().nextBytes(data);
     writeContents(data, data.length, p);
 
     final int newLength = data.length - 1;
@@ -267,6 +258,7 @@ public class TestFileTruncate {
    */
   void testSnapshotWithAppendTruncate(int ... deleteOrder) throws IOException {
     FSDirectory fsDir = cluster.getNamesystem().getFSDirectory();
+    Path parent = new Path("/test");
     fs.mkdirs(parent);
     fs.setQuota(parent, 100, 1000);
     fs.allowSnapshot(parent);
@@ -430,6 +422,7 @@ public class TestFileTruncate {
   }
 
   void testSnapshotWithTruncates(int ... deleteOrder) throws IOException {
+    Path parent = new Path("/test");
     fs.mkdirs(parent);
     fs.setQuota(parent, 100, 1000);
     fs.allowSnapshot(parent);
@@ -642,7 +635,7 @@ public class TestFileTruncate {
       String leaseHolder =
           NameNodeAdapter.getLeaseHolderForPath(cluster.getNameNode(),
           p.toUri().getPath());
-      if(leaseHolder.startsWith(HdfsServerConstants.NAMENODE_LEASE_HOLDER)) {
+      if(leaseHolder.equals(HdfsServerConstants.NAMENODE_LEASE_HOLDER)) {
         recoveryTriggered = true;
         break;
       }
@@ -672,6 +665,7 @@ public class TestFileTruncate {
   public void testTruncateWithDataNodesRestart() throws Exception {
     int startingFileSize = 3 * BLOCK_SIZE;
     byte[] contents = AppendTestUtil.initBuffer(startingFileSize);
+    final Path parent = new Path("/test");
     final Path p = new Path(parent, "testTruncateWithDataNodesRestart");
 
     writeContents(contents, startingFileSize, p);
@@ -681,7 +675,13 @@ public class TestFileTruncate {
     int toTruncateLength = 1;
     int newLength = startingFileSize - toTruncateLength;
     cluster.getDataNodes().get(dn).shutdown();
-    truncateAndRestartDN(p, dn, newLength);
+    try {
+      boolean isReady = fs.truncate(p, newLength);
+      assertFalse(isReady);
+    } finally {
+      cluster.restartDataNode(dn, true, true);
+      cluster.waitActive();
+    }
     checkBlockRecovery(p);
 
     LocatedBlock newBlock = getLocatedBlocks(p).getLastLocatedBlock();
@@ -695,17 +695,14 @@ public class TestFileTruncate {
     assertEquals(newBlock.getBlock().getGenerationStamp(),
         oldBlock.getBlock().getGenerationStamp() + 1);
 
-    Thread.sleep(2000);
-    // trigger the second time BR to delete the corrupted replica if there's one
-    cluster.triggerBlockReports();
     // Wait replicas come to 3
     DFSTestUtil.waitReplication(fs, p, REPLICATION);
     // Old replica is disregarded and replaced with the truncated one
-    FsDatasetTestUtils utils = cluster.getFsDatasetTestUtils(dn);
-    assertEquals(utils.getStoredDataLength(newBlock.getBlock()),
+    assertEquals(cluster.getBlockFile(dn, newBlock.getBlock()).length(), 
         newBlock.getBlockSize());
-    assertEquals(utils.getStoredGenerationStamp(newBlock.getBlock()),
-        newBlock.getBlock().getGenerationStamp());
+    assertTrue(cluster.getBlockMetadataFile(dn, 
+        newBlock.getBlock()).getName().endsWith(
+            newBlock.getBlock().getGenerationStamp() + ".meta"));
 
     // Validate the file
     FileStatus fileStatus = fs.getFileStatus(p);
@@ -723,6 +720,7 @@ public class TestFileTruncate {
   public void testCopyOnTruncateWithDataNodesRestart() throws Exception {
     int startingFileSize = 3 * BLOCK_SIZE;
     byte[] contents = AppendTestUtil.initBuffer(startingFileSize);
+    final Path parent = new Path("/test");
     final Path p = new Path(parent, "testCopyOnTruncateWithDataNodesRestart");
 
     writeContents(contents, startingFileSize, p);
@@ -734,7 +732,13 @@ public class TestFileTruncate {
     int toTruncateLength = 1;
     int newLength = startingFileSize - toTruncateLength;
     cluster.getDataNodes().get(dn).shutdown();
-    truncateAndRestartDN(p, dn, newLength);
+    try {
+      boolean isReady = fs.truncate(p, newLength);
+      assertFalse(isReady);
+    } finally {
+      cluster.restartDataNode(dn, true, true);
+      cluster.waitActive();
+    }
     checkBlockRecovery(p);
 
     LocatedBlock newBlock = getLocatedBlocks(p).getLastLocatedBlock();
@@ -749,15 +753,15 @@ public class TestFileTruncate {
 
     // Wait replicas come to 3
     DFSTestUtil.waitReplication(fs, p, REPLICATION);
-    FsDatasetTestUtils utils = cluster.getFsDatasetTestUtils(dn);
     // New block is replicated to dn1
-    assertEquals(utils.getStoredDataLength(newBlock.getBlock()),
+    assertEquals(cluster.getBlockFile(dn, newBlock.getBlock()).length(), 
         newBlock.getBlockSize());
     // Old replica exists too since there is snapshot
-    assertEquals(utils.getStoredDataLength(oldBlock.getBlock()),
+    assertEquals(cluster.getBlockFile(dn, oldBlock.getBlock()).length(), 
         oldBlock.getBlockSize());
-    assertEquals(utils.getStoredGenerationStamp(oldBlock.getBlock()),
-        oldBlock.getBlock().getGenerationStamp());
+    assertTrue(cluster.getBlockMetadataFile(dn, 
+        oldBlock.getBlock()).getName().endsWith(
+            oldBlock.getBlock().getGenerationStamp() + ".meta"));
 
     // Validate the file
     FileStatus fileStatus = fs.getFileStatus(p);
@@ -776,6 +780,7 @@ public class TestFileTruncate {
   public void testTruncateWithDataNodesRestartImmediately() throws Exception {
     int startingFileSize = 3 * BLOCK_SIZE;
     byte[] contents = AppendTestUtil.initBuffer(startingFileSize);
+    final Path parent = new Path("/test");
     final Path p = new Path(parent, "testTruncateWithDataNodesRestartImmediately");
 
     writeContents(contents, startingFileSize, p);
@@ -788,8 +793,8 @@ public class TestFileTruncate {
     boolean isReady = fs.truncate(p, newLength);
     assertFalse(isReady);
 
-    cluster.restartDataNode(dn0, false, true);
-    cluster.restartDataNode(dn1, false, true);
+    cluster.restartDataNode(dn0, true, true);
+    cluster.restartDataNode(dn1, true, true);
     cluster.waitActive();
     checkBlockRecovery(p);
 
@@ -803,24 +808,21 @@ public class TestFileTruncate {
     assertEquals(newBlock.getBlock().getGenerationStamp(),
         oldBlock.getBlock().getGenerationStamp() + 1);
 
-    Thread.sleep(2000);
-    // trigger the second time BR to delete the corrupted replica if there's one
-    cluster.triggerBlockReports();
     // Wait replicas come to 3
     DFSTestUtil.waitReplication(fs, p, REPLICATION);
     // Old replica is disregarded and replaced with the truncated one on dn0
-    FsDatasetTestUtils utils = cluster.getFsDatasetTestUtils(dn0);
-    assertEquals(utils.getStoredDataLength(newBlock.getBlock()),
+    assertEquals(cluster.getBlockFile(dn0, newBlock.getBlock()).length(), 
         newBlock.getBlockSize());
-    assertEquals(utils.getStoredGenerationStamp(newBlock.getBlock()),
-        newBlock.getBlock().getGenerationStamp());
+    assertTrue(cluster.getBlockMetadataFile(dn0, 
+        newBlock.getBlock()).getName().endsWith(
+            newBlock.getBlock().getGenerationStamp() + ".meta"));
 
     // Old replica is disregarded and replaced with the truncated one on dn1
-    utils = cluster.getFsDatasetTestUtils(dn1);
-    assertEquals(utils.getStoredDataLength(newBlock.getBlock()),
+    assertEquals(cluster.getBlockFile(dn1, newBlock.getBlock()).length(), 
         newBlock.getBlockSize());
-    assertEquals(utils.getStoredGenerationStamp(newBlock.getBlock()),
-        newBlock.getBlock().getGenerationStamp());
+    assertTrue(cluster.getBlockMetadataFile(dn1, 
+        newBlock.getBlock()).getName().endsWith(
+            newBlock.getBlock().getGenerationStamp() + ".meta"));
 
     // Validate the file
     FileStatus fileStatus = fs.getFileStatus(p);
@@ -838,6 +840,7 @@ public class TestFileTruncate {
   public void testTruncateWithDataNodesShutdownImmediately() throws Exception {
     int startingFileSize = 3 * BLOCK_SIZE;
     byte[] contents = AppendTestUtil.initBuffer(startingFileSize);
+    final Path parent = new Path("/test");
     final Path p = new Path(parent, "testTruncateWithDataNodesShutdownImmediately");
 
     writeContents(contents, startingFileSize, p);
@@ -903,6 +906,7 @@ public class TestFileTruncate {
    */
   @Test
   public void testUpgradeAndRestart() throws IOException {
+    Path parent = new Path("/test");
     fs.mkdirs(parent);
     fs.setQuota(parent, 100, 1000);
     fs.allowSnapshot(parent);
@@ -991,31 +995,32 @@ public class TestFileTruncate {
     FSNamesystem fsn = cluster.getNamesystem();
     String client = "client";
     String clientMachine = "clientMachine";
+    Path parent = new Path("/test");
     String src = "/test/testTruncateRecovery";
     Path srcPath = new Path(src);
 
     byte[] contents = AppendTestUtil.initBuffer(BLOCK_SIZE);
     writeContents(contents, BLOCK_SIZE, srcPath);
 
-    INodesInPath iip = fsn.getFSDirectory().getINodesInPath(src, DirOp.WRITE);
+    INodesInPath iip = fsn.getFSDirectory().getINodesInPath4Write(src, true);
     INodeFile file = iip.getLastINode().asFile();
     long initialGenStamp = file.getLastBlock().getGenerationStamp();
     // Test that prepareFileForTruncate sets up in-place truncate.
     fsn.writeLock();
     try {
       Block oldBlock = file.getLastBlock();
-      Block truncateBlock = FSDirTruncateOp.prepareFileForTruncate(fsn, iip,
-          client, clientMachine, 1, null);
+      Block truncateBlock =
+          fsn.prepareFileForTruncate(iip, client, clientMachine, 1, null);
       // In-place truncate uses old block id with new genStamp.
       assertThat(truncateBlock.getBlockId(),
           is(equalTo(oldBlock.getBlockId())));
       assertThat(truncateBlock.getNumBytes(),
           is(oldBlock.getNumBytes()));
       assertThat(truncateBlock.getGenerationStamp(),
-          is(fsn.getBlockManager().getBlockIdManager().getGenerationStamp()));
+          is(fsn.getBlockIdManager().getGenerationStampV2()));
       assertThat(file.getLastBlock().getBlockUCState(),
           is(HdfsServerConstants.BlockUCState.UNDER_RECOVERY));
-      long blockRecoveryId = file.getLastBlock().getUnderConstructionFeature()
+      long blockRecoveryId = ((BlockInfoContiguousUnderConstruction) file.getLastBlock())
           .getBlockRecoveryId();
       assertThat(blockRecoveryId, is(initialGenStamp + 1));
       fsn.getEditLog().logTruncate(
@@ -1028,28 +1033,27 @@ public class TestFileTruncate {
     writeContents(contents, BLOCK_SIZE, srcPath);
     fs.allowSnapshot(parent);
     fs.createSnapshot(parent, "ss0");
-    iip = fsn.getFSDirectory().getINodesInPath(src, DirOp.WRITE);
+    iip = fsn.getFSDirectory().getINodesInPath(src, true);
     file = iip.getLastINode().asFile();
     file.recordModification(iip.getLatestSnapshotId(), true);
-    assertThat(file.isBlockInLatestSnapshot(
-        (BlockInfoContiguous) file.getLastBlock()), is(true));
+    assertThat(file.isBlockInLatestSnapshot(file.getLastBlock()), is(true));
     initialGenStamp = file.getLastBlock().getGenerationStamp();
     // Test that prepareFileForTruncate sets up copy-on-write truncate
     fsn.writeLock();
     try {
       Block oldBlock = file.getLastBlock();
-      Block truncateBlock = FSDirTruncateOp.prepareFileForTruncate(fsn, iip,
-          client, clientMachine, 1, null);
+      Block truncateBlock =
+          fsn.prepareFileForTruncate(iip, client, clientMachine, 1, null);
       // Copy-on-write truncate makes new block with new id and genStamp
       assertThat(truncateBlock.getBlockId(),
           is(not(equalTo(oldBlock.getBlockId()))));
       assertThat(truncateBlock.getNumBytes() < oldBlock.getNumBytes(),
           is(true));
       assertThat(truncateBlock.getGenerationStamp(),
-          is(fsn.getBlockManager().getBlockIdManager().getGenerationStamp()));
+          is(fsn.getBlockIdManager().getGenerationStampV2()));
       assertThat(file.getLastBlock().getBlockUCState(),
           is(HdfsServerConstants.BlockUCState.UNDER_RECOVERY));
-      long blockRecoveryId = file.getLastBlock().getUnderConstructionFeature()
+      long blockRecoveryId = ((BlockInfoContiguousUnderConstruction) file.getLastBlock())
           .getBlockRecoveryId();
       assertThat(blockRecoveryId, is(initialGenStamp + 1));
       fsn.getEditLog().logTruncate(
@@ -1064,6 +1068,7 @@ public class TestFileTruncate {
 
   @Test
   public void testTruncateShellCommand() throws Exception {
+    final Path parent = new Path("/test");
     final Path src = new Path("/test/testTruncateShellCommand");
     final int oldLength = 2*BLOCK_SIZE + 1;
     final int newLength = BLOCK_SIZE + 1;
@@ -1080,6 +1085,7 @@ public class TestFileTruncate {
 
   @Test
   public void testTruncateShellCommandOnBlockBoundary() throws Exception {
+    final Path parent = new Path("/test");
     final Path src = new Path("/test/testTruncateShellCommandOnBoundary");
     final int oldLength = 2 * BLOCK_SIZE;
     final int newLength = BLOCK_SIZE;
@@ -1095,6 +1101,7 @@ public class TestFileTruncate {
 
   @Test
   public void testTruncateShellCommandWithWaitOption() throws Exception {
+    final Path parent = new Path("/test");
     final Path src = new Path("/test/testTruncateShellCommandWithWaitOption");
     final int oldLength = 2 * BLOCK_SIZE + 1;
     final int newLength = BLOCK_SIZE + 1;
@@ -1130,6 +1137,7 @@ public class TestFileTruncate {
   public void testTruncate4Symlink() throws IOException {
     final int fileLength = 3 * BLOCK_SIZE;
 
+    final Path parent = new Path("/test");
     fs.mkdirs(parent);
     final byte[] contents = AppendTestUtil.initBuffer(fileLength);
     final Path file = new Path(parent, "testTruncate4Symlink");
@@ -1225,20 +1233,10 @@ public class TestFileTruncate {
       NameNode.doRollback(conf, false);
     cluster = new MiniDFSCluster.Builder(conf).numDataNodes(DATANODE_NUM)
         .format(false)
+        .nameNodePort(NameNode.DEFAULT_PORT)
         .startupOption(o==StartupOption.ROLLBACK ? StartupOption.REGULAR : o)
         .dnStartupOption(o!=StartupOption.ROLLBACK ? StartupOption.REGULAR : o)
         .build();
     fs = cluster.getFileSystem();
-  }
-
-  private void truncateAndRestartDN(Path p, int dn, int newLength)
-      throws IOException {
-    try {
-      boolean isReady = fs.truncate(p, newLength);
-      assertFalse(isReady);
-    } finally {
-      cluster.restartDataNode(dn, false, true);
-      cluster.waitActive();
-    }
   }
 }

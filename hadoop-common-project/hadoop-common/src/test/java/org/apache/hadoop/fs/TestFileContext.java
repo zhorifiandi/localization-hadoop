@@ -17,16 +17,15 @@
  */
 package org.apache.hadoop.fs;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.junit.Assert.fail;
 
 public class TestFileContext {
-  private static final Logger LOG = LoggerFactory.getLogger(TestFileContext
-      .class);
+  private static final Log LOG = LogFactory.getLog(TestFileContext.class);
 
   @Test
   public void testDefaultURIWithoutScheme() throws Exception {

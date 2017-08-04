@@ -24,7 +24,6 @@ import java.util.Iterator;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapreduce.JobACL;
 import org.apache.hadoop.mapreduce.v2.api.records.JobId;
 import org.apache.hadoop.mapreduce.v2.api.records.TaskId;
@@ -46,7 +45,6 @@ public class TestAppController {
   private AppControllerForTest appController;
   private RequestContext ctx;
   private Job job;
-  private static final String taskId = "task_01_01_m_01";
 
   @Before
   public void setUp() throws IOException {
@@ -60,8 +58,6 @@ public class TestAppController {
     Task task = mock(Task.class);
 
     when(job.getTask(any(TaskId.class))).thenReturn(task);
-    when(job.loadConfFile()).thenReturn(new Configuration());
-    when(job.getConfFile()).thenReturn(new Path("/"));
 
     JobId jobID = MRApps.toJobID("job_01_01");
     when(context.getJob(jobID)).thenReturn(job);
@@ -74,7 +70,7 @@ public class TestAppController {
 
     appController = new AppControllerForTest(app, configuration, ctx);
     appController.getProperty().put(AMParams.JOB_ID, "job_01_01");
-    appController.getProperty().put(AMParams.TASK_ID, taskId);
+    appController.getProperty().put(AMParams.TASK_ID, "task_01_01_m01_01");
 
   }
 
@@ -209,7 +205,7 @@ public class TestAppController {
         "Access denied: User user does not have permission to view job job_01_01missing task ID",
         appController.getData());
 
-    appController.getProperty().put(AMParams.TASK_ID, taskId);
+    appController.getProperty().put(AMParams.TASK_ID, "task_01_01_m01_01");
     appController.taskCounters();
     assertEquals(CountersPage.class, appController.getClazz());
   }
@@ -251,7 +247,7 @@ public class TestAppController {
   public void testTask() {
  
     appController.task();
-    assertEquals("Attempts for " + taskId ,
+    assertEquals("Attempts for task_01_01_m01_01" ,
         appController.getProperty().get("title"));
 
     assertEquals(TaskPage.class, appController.getClazz());
@@ -266,17 +262,6 @@ public class TestAppController {
     appController.conf();
 
     assertEquals(JobConfPage.class, appController.getClazz());
-  }
-
-  /**
-   * Test downloadConf request handling.
-   */
-  @Test
-  public void testDownloadConfiguration() {
-    appController.downloadConf();
-    String jobConfXml = appController.getData();
-    assertTrue("Error downloading the job configuration file.",
-        !jobConfXml.contains("Error"));
   }
 
   /**
@@ -305,7 +290,7 @@ public class TestAppController {
         "Access denied: User user does not have permission to view job job_01_01",
         appController.getData());
 
-    appController.getProperty().put(AMParams.TASK_ID, taskId);
+    appController.getProperty().put(AMParams.TASK_ID, "task_01_01_m01_01");
     appController.attempts();
     assertEquals("Bad request: missing task-type.", appController.getProperty()
         .get("title"));

@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.conf;
 
+import org.apache.commons.logging.*;
+
 import org.apache.commons.lang.StringEscapeUtils;
 
 import java.util.Collection;
@@ -31,8 +33,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.apache.hadoop.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A servlet for changing a node's configuration.
@@ -45,8 +45,8 @@ public class ReconfigurationServlet extends HttpServlet {
   
   private static final long serialVersionUID = 1L;
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(ReconfigurationServlet.class);
+  private static final Log LOG =
+    LogFactory.getLog(ReconfigurationServlet.class);
 
   // the prefix used to fing the attribute holding the reconfigurable 
   // for a given request

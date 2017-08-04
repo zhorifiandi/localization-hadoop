@@ -74,9 +74,6 @@ public final class LimitInputStream extends FilterInputStream {
 
   @Override
   public int read(byte[] b, int off, int len) throws IOException {
-    if (len == 0) {
-      return 0;
-    }
     if (left == 0) {
       return -1;
     }

@@ -19,9 +19,9 @@ package org.apache.hadoop.fs.shell;
 
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.LinkedList;
 import java.util.zip.GZIPInputStream;
 
@@ -33,6 +33,7 @@ import org.apache.avro.generic.GenericDatumWriter;
 import org.apache.avro.io.DatumWriter;
 import org.apache.avro.io.EncoderFactory;
 import org.apache.avro.io.JsonEncoder;
+import org.apache.commons.io.Charsets;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
@@ -48,10 +49,15 @@ import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.SequenceFile;
 import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.io.WritableComparable;
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.io.compress.CompressionCodecFactory;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.StringUtils;
+import org.codehaus.jackson.JsonEncoding;
+import org.codehaus.jackson.JsonFactory;
+import org.codehaus.jackson.JsonGenerator;
+import org.codehaus.jackson.util.MinimalPrettyPrinter;
 
 /**
  * Display contents or checksums of files 
@@ -205,7 +211,7 @@ class Display extends FsCommand {
 
   protected class TextRecordInputStream extends InputStream {
     SequenceFile.Reader r;
-    Writable key;
+    WritableComparable<?> key;
     Writable val;
 
     DataInputBuffer inbuf;
@@ -217,7 +223,7 @@ class Display extends FsCommand {
       r = new SequenceFile.Reader(lconf, 
           SequenceFile.Reader.file(fpath));
       key = ReflectionUtils.newInstance(
-          r.getKeyClass().asSubclass(Writable.class), lconf);
+          r.getKeyClass().asSubclass(WritableComparable.class), lconf);
       val = ReflectionUtils.newInstance(
           r.getValueClass().asSubclass(Writable.class), lconf);
       inbuf = new DataInputBuffer();
@@ -231,10 +237,10 @@ class Display extends FsCommand {
         if (!r.next(key, val)) {
           return -1;
         }
-        byte[] tmp = key.toString().getBytes(StandardCharsets.UTF_8);
+        byte[] tmp = key.toString().getBytes(Charsets.UTF_8);
         outbuf.write(tmp, 0, tmp.length);
         outbuf.write('\t');
-        tmp = val.toString().getBytes(StandardCharsets.UTF_8);
+        tmp = val.toString().getBytes(Charsets.UTF_8);
         outbuf.write(tmp, 0, tmp.length);
         outbuf.write('\n');
         inbuf.reset(outbuf.getData(), outbuf.getLength());
@@ -273,7 +279,12 @@ class Display extends FsCommand {
       Schema schema = fileReader.getSchema();
       writer = new GenericDatumWriter<Object>(schema);
       output = new ByteArrayOutputStream();
-      encoder = EncoderFactory.get().jsonEncoder(schema, output);
+      JsonGenerator generator =
+        new JsonFactory().createJsonGenerator(output, JsonEncoding.UTF8);
+      MinimalPrettyPrinter prettyPrinter = new MinimalPrettyPrinter();
+      prettyPrinter.setRootValueSeparator(System.getProperty("line.separator"));
+      generator.setPrettyPrinter(prettyPrinter);
+      encoder = EncoderFactory.get().jsonEncoder(schema, generator);
     }
 
     /**
@@ -292,7 +303,7 @@ class Display extends FsCommand {
       if (!fileReader.hasNext()) {
         // Write a new line after the last Avro record.
         output.write(System.getProperty("line.separator")
-                         .getBytes(StandardCharsets.UTF_8));
+                         .getBytes(Charsets.UTF_8));
         output.flush();
       }
       pos = 0;

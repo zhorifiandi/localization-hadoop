@@ -28,15 +28,12 @@ import org.apache.hadoop.classification.InterfaceAudience.Public;
 import org.apache.hadoop.classification.InterfaceStability.Evolving;
 import org.apache.hadoop.classification.InterfaceStability.Stable;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationResourceUsageReport;
-import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.NodeId;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.QueueACL;
 import org.apache.hadoop.yarn.api.records.QueueInfo;
 import org.apache.hadoop.yarn.api.records.QueueUserACLInfo;
@@ -49,8 +46,6 @@ import org.apache.hadoop.yarn.server.resourcemanager.scheduler.common.QueueEntit
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEvent;
 import org.apache.hadoop.yarn.proto.YarnServiceProtos.SchedulerResourceTypes;
 import org.apache.hadoop.yarn.util.resource.ResourceCalculator;
-
-import com.google.common.util.concurrent.SettableFuture;
 
 /**
  * This interface is used by the components to talk to the
@@ -135,15 +130,16 @@ public interface YarnScheduler extends EventHandler<SchedulerEvent> {
    * @param release
    * @param blacklistAdditions 
    * @param blacklistRemovals 
-   * @param updateRequests
    * @return the {@link Allocation} for the application
    */
   @Public
   @Stable
-  Allocation allocate(ApplicationAttemptId appAttemptId,
-      List<ResourceRequest> ask, List<ContainerId> release,
-      List<String> blacklistAdditions, List<String> blacklistRemovals,
-      ContainerUpdates updateRequests);
+  Allocation 
+  allocate(ApplicationAttemptId appAttemptId, 
+      List<ResourceRequest> ask,
+      List<ContainerId> release, 
+      List<String> blacklistAdditions, 
+      List<String> blacklistRemovals);
 
   /**
    * Get node resource usage report.
@@ -226,17 +222,6 @@ public interface YarnScheduler extends EventHandler<SchedulerEvent> {
       throws YarnException;
 
   /**
-   *
-   * @param appId Application ID
-   * @param newQueue Target QueueName
-   * @throws YarnException if the pre-validation for move cannot be carried out
-   */
-  @LimitedPrivate("yarn")
-  @Evolving
-  public void preValidateMoveApplication(ApplicationId appId,
-      String newQueue) throws YarnException;
-
-  /**
    * Completely drain sourceQueue of applications, by moving all of them to
    * destQueue.
    *
@@ -301,88 +286,4 @@ public interface YarnScheduler extends EventHandler<SchedulerEvent> {
    * @return an EnumSet containing the resource types
    */
   public EnumSet<SchedulerResourceTypes> getSchedulingResourceTypes();
-
-  /**
-   *
-   * Verify whether a submitted application priority is valid as per configured
-   * Queue
-   *
-   * @param priorityRequestedByApp
-   *          Submitted Application priority.
-   * @param user
-   *          User who submitted the Application
-   * @param queueName
-   *          Name of the Queue
-   * @param applicationId
-   *          Application ID
-   * @return Updated Priority from scheduler
-   */
-  public Priority checkAndGetApplicationPriority(Priority priorityRequestedByApp,
-      UserGroupInformation user, String queueName, ApplicationId applicationId)
-      throws YarnException;
-
-  /**
-   *
-   * Change application priority of a submitted application at runtime
-   *
-   * @param newPriority Submitted Application priority.
-   *
-   * @param applicationId Application ID
-   *
-   * @param future Sets any type of exception happened from StateStore
-   * @param user who submitted the application
-   *
-   * @return updated priority
-   */
-  public Priority updateApplicationPriority(Priority newPriority,
-      ApplicationId applicationId, SettableFuture<Object> future,
-      UserGroupInformation user) throws YarnException;
-
-  /**
-   *
-   * Get previous attempts' live containers for work-preserving AM restart.
-   *
-   * @param appAttemptId the id of the application attempt
-   *
-   * @return list of live containers for the given attempt
-   */
-  List<Container> getTransferredContainers(ApplicationAttemptId appAttemptId);
-
-  /**
-   * Set the cluster max priority
-   * 
-   * @param conf
-   * @throws YarnException
-   */
-  void setClusterMaxPriority(Configuration conf) throws YarnException;
-
-  /**
-   * @param attemptId
-   */
-  List<ResourceRequest> getPendingResourceRequestsForAttempt(
-      ApplicationAttemptId attemptId);
-
-  /**
-   * Get cluster max priority.
-   * 
-   * @return maximum priority of cluster
-   */
-  Priority getMaxClusterLevelAppPriority();
-
-  /**
-   * Get SchedulerNode corresponds to nodeId.
-   *
-   * @param nodeId the node id of RMNode
-   *
-   * @return SchedulerNode corresponds to nodeId
-   */
-  SchedulerNode getSchedulerNode(NodeId nodeId);
-
-  /**
-   * Normalize a resource request.
-   *
-   * @param requestedResource the resource to be normalized
-   * @return the normalized resource
-   */
-  Resource getNormalizedResource(Resource requestedResource);
 }

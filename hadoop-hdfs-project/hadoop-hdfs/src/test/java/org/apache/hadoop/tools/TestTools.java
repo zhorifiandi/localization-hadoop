@@ -1,3 +1,5 @@
+package org.apache.hadoop.tools;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -15,9 +17,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package org.apache.hadoop.tools;
-
 import static org.junit.Assert.*;
 
 import java.io.ByteArrayOutputStream;
@@ -104,8 +103,6 @@ public class TestTools {
   private void checkOutput(String[] args, String pattern, PrintStream out,
       Class<?> clazz) {       
     ByteArrayOutputStream outBytes = new ByteArrayOutputStream();
-    PrintStream oldOut = System.out;
-    PrintStream oldErr = System.err;
     try {
       PipedOutputStream pipeOut = new PipedOutputStream();
       PipedInputStream pipeIn = new PipedInputStream(pipeOut, PIPE_BUFFER_SIZE);
@@ -128,9 +125,6 @@ public class TestTools {
       assertTrue(new String(outBytes.toByteArray()).contains(pattern));            
     } catch (Exception ex) {
       fail("checkOutput error " + ex);
-    } finally {
-      System.setOut(oldOut);
-      System.setErr(oldErr);
     }
   }
 

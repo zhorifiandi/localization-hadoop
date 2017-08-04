@@ -24,12 +24,13 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.hadoop.fs.contract.ContractTestUtils.cleanup;
 import static org.apache.hadoop.fs.contract.ContractTestUtils.createFile;
 import static org.apache.hadoop.fs.contract.ContractTestUtils.dataset;
 import static org.apache.hadoop.fs.contract.ContractTestUtils.touch;
 
 /**
- * Test append -if supported
+ * Test concat -if supported
  */
 public abstract class AbstractContractAppendTest extends AbstractFSContractTestBase {
   private static final Logger LOG =
@@ -52,24 +53,14 @@ public abstract class AbstractContractAppendTest extends AbstractFSContractTestB
   public void testAppendToEmptyFile() throws Throwable {
     touch(getFileSystem(), target);
     byte[] dataset = dataset(256, 'a', 'z');
-    try (FSDataOutputStream outputStream = getFileSystem().append(target)) {
+    FSDataOutputStream outputStream = getFileSystem().append(target);
+    try {
       outputStream.write(dataset);
+    } finally {
+      outputStream.close();
     }
     byte[] bytes = ContractTestUtils.readDataset(getFileSystem(), target,
                                                  dataset.length);
-    ContractTestUtils.compareByteArrays(dataset, bytes, dataset.length);
-  }
-
-  @Test
-  public void testBuilderAppendToEmptyFile() throws Throwable {
-    touch(getFileSystem(), target);
-    byte[] dataset = dataset(256, 'a', 'z');
-    try (FSDataOutputStream outputStream =
-             getFileSystem().appendFile(target).build()) {
-      outputStream.write(dataset);
-    }
-    byte[] bytes = ContractTestUtils.readDataset(getFileSystem(), target,
-        dataset.length);
     ContractTestUtils.compareByteArrays(dataset, bytes, dataset.length);
   }
 
@@ -91,27 +82,13 @@ public abstract class AbstractContractAppendTest extends AbstractFSContractTestB
     byte[] original = dataset(8192, 'A', 'Z');
     byte[] appended = dataset(8192, '0', '9');
     createFile(getFileSystem(), target, false, original);
-    try (FSDataOutputStream out = getFileSystem().append(target)) {
-      out.write(appended);
-    }
+    FSDataOutputStream outputStream = getFileSystem().append(target);
+      outputStream.write(appended);
+      outputStream.close();
     byte[] bytes = ContractTestUtils.readDataset(getFileSystem(), target,
                                                  original.length + appended.length);
     ContractTestUtils.validateFileContent(bytes,
             new byte[] [] { original, appended });
-  }
-
-  @Test
-  public void testBuilderAppendToExistingFile() throws Throwable {
-    byte[] original = dataset(8192, 'A', 'Z');
-    byte[] appended = dataset(8192, '0', '9');
-    createFile(getFileSystem(), target, false, original);
-    try (FSDataOutputStream out = getFileSystem().appendFile(target).build()) {
-      out.write(appended);
-    }
-    byte[] bytes = ContractTestUtils.readDataset(getFileSystem(), target,
-        original.length + appended.length);
-    ContractTestUtils.validateFileContent(bytes,
-        new byte[][]{original, appended});
   }
 
   @Test
@@ -135,7 +112,6 @@ public abstract class AbstractContractAppendTest extends AbstractFSContractTestB
     FSDataOutputStream outputStream = getFileSystem().append(target);
     outputStream.write(dataset);
     Path renamed = new Path(testPath, "renamed");
-    rename(target, renamed);
     outputStream.close();
     String listing = ls(testPath);
 

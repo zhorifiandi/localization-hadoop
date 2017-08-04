@@ -66,7 +66,6 @@ import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.NodeId;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.util.Records;
 
 import com.google.common.collect.Iterators;
@@ -633,11 +632,6 @@ public class MockJobs extends MockApps {
 
       @Override
       public void setQueueName(String queueName) {
-        // do nothing
-      }
-
-      @Override
-      public void setJobPriority(Priority priority) {
         // do nothing
       }
     };

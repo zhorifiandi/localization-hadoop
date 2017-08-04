@@ -51,7 +51,6 @@ public class TestEpochsAreUnique {
   public void testSingleThreaded() throws IOException {
     Configuration conf = new Configuration();
     MiniJournalCluster cluster = new MiniJournalCluster.Builder(conf).build();
-    cluster.waitActive();
     URI uri = cluster.getQuorumJournalURI(JID);
     QuorumJournalManager qjm = new QuorumJournalManager(
         conf, uri, FAKE_NSINFO);

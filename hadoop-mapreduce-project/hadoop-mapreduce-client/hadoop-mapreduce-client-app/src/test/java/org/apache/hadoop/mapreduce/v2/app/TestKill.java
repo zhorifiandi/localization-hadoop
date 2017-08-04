@@ -22,7 +22,6 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
-import org.apache.hadoop.service.Service;
 import org.junit.Assert;
 
 import org.apache.hadoop.conf.Configuration;
@@ -67,8 +66,8 @@ public class TestKill {
     Job job = app.submit(new Configuration());
     
     //wait and vailidate for Job to become RUNNING
-    app.waitForInternalState((JobImpl) job, JobStateInternal.RUNNING);
-
+    app.waitForState(job, JobState.RUNNING);
+    
     //send the kill signal to Job
     app.getContext().getEventHandler().handle(
         new JobEvent(job.getID(), JobEventType.JOB_KILL));
@@ -78,10 +77,6 @@ public class TestKill {
 
     //wait and validate for Job to be KILLED
     app.waitForState(job, JobState.KILLED);
-    // make sure all events are processed. The AM is stopped
-    // only when all tasks and task attempts have been killed
-    app.waitForState(Service.STATE.STOPPED);
-
     Map<TaskId,Task> tasks = job.getTasks();
     Assert.assertEquals("No of tasks is not correct", 1, 
         tasks.size());
@@ -105,7 +100,7 @@ public class TestKill {
     Job job = app.submit(new Configuration());
     
     //wait and vailidate for Job to become RUNNING
-    app.waitForInternalState((JobImpl) job, JobStateInternal.RUNNING);
+    app.waitForState(job, JobState.RUNNING);
     Map<TaskId,Task> tasks = job.getTasks();
     Assert.assertEquals("No of tasks is not correct", 2, 
         tasks.size());
@@ -164,7 +159,7 @@ public class TestKill {
               super.dispatch(new TaskAttemptEvent(taID,
                 TaskAttemptEventType.TA_DONE));
               super.dispatch(new TaskAttemptEvent(taID,
-                TaskAttemptEventType.TA_CONTAINER_COMPLETED));
+                TaskAttemptEventType.TA_CONTAINER_CLEANED));
               super.dispatch(new TaskTAttemptEvent(taID,
                 TaskEventType.T_ATTEMPT_SUCCEEDED));
               this.cachedKillEvent = killEvent;
@@ -216,9 +211,40 @@ public class TestKill {
     app.getContext().getEventHandler()
       .handle(new JobEvent(jobId, JobEventType.JOB_KILL));
 
-    app.waitForInternalState((JobImpl) job, JobStateInternal.KILLED);
+    app.waitForInternalState((JobImpl)job, JobStateInternal.KILLED);
   }
 
+  static class MyAsyncDispatch extends AsyncDispatcher {
+    private CountDownLatch latch;
+    private TaskAttemptEventType attemptEventTypeToWait;
+    MyAsyncDispatch(CountDownLatch latch, TaskAttemptEventType attemptEventTypeToWait) {
+      super();
+      this.latch = latch;
+      this.attemptEventTypeToWait = attemptEventTypeToWait;
+    }
+
+    @Override
+    protected void dispatch(Event event) {
+      if (event instanceof TaskAttemptEvent) {
+        TaskAttemptEvent attemptEvent = (TaskAttemptEvent) event;
+        TaskAttemptId attemptID = ((TaskAttemptEvent) event).getTaskAttemptID();
+        if (attemptEvent.getType() == this.attemptEventTypeToWait
+            && attemptID.getTaskId().getId() == 0 && attemptID.getId() == 0 ) {
+          try {
+            latch.await();
+          } catch (InterruptedException e) {
+            e.printStackTrace();
+          }
+        }
+      }
+      super.dispatch(event);
+    }
+  }
+
+  // This is to test a race condition where JobEventType.JOB_KILL is generated
+  // right after TaskAttemptEventType.TA_DONE is generated.
+  // TaskImpl's state machine might receive both T_ATTEMPT_SUCCEEDED
+  // and T_ATTEMPT_KILLED from the same attempt.
   @Test
   public void testKillTaskWaitKillJobAfterTA_DONE() throws Exception {
     CountDownLatch latch = new CountDownLatch(1);
@@ -243,12 +269,15 @@ public class TestKill {
     TaskAttempt reduceAttempt = reduceTask.getAttempts().values().iterator().next();
     app.waitForState(reduceAttempt, TaskAttemptState.RUNNING);
 
-    // The order in the dispatch event queue, from first to last
+    // The order in the dispatch event queue, from the oldest to the newest
     // TA_DONE
-    // JobEventType.JOB_KILL
-    // TaskAttemptEventType.TA_CONTAINER_COMPLETED ( from TA_DONE handling )
-    // TaskEventType.T_KILL ( from JobEventType.JOB_KILL handling )
-    // TaskEventType.T_ATTEMPT_SUCCEEDED ( from TA_CONTAINER_COMPLETED handling )
+    // JOB_KILL
+    // CONTAINER_REMOTE_CLEANUP ( from TA_DONE's handling )
+    // T_KILL ( from JOB_KILL's handling )
+    // TA_CONTAINER_CLEANED ( from CONTAINER_REMOTE_CLEANUP's handling )
+    // TA_KILL ( from T_KILL's handling )
+    // T_ATTEMPT_SUCCEEDED ( from TA_CONTAINER_CLEANED's handling )
+    // T_ATTEMPT_KILLED ( from TA_KILL's handling )
 
     // Finish map
     app.getContext().getEventHandler().handle(
@@ -264,100 +293,6 @@ public class TestKill {
     latch.countDown();
 
     app.waitForInternalState((JobImpl)job, JobStateInternal.KILLED);
-  }
-
-
-  @Test
-  public void testKillTaskWaitKillJobBeforeTA_DONE() throws Exception {
-    CountDownLatch latch = new CountDownLatch(1);
-    final Dispatcher dispatcher = new MyAsyncDispatch(latch, JobEventType.JOB_KILL);
-    MRApp app = new MRApp(1, 1, false, this.getClass().getName(), true) {
-      @Override
-      public Dispatcher createDispatcher() {
-        return dispatcher;
-      }
-    };
-    Job job = app.submit(new Configuration());
-    JobId jobId = app.getJobId();
-    app.waitForState(job, JobState.RUNNING);
-    Assert.assertEquals("Num tasks not correct", 2, job.getTasks().size());
-    Iterator<Task> it = job.getTasks().values().iterator();
-    Task mapTask = it.next();
-    Task reduceTask = it.next();
-    app.waitForState(mapTask, TaskState.RUNNING);
-    app.waitForState(reduceTask, TaskState.RUNNING);
-    TaskAttempt mapAttempt = mapTask.getAttempts().values().iterator().next();
-    app.waitForState(mapAttempt, TaskAttemptState.RUNNING);
-    TaskAttempt reduceAttempt = reduceTask.getAttempts().values().iterator().next();
-    app.waitForState(reduceAttempt, TaskAttemptState.RUNNING);
-
-    // The order in the dispatch event queue, from first to last
-    // JobEventType.JOB_KILL
-    // TA_DONE
-    // TaskEventType.T_KILL ( from JobEventType.JOB_KILL handling )
-    // TaskAttemptEventType.TA_CONTAINER_COMPLETED ( from TA_DONE handling )
-    // TaskAttemptEventType.TA_KILL ( from TaskEventType.T_KILL handling )
-    // TaskEventType.T_ATTEMPT_SUCCEEDED ( from TA_CONTAINER_COMPLETED handling )
-    // TaskEventType.T_ATTEMPT_KILLED ( from TA_KILL handling )
-
-    // Now kill the job
-    app.getContext().getEventHandler()
-        .handle(new JobEvent(jobId, JobEventType.JOB_KILL));
-
-    // Finish map
-    app.getContext().getEventHandler().handle(
-        new TaskAttemptEvent(
-            mapAttempt.getID(),
-            TaskAttemptEventType.TA_DONE));
-
-    //unblock
-    latch.countDown();
-
-    app.waitForInternalState((JobImpl)job, JobStateInternal.KILLED);
-  }
-
-  static class MyAsyncDispatch extends AsyncDispatcher {
-    private CountDownLatch latch;
-    private TaskAttemptEventType attemptEventTypeToWait;
-    private JobEventType jobEventTypeToWait;
-    MyAsyncDispatch(CountDownLatch latch, TaskAttemptEventType attemptEventTypeToWait) {
-      super();
-      this.latch = latch;
-      this.attemptEventTypeToWait = attemptEventTypeToWait;
-    }
-
-    MyAsyncDispatch(CountDownLatch latch, JobEventType jobEventTypeToWait) {
-      super();
-      this.latch = latch;
-      this.jobEventTypeToWait = jobEventTypeToWait;
-    }
-
-    @Override
-    protected void dispatch(Event event) {
-      if (event instanceof TaskAttemptEvent) {
-        TaskAttemptEvent attemptEvent = (TaskAttemptEvent) event;
-        TaskAttemptId attemptID = ((TaskAttemptEvent) event).getTaskAttemptID();
-        if (attemptEvent.getType() == this.attemptEventTypeToWait
-            && attemptID.getTaskId().getId() == 0 && attemptID.getId() == 0 ) {
-          try {
-            latch.await();
-          } catch (InterruptedException e) {
-            e.printStackTrace();
-          }
-        }
-      } else if ( event instanceof JobEvent) {
-        JobEvent jobEvent = (JobEvent) event;
-        if (jobEvent.getType() == this.jobEventTypeToWait) {
-          try {
-            latch.await();
-          } catch (InterruptedException e) {
-            e.printStackTrace();
-          }
-        }
-      }
-
-      super.dispatch(event);
-    }
   }
 
   @Test

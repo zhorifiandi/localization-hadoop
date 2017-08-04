@@ -71,9 +71,7 @@ public class TestViewFileSystemWithXAttrs {
 
   @AfterClass
   public static void ClusterShutdownAtEnd() throws Exception {
-    if (cluster != null) {
-      cluster.shutdown();
-    }
+    cluster.shutdown();
   }
 
   @Before

@@ -74,13 +74,13 @@ public class TestQueue {
       assertTrue(root.getChildren().size() == 2);
       Iterator<Queue> iterator = root.getChildren().iterator();
       Queue firstSubQueue = iterator.next();
-      assertEquals("first", firstSubQueue.getName());
+      assertTrue(firstSubQueue.getName().equals("first"));
       assertEquals(
           firstSubQueue.getAcls().get("mapred.queue.first.acl-submit-job")
               .toString(),
           "Users [user1, user2] and members of the groups [group1, group2] are allowed");
       Queue secondSubQueue = iterator.next();
-      assertEquals("second", secondSubQueue.getName());
+      assertTrue(secondSubQueue.getName().equals("second"));
       assertEquals(secondSubQueue.getProperties().getProperty("key"), "value");
       assertEquals(secondSubQueue.getProperties().getProperty("key1"), "value1");
       // test status
@@ -207,13 +207,13 @@ public class TestQueue {
     assertTrue(root.getChildren().size() == 2);
     Iterator<Queue> iterator = root.getChildren().iterator();
     Queue firstSubQueue = iterator.next();
-    assertEquals("first", firstSubQueue.getName());
+    assertTrue(firstSubQueue.getName().equals("first"));
     assertEquals(
         firstSubQueue.getAcls().get("mapred.queue.first.acl-submit-job")
             .toString(),
         "Users [user1, user2] and members of the groups [group1, group2] are allowed");
     Queue secondSubQueue = iterator.next();
-    assertEquals("second", secondSubQueue.getName());
+    assertTrue(secondSubQueue.getName().equals("second"));
 
     assertEquals(firstSubQueue.getState().getStateName(), "running");
     assertEquals(secondSubQueue.getState().getStateName(), "stopped");

@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.crypto;
 
-import java.io.EOFException;
 import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FilterInputStream;
@@ -35,7 +34,6 @@ import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.ByteBufferReadable;
 import org.apache.hadoop.fs.CanSetDropBehind;
 import org.apache.hadoop.fs.CanSetReadahead;
-import org.apache.hadoop.fs.FSExceptionMessages;
 import org.apache.hadoop.fs.HasEnhancedByteBufferAccess;
 import org.apache.hadoop.fs.HasFileDescriptor;
 import org.apache.hadoop.fs.PositionedReadable;
@@ -315,7 +313,6 @@ public class CryptoInputStream extends FilterInputStream implements
     
     super.close();
     freeBuffers();
-    codec.close();
     closed = true;
   }
   
@@ -398,9 +395,7 @@ public class CryptoInputStream extends FilterInputStream implements
   /** Seek to a position. */
   @Override
   public void seek(long pos) throws IOException {
-    if (pos < 0) {
-      throw new EOFException(FSExceptionMessages.NEGATIVE_SEEK);
-    }
+    Preconditions.checkArgument(pos >= 0, "Cannot seek to negative offset.");
     checkStream();
     try {
       /*

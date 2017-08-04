@@ -23,7 +23,6 @@ import java.io.IOException;
 import junit.framework.TestCase;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.test.GenericTestUtils;
 
 /**
  * test for the input truncation bug when mark/reset is used.
@@ -31,7 +30,8 @@ import org.apache.hadoop.test.GenericTestUtils;
  */
 public class TestTruncatedInputBug extends TestCase {
   private static String TEST_ROOT_DIR =
-      GenericTestUtils.getTestDir().getAbsolutePath();
+    new Path(System.getProperty("test.build.data","/tmp"))
+    .toString().replace(' ', '+');
   
   private void writeFile(FileSystem fileSys, 
                          Path name, int nBytesToWrite) 

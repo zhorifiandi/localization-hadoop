@@ -18,8 +18,8 @@
 
 package org.apache.hadoop.fs;
 
-import com.google.re2j.Pattern;
-import com.google.re2j.PatternSyntaxException;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -153,7 +153,7 @@ public class GlobPattern {
     if (curlyOpen > 0) {
       error("Unclosed group", glob, len);
     }
-    compiled = Pattern.compile(regex.toString(), Pattern.DOTALL);
+    compiled = Pattern.compile(regex.toString());
   }
 
   /**
@@ -164,7 +164,6 @@ public class GlobPattern {
   }
 
   private static void error(String message, String pattern, int pos) {
-    String fullMessage = String.format("%s at pos %d", message, pos);
-    throw new PatternSyntaxException(fullMessage, pattern);
+    throw new PatternSyntaxException(message, pattern, pos);
   }
 }

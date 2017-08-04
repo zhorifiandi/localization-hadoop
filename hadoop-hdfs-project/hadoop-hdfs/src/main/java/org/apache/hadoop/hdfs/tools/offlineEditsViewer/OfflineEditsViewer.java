@@ -22,7 +22,6 @@ import org.apache.hadoop.classification.InterfaceStability;
 
 import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.hdfs.tools.offlineEditsViewer.OfflineEditsLoader.OfflineEditsLoaderFactory;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 
@@ -40,8 +39,7 @@ import org.apache.commons.cli.PosixParser;
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
 public class OfflineEditsViewer extends Configured implements Tool {
-  private static final String HELP_OPT = "-h";
-  private static final String HELP_LONGOPT = "--help";
+
   private final static String defaultProcessor = "xml";
 
   /**
@@ -56,9 +54,7 @@ public class OfflineEditsViewer extends Configured implements Tool {
       "Required command line arguments:\n" +
       "-i,--inputFile <arg>   edits file to process, xml (case\n" +
       "                       insensitive) extension means XML format,\n" +
-      "                       any other filename means binary format.\n" +
-      "                       XML/Binary format input file is not allowed\n" +
-      "                       to be processed by the same type processor.\n" +
+      "                       any other filename means binary format\n" +
       "-o,--outputFile <arg>  Name of output file. If the specified\n" +
       "                       file exists, it will be overwritten,\n" +
       "                       format of the file is determined\n" +
@@ -73,7 +69,7 @@ public class OfflineEditsViewer extends Configured implements Tool {
       "                       edits file)\n" +
       "-h,--help              Display usage information and exit\n" +
       "-f,--fix-txids         Renumber the transaction IDs in the input,\n" +
-      "                       so that there are no gaps or invalid\n" +
+      "                       so that there are no gaps or invalid " +
       "                       transaction IDs.\n" +
       "-r,--recover           When reading binary edit logs, use recovery \n" +
       "                       mode.  This will give you the chance to skip \n" +
@@ -135,24 +131,12 @@ public class OfflineEditsViewer extends Configured implements Tool {
       System.out.println("input  [" + inputFileName  + "]");
       System.out.println("output [" + outputFileName + "]");
     }
-
-    boolean xmlInput = StringUtils.toLowerCase(inputFileName).endsWith(".xml");
-    if (xmlInput && StringUtils.equalsIgnoreCase("xml", processor)) {
-      System.err.println("XML format input file is not allowed"
-          + " to be processed by XML processor.");
-      return -1;
-    } else if(!xmlInput && StringUtils.equalsIgnoreCase("binary", processor)) {
-      System.err.println("Binary format input file is not allowed"
-          + " to be processed by Binary processor.");
-      return -1;
-    }
-
     try {
       if (visitor == null) {
         visitor = OfflineEditsVisitorFactory.getEditsVisitor(
             outputFileName, processor, flags.getPrintToScreen());
       }
-
+      boolean xmlInput = inputFileName.endsWith(".xml");
       OfflineEditsLoader loader = OfflineEditsLoaderFactory.
           createLoader(visitor, inputFileName, xmlInput, flags);
       loader.loadEdits();
@@ -208,12 +192,7 @@ public class OfflineEditsViewer extends Configured implements Tool {
     Options options = buildOptions();
     if(argv.length == 0) {
       printHelp();
-      return 0;
-    }
-    // print help and exit with zero exit code
-    if (argv.length == 1 && isHelpOption(argv[0])) {
-      printHelp();
-      return 0;
+      return -1;
     }
     CommandLineParser parser = new PosixParser();
     CommandLine cmd;
@@ -226,9 +205,7 @@ public class OfflineEditsViewer extends Configured implements Tool {
       return -1;
     }
     
-    if (cmd.hasOption("h")) {
-      // print help and exit with non zero exit code since
-      // it is not expected to give help and other options together.
+    if(cmd.hasOption("h")) { // print help and exit
       printHelp();
       return -1;
     }
@@ -259,10 +236,5 @@ public class OfflineEditsViewer extends Configured implements Tool {
   public static void main(String[] argv) throws Exception {
     int res = ToolRunner.run(new OfflineEditsViewer(), argv);
     System.exit(res);
-  }
-
-  private static boolean isHelpOption(String arg) {
-    return arg.equalsIgnoreCase(HELP_OPT) ||
-        arg.equalsIgnoreCase(HELP_LONGOPT);
   }
 }

@@ -17,11 +17,9 @@
  */
 package org.apache.hadoop.security.token.delegation.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.security.SecurityUtil;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authentication.client.AuthenticatedURL;
 import org.apache.hadoop.security.authentication.client.AuthenticationException;
 import org.apache.hadoop.security.authentication.client.Authenticator;
@@ -30,6 +28,7 @@ import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.delegation.AbstractDelegationTokenIdentifier;
 import org.apache.hadoop.util.HttpExceptionUtils;
 import org.apache.hadoop.util.StringUtils;
+import org.codehaus.jackson.map.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +57,6 @@ public abstract class DelegationTokenAuthenticator implements Authenticator {
   private static final String HTTP_PUT = "PUT";
 
   public static final String OP_PARAM = "op";
-  private static final String OP_PARAM_EQUALS = OP_PARAM + "=";
 
   public static final String DELEGATION_TOKEN_HEADER =
       "X-Hadoop-Delegation-Token";
@@ -74,7 +72,7 @@ public abstract class DelegationTokenAuthenticator implements Authenticator {
    * DelegationToken operations.
    */
   @InterfaceAudience.Private
-  public enum DelegationTokenOperation {
+  public static enum DelegationTokenOperation {
     GETDELEGATIONTOKEN(HTTP_GET, true),
     RENEWDELEGATIONTOKEN(HTTP_PUT, true),
     CANCELDELEGATIONTOKEN(HTTP_PUT, false);
@@ -115,16 +113,10 @@ public abstract class DelegationTokenAuthenticator implements Authenticator {
     if (token instanceof DelegationTokenAuthenticatedURL.Token) {
       hasDt = ((DelegationTokenAuthenticatedURL.Token) token).
           getDelegationToken() != null;
-      if (hasDt) {
-        LOG.trace("Delegation token found: {}",
-            ((DelegationTokenAuthenticatedURL.Token) token)
-                .getDelegationToken());
-      }
     }
     if (!hasDt) {
       String queryStr = url.getQuery();
       hasDt = (queryStr != null) && queryStr.contains(DELEGATION_PARAM + "=");
-      LOG.trace("hasDt={}, queryStr={}", hasDt, queryStr);
     }
     return hasDt;
   }
@@ -133,14 +125,7 @@ public abstract class DelegationTokenAuthenticator implements Authenticator {
   public void authenticate(URL url, AuthenticatedURL.Token token)
       throws IOException, AuthenticationException {
     if (!hasDelegationToken(url, token)) {
-      // check and renew TGT to handle potential expiration
-      UserGroupInformation.getCurrentUser().checkTGTAndReloginFromKeytab();
-      LOG.debug("No delegation token found for url={}, token={}, authenticating"
-          + " with {}", url, token, authenticator.getClass());
       authenticator.authenticate(url, token);
-    } else {
-      LOG.debug("Authenticated from delegation token. url={}, token={}",
-          url, token);
     }
   }
 
@@ -297,41 +282,27 @@ public abstract class DelegationTokenAuthenticator implements Authenticator {
     }
     url = new URL(sb.toString());
     AuthenticatedURL aUrl = new AuthenticatedURL(this, connConfigurator);
-    org.apache.hadoop.security.token.Token<AbstractDelegationTokenIdentifier>
-        dt = null;
-    if (token instanceof DelegationTokenAuthenticatedURL.Token
-        && operation.requiresKerberosCredentials()) {
-      // Unset delegation token to trigger fall-back authentication.
-      dt = ((DelegationTokenAuthenticatedURL.Token) token).getDelegationToken();
-      ((DelegationTokenAuthenticatedURL.Token) token).setDelegationToken(null);
-    }
-    try {
-      HttpURLConnection conn = aUrl.openConnection(url, token);
-      conn.setRequestMethod(operation.getHttpMethod());
-      HttpExceptionUtils.validateResponse(conn, HttpURLConnection.HTTP_OK);
-      if (hasResponse) {
-        String contentType = conn.getHeaderField(CONTENT_TYPE);
-        contentType =
-            (contentType != null) ? StringUtils.toLowerCase(contentType) : null;
-        if (contentType != null &&
-            contentType.contains(APPLICATION_JSON_MIME)) {
-          try {
-            ObjectMapper mapper = new ObjectMapper();
-            ret = mapper.readValue(conn.getInputStream(), Map.class);
-          } catch (Exception ex) {
-            throw new AuthenticationException(String.format(
-                "'%s' did not handle the '%s' delegation token operation: %s",
-                url.getAuthority(), operation, ex.getMessage()), ex);
-          }
-        } else {
-          throw new AuthenticationException(String.format("'%s' did not " +
-                  "respond with JSON to the '%s' delegation token operation",
-              url.getAuthority(), operation));
+    HttpURLConnection conn = aUrl.openConnection(url, token);
+    conn.setRequestMethod(operation.getHttpMethod());
+    HttpExceptionUtils.validateResponse(conn, HttpURLConnection.HTTP_OK);
+    if (hasResponse) {
+      String contentType = conn.getHeaderField(CONTENT_TYPE);
+      contentType = (contentType != null) ? StringUtils.toLowerCase(contentType)
+                                          : null;
+      if (contentType != null &&
+          contentType.contains(APPLICATION_JSON_MIME)) {
+        try {
+          ObjectMapper mapper = new ObjectMapper();
+          ret = mapper.readValue(conn.getInputStream(), Map.class);
+        } catch (Exception ex) {
+          throw new AuthenticationException(String.format(
+              "'%s' did not handle the '%s' delegation token operation: %s",
+              url.getAuthority(), operation, ex.getMessage()), ex);
         }
-      }
-    } finally {
-      if (dt != null) {
-        ((DelegationTokenAuthenticatedURL.Token) token).setDelegationToken(dt);
+      } else {
+        throw new AuthenticationException(String.format("'%s' did not " +
+                "respond with JSON to the '%s' delegation token operation",
+            url.getAuthority(), operation));
       }
     }
     return ret;

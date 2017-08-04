@@ -19,12 +19,13 @@
 package org.apache.hadoop.metrics2.impl;
 
 import java.io.ByteArrayOutputStream;
-import java.io.PrintWriter;
+import java.io.PrintStream;
 import java.net.URL;
 import java.net.URLClassLoader;
 import static java.security.AccessController.*;
 import java.security.PrivilegedAction;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,34 +35,28 @@ import com.google.common.base.Splitter;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 
-import org.apache.commons.configuration2.Configuration;
-import org.apache.commons.configuration2.PropertiesConfiguration;
-import org.apache.commons.configuration2.SubsetConfiguration;
-import org.apache.commons.configuration2.builder.fluent.Configurations;
-import org.apache.commons.configuration2.builder.fluent.Parameters;
-import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
-import org.apache.commons.configuration2.ex.ConfigurationException;
+import org.apache.commons.configuration.Configuration;
+import org.apache.commons.configuration.ConfigurationException;
+import org.apache.commons.configuration.PropertiesConfiguration;
+import org.apache.commons.configuration.SubsetConfiguration;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.metrics2.MetricsFilter;
 import org.apache.hadoop.metrics2.MetricsPlugin;
 import org.apache.hadoop.metrics2.filter.GlobFilter;
 import org.apache.hadoop.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Metrics configuration for MetricsSystemImpl
  */
 class MetricsConfig extends SubsetConfiguration {
-  static final Logger LOG = LoggerFactory.getLogger(MetricsConfig.class);
+  static final Log LOG = LogFactory.getLog(MetricsConfig.class);
 
   static final String DEFAULT_FILE_NAME = "hadoop-metrics2.properties";
   static final String PREFIX_DEFAULT = "*.";
 
   static final String PERIOD_KEY = "period";
   static final int PERIOD_DEFAULT = 10; // seconds
-
-  // For testing, this will have the priority.
-  static final String PERIOD_MILLIS_KEY = "periodMillis";
 
   static final String QUEUE_CAPACITY_KEY = "queue.capacity";
   static final int QUEUE_CAPACITY_DEFAULT = 1;
@@ -112,20 +107,16 @@ class MetricsConfig extends SubsetConfiguration {
   static MetricsConfig loadFirst(String prefix, String... fileNames) {
     for (String fname : fileNames) {
       try {
-        Configuration cf = new Configurations().propertiesBuilder(fname)
-            .configure(new Parameters().properties()
-                .setFileName(fname)
-                .setListDelimiterHandler(new DefaultListDelimiterHandler(',')))
-              .getConfiguration()
-              .interpolatedConfiguration();
+        Configuration cf = new PropertiesConfiguration(fname)
+            .interpolatedConfiguration();
         LOG.info("loaded properties from "+ fname);
         LOG.debug(toString(cf));
         MetricsConfig mc = new MetricsConfig(cf, prefix);
-        LOG.debug(mc.toString());
+        LOG.debug(mc);
         return mc;
-      } catch (ConfigurationException e) {
-        // Commons Configuration defines the message text when file not found
-        if (e.getMessage().startsWith("Could not locate")) {
+      }
+      catch (ConfigurationException e) {
+        if (e.getMessage().startsWith("Cannot locate configuration")) {
           continue;
         }
         throw new MetricsConfigException(e);
@@ -182,8 +173,8 @@ class MetricsConfig extends SubsetConfiguration {
    * @return  the value or null
    */
   @Override
-  public Object getPropertyInternal(String key) {
-    Object value = super.getPropertyInternal(key);
+  public Object getProperty(String key) {
+    Object value = super.getProperty(key);
     if (value == null) {
       if (LOG.isDebugEnabled()) {
         LOG.debug("poking parent '"+ getParent().getClass().getSimpleName() +
@@ -207,7 +198,8 @@ class MetricsConfig extends SubsetConfiguration {
       T plugin = (T) cls.newInstance();
       plugin.init(name.isEmpty() ? this : subset(name));
       return plugin;
-    } catch (Exception e) {
+    }
+    catch (Exception e) {
       throw new MetricsConfigException("Error creating plugin: "+ clsName, e);
     }
   }
@@ -237,7 +229,8 @@ class MetricsConfig extends SubsetConfiguration {
           LOG.debug(jar);
           urls[i++] = new URL(jar);
         }
-      } catch (Exception e) {
+      }
+      catch (Exception e) {
         throw new MetricsConfigException(e);
       }
       if (LOG.isDebugEnabled()) {
@@ -254,6 +247,11 @@ class MetricsConfig extends SubsetConfiguration {
       return ((MetricsConfig) parent).getPluginLoader();
     }
     return defaultLoader;
+  }
+
+  @Override public void clear() {
+    super.clear();
+    // pluginLoader.close(); // jdk7 is saner
   }
 
   MetricsFilter getFilter(String prefix) {
@@ -276,10 +274,10 @@ class MetricsConfig extends SubsetConfiguration {
   static String toString(Configuration c) {
     ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     try {
-      PrintWriter pw = new PrintWriter(buffer, false);
+      PrintStream ps = new PrintStream(buffer, false, "UTF-8");
       PropertiesConfiguration tmp = new PropertiesConfiguration();
       tmp.copy(c);
-      tmp.write(pw);
+      tmp.save(ps);
       return buffer.toString("UTF-8");
     } catch (Exception e) {
       throw new MetricsConfigException(e);

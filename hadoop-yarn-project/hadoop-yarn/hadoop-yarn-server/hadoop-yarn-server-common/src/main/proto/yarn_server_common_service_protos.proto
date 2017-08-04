@@ -24,36 +24,6 @@ package hadoop.yarn;
 
 import "yarn_protos.proto";
 import "yarn_server_common_protos.proto";
-import "yarn_service_protos.proto";
-
-message RemoteNodeProto {
-  optional NodeIdProto node_id = 1;
-  optional string http_address = 2;
-}
-
-message RegisterDistributedSchedulingAMResponseProto {
-  optional RegisterApplicationMasterResponseProto register_response = 1;
-  optional ResourceProto max_container_resource = 2;
-  optional ResourceProto min_container_resource = 3;
-  optional ResourceProto incr_container_resource = 4;
-  optional int32 container_token_expiry_interval = 5;
-  optional int64 container_id_start = 6;
-  repeated RemoteNodeProto nodes_for_scheduling = 7;
-}
-
-message DistributedSchedulingAllocateResponseProto {
-  optional AllocateResponseProto allocate_response = 1;
-  repeated RemoteNodeProto nodes_for_scheduling = 2;
-}
-
-message DistributedSchedulingAllocateRequestProto {
-  optional AllocateRequestProto allocate_request = 1;
-  repeated ContainerProto allocated_containers = 2;
-}
-
-message NodeLabelsProto {
-  repeated NodeLabelProto nodeLabels = 1;
-}
 
 message RegisterNodeManagerRequestProto {
   optional NodeIdProto node_id = 1;
@@ -62,8 +32,6 @@ message RegisterNodeManagerRequestProto {
   optional string nm_version = 5;
   repeated NMContainerStatusProto container_statuses = 6;
   repeated ApplicationIdProto runningApplications = 7;
-  optional NodeLabelsProto nodeLabels = 8;
-  optional ResourceProto physicalResource = 9;
 }
 
 message RegisterNodeManagerResponseProto {
@@ -73,30 +41,12 @@ message RegisterNodeManagerResponseProto {
   optional int64 rm_identifier = 4;
   optional string diagnostics_message = 5;
   optional string rm_version = 6;
-  optional bool areNodeLabelsAcceptedByRM = 7 [default = false];
-  optional ResourceProto resource = 8;
-}
-
-message UnRegisterNodeManagerRequestProto {
-  optional NodeIdProto node_id = 1;
-}
-
-message UnRegisterNodeManagerResponseProto {
 }
 
 message NodeHeartbeatRequestProto {
   optional NodeStatusProto node_status = 1;
   optional MasterKeyProto last_known_container_token_master_key = 2;
   optional MasterKeyProto last_known_nm_token_master_key = 3;
-  optional NodeLabelsProto nodeLabels = 4;
-  repeated LogAggregationReportProto log_aggregation_reports_for_apps = 5;
-  repeated AppCollectorsMapProto registered_collectors = 6;
-}
-
-message LogAggregationReportProto {
-  optional ApplicationIdProto application_id = 1;
-  optional LogAggregationStatusProto log_aggregation_status = 2;
-  optional string diagnostics = 3 [default = "N/A"];
 }
 
 message NodeHeartbeatResponseProto {
@@ -110,51 +60,11 @@ message NodeHeartbeatResponseProto {
   optional string diagnostics_message = 8;
   repeated ContainerIdProto containers_to_be_removed_from_nm = 9;
   repeated SystemCredentialsForAppsProto system_credentials_for_apps = 10;
-  optional bool areNodeLabelsAcceptedByRM = 11 [default = false];
-  repeated ContainerProto containers_to_decrease = 12;
-  repeated SignalContainerRequestProto containers_to_signal = 13;
-  optional ResourceProto resource = 14;
-  optional ContainerQueuingLimitProto container_queuing_limit = 15;
-  repeated AppCollectorsMapProto app_collectors_map = 16;
-}
-
-message ContainerQueuingLimitProto {
-  optional int32 max_queue_length = 1;
-  optional int32 max_queue_wait_time_in_ms = 2;
 }
 
 message SystemCredentialsForAppsProto {
   optional ApplicationIdProto appId = 1;
   optional bytes credentialsForApp = 2;
-}
-
-////////////////////////////////////////////////////////////////////////
-////// From collector_nodemanager_protocol ////////////////////////////
-////////////////////////////////////////////////////////////////////////
-message AppCollectorsMapProto {
-  optional ApplicationIdProto appId = 1;
-  optional string appCollectorAddr = 2;
-}
-
-//////////////////////////////////////////////////////
-/////// collector_nodemanager_protocol //////////////
-//////////////////////////////////////////////////////
-message ReportNewCollectorInfoRequestProto {
-  repeated AppCollectorsMapProto app_collectors = 1;
-}
-
-message ReportNewCollectorInfoResponseProto {
-}
-
-message GetTimelineCollectorContextRequestProto {
-  optional ApplicationIdProto appId = 1;
-}
-
-message GetTimelineCollectorContextResponseProto {
-  optional string user_id = 1;
-  optional string flow_name = 2;
-  optional string flow_version = 3;
-  optional int64 flow_run_id = 4;
 }
 
 message NMContainerStatusProto {
@@ -165,8 +75,6 @@ message NMContainerStatusProto {
   optional string diagnostics = 5 [default = "N/A"];
   optional int32 container_exit_status = 6;
   optional int64 creation_time = 7;
-  optional string nodeLabelExpression = 8;
-  optional int32 version = 9;
 }
 
 message SCMUploaderNotifyRequestProto {

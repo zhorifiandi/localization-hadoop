@@ -24,12 +24,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Vector;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -79,10 +76,8 @@ import org.apache.hadoop.yarn.api.records.ContainerLaunchContext;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.api.records.LocalResourceType;
 import org.apache.hadoop.yarn.api.records.LocalResourceVisibility;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.ReservationId;
 import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.api.records.ResourceRequest;
 import org.apache.hadoop.yarn.api.records.URL;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
@@ -102,34 +97,7 @@ public class YARNRunner implements ClientProtocol {
 
   private static final Log LOG = LogFactory.getLog(YARNRunner.class);
 
-  private static final String RACK_GROUP = "rack";
-  private static final String NODE_IF_RACK_GROUP = "node1";
-  private static final String NODE_IF_NO_RACK_GROUP = "node2";
-
-  /**
-   * Matches any of the following patterns with capturing groups:
-   * <ul>
-   *  <li>/rack</li>
-   *  <li>/rack/node</li>
-   *  <li>node (assumes /default-rack)</li>
-   * </ul>
-   * The groups can be retrieved using the RACK_GROUP, NODE_IF_RACK_GROUP,
-   * and/or NODE_IF_NO_RACK_GROUP group keys.
-   */
-  private static final Pattern RACK_NODE_PATTERN =
-      Pattern.compile(
-          String.format("(?<%s>[^/]+?)|(?<%s>/[^/]+?)(?:/(?<%s>[^/]+?))?",
-          NODE_IF_NO_RACK_GROUP, RACK_GROUP, NODE_IF_RACK_GROUP));
-
-  private final static RecordFactory recordFactory = RecordFactoryProvider
-      .getRecordFactory(null);
-
-  public final static Priority AM_CONTAINER_PRIORITY = recordFactory
-      .newRecordInstance(Priority.class);
-  static {
-    AM_CONTAINER_PRIORITY.setPriority(0);
-  }
-
+  private final RecordFactory recordFactory = RecordFactoryProvider.getRecordFactory(null);
   private ResourceMgrDelegate resMgrDelegate;
   private ClientCache clientCache;
   private Configuration conf;
@@ -312,7 +280,8 @@ public class YARNRunner implements ClientProtocol {
   throws IOException, InterruptedException {
     
     addHistoryToken(ts);
-
+    
+    // Construct necessary information to start the MR AM
     ApplicationSubmissionContext appContext =
       createApplicationSubmissionContext(conf, jobSubmitDir, ts);
 
@@ -342,7 +311,7 @@ public class YARNRunner implements ClientProtocol {
       throws IOException {
     LocalResource rsrc = recordFactory.newRecordInstance(LocalResource.class);
     FileStatus rsrcStat = fs.getFileStatus(p);
-    rsrc.setResource(URL.fromPath(fs
+    rsrc.setResource(ConverterUtils.getYarnUrlFromPath(fs
         .getDefaultFileSystem().resolvePath(rsrcStat.getPath())));
     rsrc.setSize(rsrcStat.getLen());
     rsrc.setTimestamp(rsrcStat.getModificationTime());
@@ -351,15 +320,35 @@ public class YARNRunner implements ClientProtocol {
     return rsrc;
   }
 
-  private Map<String, LocalResource> setupLocalResources(Configuration jobConf,
-      String jobSubmitDir) throws IOException {
-    Map<String, LocalResource> localResources = new HashMap<>();
+  public ApplicationSubmissionContext createApplicationSubmissionContext(
+      Configuration jobConf,
+      String jobSubmitDir, Credentials ts) throws IOException {
+    ApplicationId applicationId = resMgrDelegate.getApplicationId();
+
+    // Setup resource requirements
+    Resource capability = recordFactory.newRecordInstance(Resource.class);
+    capability.setMemory(
+        conf.getInt(
+            MRJobConfig.MR_AM_VMEM_MB, MRJobConfig.DEFAULT_MR_AM_VMEM_MB
+            )
+        );
+    capability.setVirtualCores(
+        conf.getInt(
+            MRJobConfig.MR_AM_CPU_VCORES, MRJobConfig.DEFAULT_MR_AM_CPU_VCORES
+            )
+        );
+    LOG.debug("AppMaster capability = " + capability);
+
+    // Setup LocalResources
+    Map<String, LocalResource> localResources =
+        new HashMap<String, LocalResource>();
 
     Path jobConfPath = new Path(jobSubmitDir, MRJobConfig.JOB_CONF_FILE);
 
-    URL yarnUrlForJobSubmitDir = URL.fromPath(defaultFileContext
-        .getDefaultFileSystem().resolvePath(
-            defaultFileContext.makeQualified(new Path(jobSubmitDir))));
+    URL yarnUrlForJobSubmitDir = ConverterUtils
+        .getYarnUrlFromPath(defaultFileContext.getDefaultFileSystem()
+            .resolvePath(
+                defaultFileContext.makeQualified(new Path(jobSubmitDir))));
     LOG.debug("Creating setup context, jobSubmitDir url is "
         + yarnUrlForJobSubmitDir);
 
@@ -372,7 +361,7 @@ public class YARNRunner implements ClientProtocol {
           FileContext.getFileContext(jobJarPath.toUri(), jobConf),
           jobJarPath,
           LocalResourceType.PATTERN);
-      String pattern = conf.getPattern(JobContext.JAR_UNPACK_PATTERN,
+      String pattern = conf.getPattern(JobContext.JAR_UNPACK_PATTERN, 
           JobConf.UNPACK_JAR_PATTERN_DEFAULT).pattern();
       rc.setPattern(pattern);
       localResources.put(MRJobConfig.JOB_JAR, rc);
@@ -393,50 +382,40 @@ public class YARNRunner implements ClientProtocol {
               new Path(jobSubmitDir, s), LocalResourceType.FILE));
     }
 
-    return localResources;
-  }
+    // Setup security tokens
+    DataOutputBuffer dob = new DataOutputBuffer();
+    ts.writeTokenStorageToStream(dob);
+    ByteBuffer securityTokens  = ByteBuffer.wrap(dob.getData(), 0, dob.getLength());
 
-  private List<String> setupAMCommand(Configuration jobConf) {
-    List<String> vargs = new ArrayList<>(8);
+    // Setup the command to run the AM
+    List<String> vargs = new ArrayList<String>(8);
     vargs.add(MRApps.crossPlatformifyMREnv(jobConf, Environment.JAVA_HOME)
         + "/bin/java");
 
-    Path amTmpDir =
-        new Path(MRApps.crossPlatformifyMREnv(conf, Environment.PWD),
-            YarnConfiguration.DEFAULT_CONTAINER_TEMP_DIR);
-    vargs.add("-Djava.io.tmpdir=" + amTmpDir);
     MRApps.addLog4jSystemProperties(null, vargs, conf);
 
     // Check for Java Lib Path usage in MAP and REDUCE configs
-    warnForJavaLibPath(conf.get(MRJobConfig.MAP_JAVA_OPTS, ""),
-        "map",
-        MRJobConfig.MAP_JAVA_OPTS,
-        MRJobConfig.MAP_ENV);
-    warnForJavaLibPath(conf.get(MRJobConfig.MAPRED_MAP_ADMIN_JAVA_OPTS, ""),
-        "map",
-        MRJobConfig.MAPRED_MAP_ADMIN_JAVA_OPTS,
-        MRJobConfig.MAPRED_ADMIN_USER_ENV);
-    warnForJavaLibPath(conf.get(MRJobConfig.REDUCE_JAVA_OPTS, ""),
-        "reduce",
-        MRJobConfig.REDUCE_JAVA_OPTS,
-        MRJobConfig.REDUCE_ENV);
-    warnForJavaLibPath(conf.get(MRJobConfig.MAPRED_REDUCE_ADMIN_JAVA_OPTS, ""),
-        "reduce",
-        MRJobConfig.MAPRED_REDUCE_ADMIN_JAVA_OPTS,
-        MRJobConfig.MAPRED_ADMIN_USER_ENV);
+    warnForJavaLibPath(conf.get(MRJobConfig.MAP_JAVA_OPTS,""), "map", 
+        MRJobConfig.MAP_JAVA_OPTS, MRJobConfig.MAP_ENV);
+    warnForJavaLibPath(conf.get(MRJobConfig.MAPRED_MAP_ADMIN_JAVA_OPTS,""), "map", 
+        MRJobConfig.MAPRED_MAP_ADMIN_JAVA_OPTS, MRJobConfig.MAPRED_ADMIN_USER_ENV);
+    warnForJavaLibPath(conf.get(MRJobConfig.REDUCE_JAVA_OPTS,""), "reduce", 
+        MRJobConfig.REDUCE_JAVA_OPTS, MRJobConfig.REDUCE_ENV);
+    warnForJavaLibPath(conf.get(MRJobConfig.MAPRED_REDUCE_ADMIN_JAVA_OPTS,""), "reduce", 
+        MRJobConfig.MAPRED_REDUCE_ADMIN_JAVA_OPTS, MRJobConfig.MAPRED_ADMIN_USER_ENV);
 
     // Add AM admin command opts before user command opts
     // so that it can be overridden by user
     String mrAppMasterAdminOptions = conf.get(MRJobConfig.MR_AM_ADMIN_COMMAND_OPTS,
         MRJobConfig.DEFAULT_MR_AM_ADMIN_COMMAND_OPTS);
-    warnForJavaLibPath(mrAppMasterAdminOptions, "app master",
+    warnForJavaLibPath(mrAppMasterAdminOptions, "app master", 
         MRJobConfig.MR_AM_ADMIN_COMMAND_OPTS, MRJobConfig.MR_AM_ADMIN_USER_ENV);
     vargs.add(mrAppMasterAdminOptions);
-
+    
     // Add AM user command opts
     String mrAppMasterUserOptions = conf.get(MRJobConfig.MR_AM_COMMAND_OPTS,
         MRJobConfig.DEFAULT_MR_AM_COMMAND_OPTS);
-    warnForJavaLibPath(mrAppMasterUserOptions, "app master",
+    warnForJavaLibPath(mrAppMasterUserOptions, "app master", 
         MRJobConfig.MR_AM_COMMAND_OPTS, MRJobConfig.MR_AM_ENV);
     vargs.add(mrAppMasterUserOptions);
 
@@ -456,14 +435,9 @@ public class YARNRunner implements ClientProtocol {
         Path.SEPARATOR + ApplicationConstants.STDOUT);
     vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR +
         Path.SEPARATOR + ApplicationConstants.STDERR);
-    return vargs;
-  }
 
-  private ContainerLaunchContext setupContainerLaunchContextForAM(
-      Configuration jobConf, Map<String, LocalResource> localResources,
-      ByteBuffer securityTokens, List<String> vargs) throws IOException {
 
-    Vector<String> vargsFinal = new Vector<>(8);
+    Vector<String> vargsFinal = new Vector<String>(8);
     // Final command
     StringBuilder mergedCommand = new StringBuilder();
     for (CharSequence str : vargs) {
@@ -476,7 +450,7 @@ public class YARNRunner implements ClientProtocol {
 
     // Setup the CLASSPATH in environment
     // i.e. add { Hadoop jars, job jar, CWD } to classpath.
-    Map<String, String> environment = new HashMap<>();
+    Map<String, String> environment = new HashMap<String, String>();
     MRApps.setClasspath(environment, conf);
 
     // Shell
@@ -484,65 +458,32 @@ public class YARNRunner implements ClientProtocol {
         conf.get(MRJobConfig.MAPRED_ADMIN_USER_SHELL,
             MRJobConfig.DEFAULT_SHELL));
 
-    // Add the container working directory in front of LD_LIBRARY_PATH
+    // Add the container working directory at the front of LD_LIBRARY_PATH
     MRApps.addToEnvironment(environment, Environment.LD_LIBRARY_PATH.name(),
         MRApps.crossPlatformifyMREnv(conf, Environment.PWD), conf);
 
     // Setup the environment variables for Admin first
-    MRApps.setEnvFromInputString(environment,
-        conf.get(MRJobConfig.MR_AM_ADMIN_USER_ENV,
-            MRJobConfig.DEFAULT_MR_AM_ADMIN_USER_ENV), conf);
+    MRApps.setEnvFromInputString(environment, 
+        conf.get(MRJobConfig.MR_AM_ADMIN_USER_ENV), conf);
     // Setup the environment variables (LD_LIBRARY_PATH, etc)
-    MRApps.setEnvFromInputString(environment,
+    MRApps.setEnvFromInputString(environment, 
         conf.get(MRJobConfig.MR_AM_ENV), conf);
 
     // Parse distributed cache
     MRApps.setupDistributedCache(jobConf, localResources);
 
-    Map<ApplicationAccessType, String> acls = new HashMap<>(2);
+    Map<ApplicationAccessType, String> acls
+        = new HashMap<ApplicationAccessType, String>(2);
     acls.put(ApplicationAccessType.VIEW_APP, jobConf.get(
         MRJobConfig.JOB_ACL_VIEW_JOB, MRJobConfig.DEFAULT_JOB_ACL_VIEW_JOB));
     acls.put(ApplicationAccessType.MODIFY_APP, jobConf.get(
         MRJobConfig.JOB_ACL_MODIFY_JOB,
         MRJobConfig.DEFAULT_JOB_ACL_MODIFY_JOB));
 
-    return ContainerLaunchContext.newInstance(localResources, environment,
-        vargsFinal, null, securityTokens, acls);
-  }
-
-  /**
-   * Constructs all the necessary information to start the MR AM.
-   * @param jobConf the configuration for the MR job
-   * @param jobSubmitDir the directory path for the job
-   * @param ts the security credentials for the job
-   * @return ApplicationSubmissionContext
-   * @throws IOException on IO error (e.g. path resolution)
-   */
-  public ApplicationSubmissionContext createApplicationSubmissionContext(
-      Configuration jobConf, String jobSubmitDir, Credentials ts)
-      throws IOException {
-    ApplicationId applicationId = resMgrDelegate.getApplicationId();
-
-    // Setup LocalResources
-    Map<String, LocalResource> localResources =
-        setupLocalResources(jobConf, jobSubmitDir);
-
-    // Setup security tokens
-    DataOutputBuffer dob = new DataOutputBuffer();
-    ts.writeTokenStorageToStream(dob);
-    ByteBuffer securityTokens =
-        ByteBuffer.wrap(dob.getData(), 0, dob.getLength());
-
     // Setup ContainerLaunchContext for AM container
-    List<String> vargs = setupAMCommand(jobConf);
-    ContainerLaunchContext amContainer = setupContainerLaunchContextForAM(
-        jobConf, localResources, securityTokens, vargs);
-
-    String regex = conf.get(MRJobConfig.MR_JOB_SEND_TOKEN_CONF);
-    if (regex != null && !regex.isEmpty()) {
-      setTokenRenewerConf(amContainer, conf, regex);
-    }
-
+    ContainerLaunchContext amContainer =
+        ContainerLaunchContext.newInstance(localResources, environment,
+          vargsFinal, null, securityTokens, acls);
 
     Collection<String> tagsFromConf =
         jobConf.getTrimmedStringCollection(MRJobConfig.JOB_TAGS);
@@ -583,158 +524,19 @@ public class YARNRunner implements ClientProtocol {
     appContext.setMaxAppAttempts(
         conf.getInt(MRJobConfig.MR_AM_MAX_ATTEMPTS,
             MRJobConfig.DEFAULT_MR_AM_MAX_ATTEMPTS));
-
-    // Setup the AM ResourceRequests
-    List<ResourceRequest> amResourceRequests = generateResourceRequests();
-    appContext.setAMContainerResourceRequests(amResourceRequests);
-
-    // set labels for the AM container requests if present
-    String amNodelabelExpression = conf.get(MRJobConfig.AM_NODE_LABEL_EXP);
-    if (null != amNodelabelExpression
-        && amNodelabelExpression.trim().length() != 0) {
-      for (ResourceRequest amResourceRequest : amResourceRequests) {
-        amResourceRequest.setNodeLabelExpression(amNodelabelExpression.trim());
-      }
-    }
-    // set labels for the Job containers
-    appContext.setNodeLabelExpression(jobConf
-        .get(JobContext.JOB_NODE_LABEL_EXP));
-
+    appContext.setResource(capability);
     appContext.setApplicationType(MRJobConfig.MR_APPLICATION_TYPE);
     if (tagsFromConf != null && !tagsFromConf.isEmpty()) {
-      appContext.setApplicationTags(new HashSet<>(tagsFromConf));
-    }
-
-    String jobPriority = jobConf.get(MRJobConfig.PRIORITY);
-    if (jobPriority != null) {
-      int iPriority;
-      try {
-        iPriority = TypeConverter.toYarnApplicationPriority(jobPriority);
-      } catch (IllegalArgumentException e) {
-        iPriority = Integer.parseInt(jobPriority);
-      }
-      appContext.setPriority(Priority.newInstance(iPriority));
+      appContext.setApplicationTags(new HashSet<String>(tagsFromConf));
     }
 
     return appContext;
   }
 
-  private List<ResourceRequest> generateResourceRequests() throws IOException {
-    Resource capability = recordFactory.newRecordInstance(Resource.class);
-    capability.setMemorySize(
-        conf.getInt(
-            MRJobConfig.MR_AM_VMEM_MB, MRJobConfig.DEFAULT_MR_AM_VMEM_MB
-        )
-    );
-    capability.setVirtualCores(
-        conf.getInt(
-            MRJobConfig.MR_AM_CPU_VCORES, MRJobConfig.DEFAULT_MR_AM_CPU_VCORES
-        )
-    );
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("AppMaster capability = " + capability);
-    }
-
-    List<ResourceRequest> amResourceRequests = new ArrayList<>();
-    // Always have an ANY request
-    ResourceRequest amAnyResourceRequest =
-        createAMResourceRequest(ResourceRequest.ANY, capability);
-    Map<String, ResourceRequest> rackRequests = new HashMap<>();
-    amResourceRequests.add(amAnyResourceRequest);
-    Collection<String> amStrictResources = conf.getStringCollection(
-        MRJobConfig.AM_STRICT_LOCALITY);
-    for (String amStrictResource : amStrictResources) {
-      amAnyResourceRequest.setRelaxLocality(false);
-      Matcher matcher = RACK_NODE_PATTERN.matcher(amStrictResource);
-      if (matcher.matches()) {
-        String nodeName;
-        String rackName = matcher.group(RACK_GROUP);
-        if (rackName == null) {
-          rackName = "/default-rack";
-          nodeName = matcher.group(NODE_IF_NO_RACK_GROUP);
-        } else {
-          nodeName = matcher.group(NODE_IF_RACK_GROUP);
-        }
-        ResourceRequest amRackResourceRequest = rackRequests.get(rackName);
-        if (amRackResourceRequest == null) {
-          amRackResourceRequest = createAMResourceRequest(rackName, capability);
-          amResourceRequests.add(amRackResourceRequest);
-          rackRequests.put(rackName, amRackResourceRequest);
-        }
-        if (nodeName != null) {
-          amRackResourceRequest.setRelaxLocality(false);
-          ResourceRequest amNodeResourceRequest =
-              createAMResourceRequest(nodeName, capability);
-          amResourceRequests.add(amNodeResourceRequest);
-        }
-      } else {
-        String errMsg =
-            "Invalid resource name: " + amStrictResource + " specified.";
-        LOG.warn(errMsg);
-        throw new IOException(errMsg);
-      }
-    }
-    if (LOG.isDebugEnabled()) {
-      for (ResourceRequest amResourceRequest : amResourceRequests) {
-        LOG.debug("ResourceRequest: resource = "
-            + amResourceRequest.getResourceName() + ", locality = "
-            + amResourceRequest.getRelaxLocality());
-      }
-    }
-    return amResourceRequests;
-  }
-
-  private ResourceRequest createAMResourceRequest(String resource,
-      Resource capability) {
-    ResourceRequest resourceRequest =
-        recordFactory.newRecordInstance(ResourceRequest.class);
-    resourceRequest.setPriority(AM_CONTAINER_PRIORITY);
-    resourceRequest.setResourceName(resource);
-    resourceRequest.setCapability(capability);
-    resourceRequest.setNumContainers(1);
-    resourceRequest.setRelaxLocality(true);
-    return resourceRequest;
-  }
-
-  private void setTokenRenewerConf(ContainerLaunchContext context,
-      Configuration conf, String regex) throws IOException {
-    DataOutputBuffer dob = new DataOutputBuffer();
-    Configuration copy = new Configuration(false);
-    copy.clear();
-    int count = 0;
-    for (Map.Entry<String, String> map : conf) {
-      String key = map.getKey();
-      String val = map.getValue();
-      if (key.matches(regex)) {
-        copy.set(key, val);
-        count++;
-      }
-    }
-    copy.write(dob);
-    ByteBuffer appConf = ByteBuffer.wrap(dob.getData(), 0, dob.getLength());
-    LOG.info("Send configurations that match regex expression: " + regex
-        + " , total number of configs: " + count + ", total size : " + dob
-        .getLength() + " bytes.");
-    if (LOG.isDebugEnabled()) {
-      for (Iterator<Map.Entry<String, String>> itor = copy.iterator(); itor
-          .hasNext(); ) {
-        Map.Entry<String, String> entry = itor.next();
-        LOG.info(entry.getKey() + " ===> " + entry.getValue());
-      }
-    }
-    context.setTokensConf(appConf);
-  }
-
   @Override
   public void setJobPriority(JobID arg0, String arg1) throws IOException,
       InterruptedException {
-    ApplicationId appId = TypeConverter.toYarn(arg0).getAppId();
-    try {
-      resMgrDelegate.updateApplicationPriority(appId,
-          Priority.newInstance(Integer.parseInt(arg1)));
-    } catch (YarnException e) {
-      throw new IOException(e);
-    }
+    resMgrDelegate.setJobPriority(arg0, arg1);
   }
 
   @Override
@@ -902,17 +704,6 @@ public class YARNRunner implements ClientProtocol {
                "are used. These values should be set as part of the " +
                "LD_LIBRARY_PATH in the " + component + " JVM env using " +
                envConf + " config settings.");
-    }
-  }
-
-  public void close() throws IOException {
-    if (resMgrDelegate != null) {
-      resMgrDelegate.close();
-      resMgrDelegate = null;
-    }
-    if (clientCache != null) {
-      clientCache.close();
-      clientCache = null;
     }
   }
 }

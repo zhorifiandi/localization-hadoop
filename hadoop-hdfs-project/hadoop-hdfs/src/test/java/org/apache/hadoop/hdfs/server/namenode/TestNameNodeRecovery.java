@@ -27,8 +27,6 @@ import static org.mockito.Mockito.spy;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -49,42 +47,16 @@ import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.DeleteOp;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.OpInstanceCache;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.test.PathUtils;
 import org.apache.hadoop.util.StringUtils;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
 
 import com.google.common.collect.Sets;
 
 /**
  * This tests data recovery mode for the NameNode.
  */
-
-@RunWith(Parameterized.class)
 public class TestNameNodeRecovery {
-  @Parameters
-  public static Collection<Object[]> data() {
-    Collection<Object[]> params = new ArrayList<Object[]>();
-    params.add(new Object[]{ Boolean.FALSE });
-    params.add(new Object[]{ Boolean.TRUE });
-    return params;
-  }
-
-  private static boolean useAsyncEditLog;
-  public TestNameNodeRecovery(Boolean async) {
-    useAsyncEditLog = async;
-  }
-
-  private static Configuration getConf() {
-    Configuration conf = new HdfsConfiguration();
-    conf.setBoolean(DFSConfigKeys.DFS_NAMENODE_EDITS_ASYNC_LOGGING,
-        useAsyncEditLog);
-    return conf;
-  }
-
   private static final Log LOG = LogFactory.getLog(TestNameNodeRecovery.class);
   private static final StartupOption recoverStartOpt = StartupOption.RECOVER;
   private static final File TEST_DIR = PathUtils.getTestDir(TestNameNodeRecovery.class);
@@ -101,7 +73,7 @@ public class TestNameNodeRecovery {
     EditLogFileOutputStream elfos = null;
     EditLogFileInputStream elfis = null;
     try {
-      elfos = new EditLogFileOutputStream(getConf(), TEST_LOG_NAME, 0);
+      elfos = new EditLogFileOutputStream(new Configuration(), TEST_LOG_NAME, 0);
       elfos.create(NameNodeLayoutVersion.CURRENT_LAYOUT_VERSION);
 
       elts.addTransactionsToLog(elfos, cache);
@@ -240,18 +212,15 @@ public class TestNameNodeRecovery {
       this.paddingLength = paddingLength;
     }
 
-    @Override
     public void addTransactionsToLog(EditLogOutputStream elos,
         OpInstanceCache cache) throws IOException {
       padEditLog(elos, paddingLength);
     }
 
-    @Override
     public long getLastValidTxId() {
       return -1;
     }
 
-    @Override
     public Set<Long> getValidTxIds() {
       return new HashSet<Long>();
     } 
@@ -327,19 +296,16 @@ public class TestNameNodeRecovery {
       this.paddingLength = paddingLength;
     }
 
-    @Override
     public void addTransactionsToLog(EditLogOutputStream elos,
         OpInstanceCache cache) throws IOException {
       padEditLog(elos, paddingLength);
       addDeleteOpcode(elos, cache, 0, "/foo");
     }
 
-    @Override
     public long getLastValidTxId() {
       return 0;
     }
 
-    @Override
     public Set<Long> getValidTxIds() {
       return Sets.newHashSet(0L);
     } 
@@ -522,8 +488,8 @@ public class TestNameNodeRecovery {
     conf.set(DFSConfigKeys.DFS_HA_NAMENODE_ID_KEY, "nn1");
     conf.set(DFSUtil.addKeySuffixes(DFSConfigKeys.DFS_HA_NAMENODES_KEY_PREFIX,
       "ns1"), "nn1,nn2");
-    String baseDir = GenericTestUtils.getTestDir("setupRecoveryTestConf")
-        .getAbsolutePath();
+    String baseDir = System.getProperty(
+        MiniDFSCluster.PROP_TEST_BUILD_DATA, "build/test/data") + "/dfs/";
     File nameDir = new File(baseDir, "nameR");
     File secondaryDir = new File(baseDir, "namesecondaryR");
     conf.set(DFSUtil.addKeySuffixes(DFSConfigKeys.
@@ -553,7 +519,7 @@ public class TestNameNodeRecovery {
     final boolean needRecovery = corruptor.needRecovery(finalize);
 
     // start a cluster
-    Configuration conf = getConf();
+    Configuration conf = new HdfsConfiguration();
     setupRecoveryTestConf(conf);
     MiniDFSCluster cluster = null;
     FileSystem fileSys = null;

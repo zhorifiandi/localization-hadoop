@@ -44,15 +44,15 @@ class WriteCtx {
    * wait for prerequisite writes. NO_DUMP: sequential write, no need to dump
    * since it will be written to HDFS soon. DUMPED: already dumped to a file.
    */
-  public enum DataState {
+  public static enum DataState {
     ALLOW_DUMP,
     NO_DUMP,
     DUMPED
   }
 
   private final FileHandle handle;
-  private long offset;
-  private int count;
+  private final long offset;
+  private final int count;
   
   /**
    * Some clients can send a write that includes previously written data along
@@ -61,59 +61,11 @@ class WriteCtx {
    * request before it was modified to write only the new data. 
    * @see OpenFileCtx#addWritesToCache for more details
    */
-  private int originalCount;
+  private final int originalCount; 
   public static final int INVALID_ORIGINAL_COUNT = -1;
   
-  /**
-   * Overlapping Write Request Handling
-   * A write request can be in three states:
-   *   s0. just created, with data != null
-   *   s1. dumped as length "count", and data set to null
-   *   s2. read back from dumped area as length "count"
-   *
-   * Write requests may have overlapping range, we detect this by comparing
-   * the data offset range of the request against the current offset of data
-   * already written to HDFS. There are two categories:
-   *
-   * 1. If the beginning part of a new write request data is already written
-   * due to an earlier request, we alter the new request by trimming this
-   * portion before the new request enters state s0, and the originalCount is
-   * remembered.
-   *
-   * 2. If the lower end of the write request range is beyond the current
-   * offset of data already written, we put the request into cache, and detect
-   * the overlapping when taking the request out from cache.
-   *
-   * For category 2, if we find out that a write request overlap with another,
-   * this write request is already in state s0, s1, or s3. We trim the
-   * beginning part of this request, by remembering the size of this portion
-   * as trimDelta. So the resulted offset of the write request is
-   * "offset + trimDelta" and the resulted size of the write request is
-   * "count - trimDelta".
-   *
-   * What important to notice is, if the request is in s1 when we do the
-   * trimming, the data dumped is of size "count", so when we load
-   * the data back from dumped area, we should set the position of the data
-   * buffer to trimDelta.
-   */
-  private int trimDelta;
-
-  public synchronized int getOriginalCount() {
+  public int getOriginalCount() {
     return originalCount;
-  }
-
-  public void trimWrite(int delta) {
-    Preconditions.checkState(delta < count);
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Trim write request by delta:" + delta + " " + toString());
-    }
-    synchronized(this) {
-      trimDelta = delta;
-      if (originalCount == INVALID_ORIGINAL_COUNT) {
-        originalCount = count;
-      }
-      trimData();
-    }
   }
 
   private final WriteStableHow stableHow;
@@ -158,7 +110,7 @@ class WriteCtx {
     }
 
     // Resized write should not allow dump
-    Preconditions.checkState(getOriginalCount() == INVALID_ORIGINAL_COUNT);
+    Preconditions.checkState(originalCount == INVALID_ORIGINAL_COUNT);
 
     this.raf = raf;
     dumpFileOffset = dumpOut.getChannel().position();
@@ -187,24 +139,11 @@ class WriteCtx {
   }
   
   long getOffset() {
-    synchronized(this) {
-      // See comment "Overlapping Write Request Handling" above
-      return offset + trimDelta;
-    }
-  }
-
-  /**
-   * @return the offset field
-   */
-  private synchronized long getPlainOffset() {
     return offset;
   }
 
   int getCount() {
-    synchronized(this) {
-      // See comment "Overlapping Write Request Handling" above
-      return count - trimDelta;
-    }
+    return count;
   }
 
   WriteStableHow getStableHow() {
@@ -235,22 +174,7 @@ class WriteCtx {
       throw new IOException("Data count is " + count + ", but read back "
           + size + "bytes");
     }
-    synchronized(this) {
-      data = ByteBuffer.wrap(rawData);
-      trimData();
-    }
-  }
-
-  private void trimData() {
-    if (data != null && trimDelta > 0) {
-      // make it not dump-able since the data  will be used
-      // shortly
-      dataState = DataState.NO_DUMP;
-      data.position(data.position() + trimDelta);
-      offset += trimDelta;
-      count -= trimDelta;
-      trimDelta = 0;
-    }
+    data = ByteBuffer.wrap(rawData);
   }
 
   public void writeData(HdfsDataOutputStream fos) throws IOException {
@@ -260,8 +184,8 @@ class WriteCtx {
     try {
       dataBuffer = getData();
     } catch (Exception e1) {
-      LOG.error("Failed to get request data offset:" + getPlainOffset() + " " +
-          "count:" + count + " error:" + e1);
+      LOG.error("Failed to get request data offset:" + offset + " count:"
+          + count + " error:" + e1);
       throw new IOException("Can't get WriteCtx.data");
     }
 
@@ -305,7 +229,6 @@ class WriteCtx {
     this.offset = offset;
     this.count = count;
     this.originalCount = originalCount;
-    this.trimDelta = 0;
     this.stableHow = stableHow;
     this.data = data;
     this.channel = channel;
@@ -318,9 +241,8 @@ class WriteCtx {
   
   @Override
   public String toString() {
-    return "Id:" + handle.getFileId() + " offset:" + getPlainOffset() + " " +
-        "count:" + count + " originalCount:" + getOriginalCount() +
-        " stableHow:" + stableHow + " replied:" + replied + " dataState:" +
-        dataState + " xid:" + xid;
+    return "Id:" + handle.getFileId() + " offset:" + offset + " count:" + count
+        + " originalCount:" + originalCount + " stableHow:" + stableHow
+        + " replied:" + replied + " dataState:" + dataState + " xid:" + xid;
   }
 }

@@ -25,16 +25,11 @@ import java.io.RandomAccessFile;
 import java.lang.management.ManagementFactory;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.CopyOnWriteArrayList;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -42,9 +37,6 @@ import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.NodeType;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.datanode.StorageLocation;
-import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
-import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.io.nativeio.NativeIO;
 import org.apache.hadoop.io.nativeio.NativeIOException;
 import org.apache.hadoop.util.ToolRunner;
@@ -125,10 +117,9 @@ public abstract class Storage extends StorageInfo {
     public StorageDirType getStorageDirType();
     public boolean isOfType(StorageDirType type);
   }
-
-  private final List<StorageDirectory> storageDirs =
-      new CopyOnWriteArrayList<>();
-
+  
+  protected List<StorageDirectory> storageDirs = new ArrayList<StorageDirectory>();
+  
   private class DirIterator implements Iterator<StorageDirectory> {
     final StorageDirType dirType;
     final boolean includeShared;
@@ -274,15 +265,11 @@ public abstract class Storage extends StorageInfo {
 
     private String storageUuid = null;      // Storage directory identifier.
     
-    private final StorageLocation location;
     public StorageDirectory(File dir) {
+      // default dirType is null
       this(dir, null, false);
     }
     
-    public StorageDirectory(StorageLocation location) {
-      this(null, false, location);
-    }
-
     public StorageDirectory(File dir, StorageDirType dirType) {
       this(dir, dirType, false);
     }
@@ -303,61 +290,12 @@ public abstract class Storage extends StorageInfo {
      *          disables locking on the storage directory, false enables locking
      */
     public StorageDirectory(File dir, StorageDirType dirType, boolean isShared) {
-      this(dir, dirType, isShared, null);
-    }
-
-    /**
-     * Constructor
-     * @param dirType storage directory type
-     * @param isShared whether or not this dir is shared between two NNs. true
-     *          disables locking on the storage directory, false enables locking
-     * @param location the {@link StorageLocation} for this directory
-     */
-    public StorageDirectory(StorageDirType dirType, boolean isShared,
-        StorageLocation location) {
-      this(getStorageLocationFile(location), dirType, isShared, location);
-    }
-
-    /**
-     * Constructor
-     * @param bpid the block pool id
-     * @param dirType storage directory type
-     * @param isShared whether or not this dir is shared between two NNs. true
-     *          disables locking on the storage directory, false enables locking
-     * @param location the {@link StorageLocation} for this directory
-     */
-    public StorageDirectory(String bpid, StorageDirType dirType,
-        boolean isShared, StorageLocation location) {
-      this(new File(location.getBpURI(bpid, STORAGE_DIR_CURRENT)), dirType,
-          isShared, location);
-    }
-
-    private StorageDirectory(File dir, StorageDirType dirType,
-        boolean isShared, StorageLocation location) {
       this.root = dir;
       this.lock = null;
-      // default dirType is UNDEFINED
-      this.dirType = (dirType == null ? NameNodeDirType.UNDEFINED : dirType);
+      this.dirType = dirType;
       this.isShared = isShared;
-      this.location = location;
-      assert location == null || dir == null ||
-          dir.getAbsolutePath().startsWith(
-              new File(location.getUri()).getAbsolutePath()):
-            "The storage location and directory should be equal";
     }
-
-    private static File getStorageLocationFile(StorageLocation location) {
-      if (location == null) {
-        return null;
-      }
-      try {
-        return new File(location.getUri());
-      } catch (IllegalArgumentException e) {
-        //if location does not refer to a File
-        return null;
-      }
-    }
-
+    
     /**
      * Get root directory of this storage
      */
@@ -371,20 +309,6 @@ public abstract class Storage extends StorageInfo {
     public StorageDirType getStorageDirType() {
       return dirType;
     }    
-
-    /**
-     * Get storage directory size.
-     */
-    public long getDirecorySize() {
-      try {
-        if (!isShared() && root != null && root.exists()) {
-          return FileUtils.sizeOfDirectory(root);
-        }
-      } catch (Exception e) {
-        LOG.warn("Failed to get directory size :" + root, e);
-      }
-      return 0;
-    }
 
     public void read(File from, Storage storage) throws IOException {
       Properties props = readPropertiesFile(from);
@@ -406,12 +330,9 @@ public abstract class Storage extends StorageInfo {
      */
     public void clearDirectory() throws IOException {
       File curDir = this.getCurrentDir();
-      if (curDir.exists()) {
-        File[] files = FileUtil.listFiles(curDir);
-        LOG.info("Will remove files: " + Arrays.toString(files));
+      if (curDir.exists())
         if (!(FileUtil.fullyDelete(curDir)))
           throw new IOException("Cannot remove current directory: " + curDir);
-      }
       if (!curDir.mkdirs())
         throw new IOException("Cannot create directory " + curDir);
     }
@@ -534,60 +455,16 @@ public abstract class Storage extends StorageInfo {
     }
 
     /**
-     * Check to see if current/ directory is empty. This method is used
-     * before determining to format the directory.
-     *
-     * @throws InconsistentFSStateException if not empty.
-     * @throws IOException if unable to list files under the directory.
-     */
-    private void checkEmptyCurrent() throws InconsistentFSStateException,
-        IOException {
-      File currentDir = getCurrentDir();
-      if(!currentDir.exists()) {
-        // if current/ does not exist, it's safe to format it.
-        return;
-      }
-      try(DirectoryStream<java.nio.file.Path> dirStream =
-          Files.newDirectoryStream(currentDir.toPath())) {
-        if (dirStream.iterator().hasNext()) {
-          throw new InconsistentFSStateException(root,
-              "Can't format the storage directory because the current "
-                  + "directory is not empty.");
-        }
-      }
-    }
-
-    /**
-     * Check consistency of the storage directory.
-     *
-     * @param startOpt a startup option.
-     * @param storage The Storage object that manages this StorageDirectory.
-     *
-     * @return state {@link StorageState} of the storage directory
-     * @throws InconsistentFSStateException if directory state is not
-     * consistent and cannot be recovered.
-     * @throws IOException
-     */
-    public StorageState analyzeStorage(StartupOption startOpt, Storage storage)
-        throws IOException {
-      return analyzeStorage(startOpt, storage, false);
-    }
-
-    /**
-     * Check consistency of the storage directory.
+     * Check consistency of the storage directory
      * 
      * @param startOpt a startup option.
-     * @param storage The Storage object that manages this StorageDirectory.
-     * @param checkCurrentIsEmpty if true, make sure current/ directory
-     *                            is empty before determining to format it.
      *  
      * @return state {@link StorageState} of the storage directory 
      * @throws InconsistentFSStateException if directory state is not 
      * consistent and cannot be recovered.
      * @throws IOException
      */
-    public StorageState analyzeStorage(StartupOption startOpt, Storage storage,
-        boolean checkCurrentIsEmpty)
+    public StorageState analyzeStorage(StartupOption startOpt, Storage storage)
         throws IOException {
       assert root != null : "root is null";
       boolean hadMkdirs = false;
@@ -624,12 +501,8 @@ public abstract class Storage extends StorageInfo {
       // If startOpt is HOTSWAP, it returns NOT_FORMATTED for empty directory,
       // while it also checks the layout version.
       if (startOpt == HdfsServerConstants.StartupOption.FORMAT ||
-          (startOpt == StartupOption.HOTSWAP && hadMkdirs)) {
-        if (checkCurrentIsEmpty) {
-          checkEmptyCurrent();
-        }
+          (startOpt == StartupOption.HOTSWAP && hadMkdirs))
         return StorageState.NOT_FORMATTED;
-      }
 
       if (startOpt != HdfsServerConstants.StartupOption.IMPORT) {
         storage.checkOldLayoutStorage(this);
@@ -654,9 +527,6 @@ public abstract class Storage extends StorageInfo {
         if (hasPrevious)
           throw new InconsistentFSStateException(root,
                               "version file in current directory is missing.");
-        if (checkCurrentIsEmpty) {
-          checkEmptyCurrent();
-        }
         return StorageState.NOT_FORMATTED;
       }
 
@@ -755,8 +625,7 @@ public abstract class Storage extends StorageInfo {
         rename(getLastCheckpointTmp(), curDir);
         return;
       default:
-        throw new IOException("Unexpected FS state: " + curState
-            + " for storage directory: " + rootPath);
+        throw new IOException("Unexpected FS state: " + curState);
       }
     }
     
@@ -840,7 +709,6 @@ public abstract class Storage extends StorageInfo {
       try {
         res = file.getChannel().tryLock();
         if (null == res) {
-          LOG.error("Unable to acquire file lock on path " + lockF.toString());
           throw new OverlappingFileLockException();
         }
         file.write(jvmName.getBytes(Charsets.UTF_8));
@@ -919,10 +787,6 @@ public abstract class Storage extends StorageInfo {
       }
       return false;
     }
-
-    public StorageLocation getStorageLocation() {
-      return location;
-    }
   }
 
   /**
@@ -939,11 +803,7 @@ public abstract class Storage extends StorageInfo {
   public int getNumStorageDirs() {
     return storageDirs.size();
   }
-
-  public List<StorageDirectory> getStorageDirs() {
-    return storageDirs;
-  }
-
+  
   public StorageDirectory getStorageDir(int idx) {
     return storageDirs.get(idx);
   }
@@ -974,49 +834,6 @@ public abstract class Storage extends StorageInfo {
       }
     }
     return false;
-  }
-
-  /**
-   * Returns true if the storage directory on the given directory is already
-   * loaded.
-   * @param location the {@link StorageLocation}
-   * @throws IOException if failed to get canonical path.
-   */
-  protected boolean containsStorageDir(StorageLocation location)
-      throws IOException {
-    for (StorageDirectory sd : storageDirs) {
-      if (location.matchesStorageDirectory(sd)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Returns true if the storage directory on the given location is already
-   * loaded.
-   * @param location the {@link StorageLocation}
-   * @param bpid the block pool id
-   * @return true if the location matches to any existing storage directories
-   * @throws IOException IOException if failed to read location
-   * or storage directory path
-   */
-  protected boolean containsStorageDir(StorageLocation location, String bpid)
-      throws IOException {
-    for (StorageDirectory sd : storageDirs) {
-      if (location.matchesStorageDirectory(sd, bpid)) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  public NamespaceInfo getNamespaceInfo() {
-    return new NamespaceInfo(
-        getNamespaceID(),
-        getClusterID(),
-        null,
-        getCTime());
   }
 
   /**
@@ -1122,7 +939,6 @@ public abstract class Storage extends StorageInfo {
      * @return a string representation of the formattable item, suitable
      * for display to the user inside a prompt
      */
-    @Override
     public String toString();
   }
   
@@ -1155,28 +971,35 @@ public abstract class Storage extends StorageInfo {
   public void writeProperties(File to, StorageDirectory sd) throws IOException {
     Properties props = new Properties();
     setPropertiesFromFields(props, sd);
-    writeProperties(to, props);
+    writeProperties(to, sd, props);
   }
 
-  public static void writeProperties(File to, Properties props)
-      throws IOException {
-    try (RandomAccessFile file = new RandomAccessFile(to, "rws");
-        FileOutputStream out = new FileOutputStream(file.getFD())) {
+  public static void writeProperties(File to, StorageDirectory sd,
+      Properties props) throws IOException {
+    RandomAccessFile file = new RandomAccessFile(to, "rws");
+    FileOutputStream out = null;
+    try {
       file.seek(0);
+      out = new FileOutputStream(file.getFD());
       /*
-       * If server is interrupted before this line,
+       * If server is interrupted before this line, 
        * the version file will remain unchanged.
        */
       props.store(out, null);
       /*
-       * Now the new fields are flushed to the head of the file, but file
-       * length can still be larger then required and therefore the file can
+       * Now the new fields are flushed to the head of the file, but file 
+       * length can still be larger then required and therefore the file can 
        * contain whole or corrupted fields from its old contents in the end.
        * If server is interrupted here and restarted later these extra fields
        * either should not effect server behavior or should be handled
        * by the server correctly.
        */
       file.setLength(out.getChannel().position());
+    } finally {
+      if (out != null) {
+        out.close();
+      }
+      file.close();
     }
   }
 

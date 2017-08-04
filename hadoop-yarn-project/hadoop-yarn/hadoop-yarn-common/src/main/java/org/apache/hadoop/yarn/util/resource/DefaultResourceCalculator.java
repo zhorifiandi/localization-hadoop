@@ -17,8 +17,6 @@
 */
 package org.apache.hadoop.yarn.util.resource;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.yarn.api.records.Resource;
@@ -26,20 +24,17 @@ import org.apache.hadoop.yarn.api.records.Resource;
 @Private
 @Unstable
 public class DefaultResourceCalculator extends ResourceCalculator {
-  private static final Log LOG =
-      LogFactory.getLog(DefaultResourceCalculator.class);
-
+  
   @Override
-  public int compare(Resource unused, Resource lhs, Resource rhs,
-      boolean singleType) {
+  public int compare(Resource unused, Resource lhs, Resource rhs) {
     // Only consider memory
-    return Long.compare(lhs.getMemorySize(), rhs.getMemorySize());
+    return lhs.getMemory() - rhs.getMemory();
   }
 
   @Override
-  public long computeAvailableContainers(Resource available, Resource required) {
+  public int computeAvailableContainers(Resource available, Resource required) {
     // Only consider memory
-    return available.getMemorySize() / required.getMemorySize();
+    return available.getMemory() / required.getMemory();
   }
 
   @Override
@@ -49,7 +44,7 @@ public class DefaultResourceCalculator extends ResourceCalculator {
   }
   
   public boolean isInvalidDivisor(Resource r) {
-    if (r.getMemorySize() == 0.0f) {
+    if (r.getMemory() == 0.0f) {
       return true;
     }
     return false;
@@ -57,58 +52,51 @@ public class DefaultResourceCalculator extends ResourceCalculator {
 
   @Override
   public float ratio(Resource a, Resource b) {
-    return (float)a.getMemorySize() / b.getMemorySize();
+    return (float)a.getMemory() / b.getMemory();
   }
 
   @Override
   public Resource divideAndCeil(Resource numerator, int denominator) {
     return Resources.createResource(
-        divideAndCeil(numerator.getMemorySize(), denominator));
-  }
-
-  @Override
-  public Resource divideAndCeil(Resource numerator, float denominator) {
-    return Resources.createResource(
-        divideAndCeil(numerator.getMemorySize(), denominator));
+        divideAndCeil(numerator.getMemory(), denominator));
   }
 
   @Override
   public Resource normalize(Resource r, Resource minimumResource,
       Resource maximumResource, Resource stepFactor) {
-    if (stepFactor.getMemorySize() == 0) {
-      LOG.error("Memory cannot be allocated in increments of zero. Assuming " +
-          minimumResource.getMemorySize() + "MB increment size. "
-          + "Please ensure the scheduler configuration is correct.");
-      stepFactor = minimumResource;
-    }
-
-    long normalizedMemory = Math.min(
+    int normalizedMemory = Math.min(
         roundUp(
-            Math.max(r.getMemorySize(), minimumResource.getMemorySize()),
-            stepFactor.getMemorySize()),
-            maximumResource.getMemorySize());
+            Math.max(r.getMemory(), minimumResource.getMemory()),
+            stepFactor.getMemory()),
+            maximumResource.getMemory());
     return Resources.createResource(normalizedMemory);
+  }
+
+  @Override
+  public Resource normalize(Resource r, Resource minimumResource,
+                            Resource maximumResource) {
+    return normalize(r, minimumResource, maximumResource, minimumResource);
   }
 
   @Override
   public Resource roundUp(Resource r, Resource stepFactor) {
     return Resources.createResource(
-        roundUp(r.getMemorySize(), stepFactor.getMemorySize())
+        roundUp(r.getMemory(), stepFactor.getMemory())
         );
   }
 
   @Override
   public Resource roundDown(Resource r, Resource stepFactor) {
     return Resources.createResource(
-        roundDown(r.getMemorySize(), stepFactor.getMemorySize()));
+        roundDown(r.getMemory(), stepFactor.getMemory()));
   }
 
   @Override
   public Resource multiplyAndNormalizeUp(Resource r, double by,
       Resource stepFactor) {
     return Resources.createResource(
-        roundUp((long) (r.getMemorySize() * by + 0.5),
-            stepFactor.getMemorySize()));
+        roundUp((int)(r.getMemory() * by + 0.5), stepFactor.getMemory())
+        );
   }
 
   @Override
@@ -116,20 +104,10 @@ public class DefaultResourceCalculator extends ResourceCalculator {
       Resource stepFactor) {
     return Resources.createResource(
         roundDown(
-            (long)(r.getMemorySize() * by),
-            stepFactor.getMemorySize()
+            (int)(r.getMemory() * by), 
+            stepFactor.getMemory()
             )
         );
   }
 
-  @Override
-  public boolean fitsIn(Resource cluster,
-      Resource smaller, Resource bigger) {
-    return smaller.getMemorySize() <= bigger.getMemorySize();
-  }
-
-  @Override
-  public boolean isAnyMajorResourceZero(Resource resource) {
-    return resource.getMemorySize() == 0f;
-  }
 }

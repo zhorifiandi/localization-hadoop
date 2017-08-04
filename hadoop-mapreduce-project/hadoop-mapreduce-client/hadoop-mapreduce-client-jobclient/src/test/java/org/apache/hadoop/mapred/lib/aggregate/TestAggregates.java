@@ -22,14 +22,13 @@ import org.apache.hadoop.io.*;
 import org.apache.hadoop.mapred.*;
 import org.apache.hadoop.mapred.lib.*;
 import org.apache.hadoop.mapreduce.MapReduceTestUtil;
-import org.junit.Test;
-import static org.junit.Assert.assertEquals;
 
+import junit.framework.TestCase;
 import java.io.*;
 import java.util.*;
 import java.text.NumberFormat;
 
-public class TestAggregates {
+public class TestAggregates extends TestCase {
 
   private static NumberFormat idFormat = NumberFormat.getInstance();
     static {
@@ -37,7 +36,7 @@ public class TestAggregates {
       idFormat.setGroupingUsed(false);
   }
 
-  @Test
+
   public void testAggregates() throws Exception {
     launch();
   }
@@ -47,9 +46,8 @@ public class TestAggregates {
     FileSystem fs = FileSystem.get(conf);
     int numOfInputLines = 20;
 
-    String baseDir = System.getProperty("test.build.data", "build/test/data");
-    Path OUTPUT_DIR = new Path(baseDir + "/output_for_aggregates_test");
-    Path INPUT_DIR = new Path(baseDir + "/input_for_aggregates_test");
+    Path OUTPUT_DIR = new Path("build/test/output_for_aggregates_test");
+    Path INPUT_DIR = new Path("build/test/input_for_aggregates_test");
     String inputFile = "input.txt";
     fs.delete(INPUT_DIR, true);
     fs.mkdirs(INPUT_DIR);
@@ -117,7 +115,7 @@ public class TestAggregates {
     outdata = outdata.substring(0, expectedOutput.toString().length());
 
     assertEquals(expectedOutput.toString(),outdata);
-    fs.delete(OUTPUT_DIR, true);
+    //fs.delete(OUTPUT_DIR);
     fs.delete(INPUT_DIR, true);
   }
 

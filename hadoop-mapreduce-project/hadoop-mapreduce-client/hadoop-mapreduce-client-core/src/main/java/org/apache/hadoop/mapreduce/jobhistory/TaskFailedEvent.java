@@ -18,20 +18,14 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.util.Set;
-
-import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.mapred.TaskStatus;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskID;
 import org.apache.hadoop.mapreduce.TaskType;
-import org.apache.hadoop.mapreduce.util.JobHistoryEventUtils;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
+
+import org.apache.avro.util.Utf8;
 
 /**
  * Event to record the failure of a task
@@ -86,16 +80,16 @@ public class TaskFailedEvent implements HistoryEvent {
   public Object getDatum() {
     if(datum == null) {
       datum = new TaskFailed();
-      datum.setTaskid(new Utf8(id.toString()));
-      datum.setError(new Utf8(error));
-      datum.setFinishTime(finishTime);
-      datum.setTaskType(new Utf8(taskType.name()));
-      datum.setFailedDueToAttempt(
+      datum.taskid = new Utf8(id.toString());
+      datum.error = new Utf8(error);
+      datum.finishTime = finishTime;
+      datum.taskType = new Utf8(taskType.name());
+      datum.failedDueToAttempt =
           failedDueToAttempt == null
           ? null
-          : new Utf8(failedDueToAttempt.toString()));
-      datum.setStatus(new Utf8(status));
-      datum.setCounters(EventWriter.toAvro(counters));
+          : new Utf8(failedDueToAttempt.toString());
+      datum.status = new Utf8(status);
+      datum.counters = EventWriter.toAvro(counters);
     }
     return datum;
   }
@@ -103,19 +97,19 @@ public class TaskFailedEvent implements HistoryEvent {
   public void setDatum(Object odatum) {
     this.datum = (TaskFailed)odatum;
     this.id =
-        TaskID.forName(datum.getTaskid().toString());
+        TaskID.forName(datum.taskid.toString());
     this.taskType =
-        TaskType.valueOf(datum.getTaskType().toString());
-    this.finishTime = datum.getFinishTime();
-    this.error = datum.getError().toString();
+        TaskType.valueOf(datum.taskType.toString());
+    this.finishTime = datum.finishTime;
+    this.error = datum.error.toString();
     this.failedDueToAttempt =
-        datum.getFailedDueToAttempt() == null
+        datum.failedDueToAttempt == null
         ? null
         : TaskAttemptID.forName(
-            datum.getFailedDueToAttempt().toString());
-    this.status = datum.getStatus().toString();
+            datum.failedDueToAttempt.toString());
+    this.status = datum.status.toString();
     this.counters =
-        EventReader.fromAvro(datum.getCounters());
+        EventReader.fromAvro(datum.counters);
   }
 
   /** Get the task id */
@@ -143,23 +137,4 @@ public class TaskFailedEvent implements HistoryEvent {
     return EventType.TASK_FAILED;
   }
 
-  @Override
-  public TimelineEvent toTimelineEvent() {
-    TimelineEvent tEvent = new TimelineEvent();
-    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
-    tEvent.addInfo("TASK_TYPE", getTaskType().toString());
-    tEvent.addInfo("STATUS", TaskStatus.State.FAILED.toString());
-    tEvent.addInfo("FINISH_TIME", getFinishTime());
-    tEvent.addInfo("ERROR", getError());
-    tEvent.addInfo("FAILED_ATTEMPT_ID",
-        getFailedAttemptID() == null ? "" : getFailedAttemptID().toString());
-    return tEvent;
-  }
-
-  @Override
-  public Set<TimelineMetric> getTimelineMetrics() {
-    Set<TimelineMetric> metrics = JobHistoryEventUtils
-        .countersToTimelineMetric(getCounters(), finishTime);
-    return metrics;
-  }
 }

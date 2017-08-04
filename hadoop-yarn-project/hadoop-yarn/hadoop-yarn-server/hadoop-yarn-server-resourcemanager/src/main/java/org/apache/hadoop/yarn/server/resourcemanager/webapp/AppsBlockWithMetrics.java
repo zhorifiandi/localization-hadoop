@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.yarn.server.resourcemanager.webapp;
 
+import org.apache.hadoop.yarn.server.webapp.AppsBlock;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 /**
@@ -25,7 +26,7 @@ import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
  */
 class AppsBlockWithMetrics extends HtmlBlock {
   @Override public void render(Block html) {
-    html.__(MetricsOverviewTable.class);
-    html.__(RMAppsBlock.class);
+    html._(MetricsOverviewTable.class);
+    html._(AppsBlock.class);
   }
 }

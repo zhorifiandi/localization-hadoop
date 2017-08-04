@@ -26,14 +26,14 @@ public class TestClusterStatus {
   private ClusterStatus clusterStatus = new ClusterStatus();
 
   @SuppressWarnings("deprecation")
-  @Test (timeout = 10000)
+  @Test (timeout = 1000)
   public void testGraylistedTrackers() {
     Assert.assertEquals(0, clusterStatus.getGraylistedTrackers());
     Assert.assertTrue(clusterStatus.getGraylistedTrackerNames().isEmpty());
   }
 
   @SuppressWarnings("deprecation")
-  @Test (timeout = 10000)
+  @Test (timeout = 1000)
   public void testJobTrackerState() {
     Assert.assertEquals(JobTracker.State.RUNNING,
         clusterStatus.getJobTrackerState());

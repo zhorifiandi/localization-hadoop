@@ -34,17 +34,15 @@ public class AuthToken implements Principal {
   private static final String ATTR_SEPARATOR = "&";
   private static final String USER_NAME = "u";
   private static final String PRINCIPAL = "p";
-  private static final String MAX_INACTIVES = "i";
   private static final String EXPIRES = "e";
   private static final String TYPE = "t";
 
   private final static Set<String> ATTRIBUTES =
-      new HashSet<>(Arrays.asList(USER_NAME, PRINCIPAL, EXPIRES, TYPE));
+    new HashSet<String>(Arrays.asList(USER_NAME, PRINCIPAL, EXPIRES, TYPE));
 
   private String userName;
   private String principal;
   private String type;
-  private long maxInactives;
   private long expires;
   private String tokenStr;
 
@@ -52,7 +50,6 @@ public class AuthToken implements Principal {
     userName = null;
     principal = null;
     type = null;
-    maxInactives = -1;
     expires = -1;
     tokenStr = "ANONYMOUS";
     generateToken();
@@ -76,7 +73,6 @@ public class AuthToken implements Principal {
     this.userName = userName;
     this.principal = principal;
     this.type = type;
-    this.maxInactives = -1;
     this.expires = -1;
   }
   
@@ -90,16 +86,6 @@ public class AuthToken implements Principal {
     if (value == null || value.length() == 0 || value.contains(ATTR_SEPARATOR)) {
       throw new IllegalArgumentException(name + ILLEGAL_ARG_MSG);
     }
-  }
-
-  /**
-   * Sets the max inactive interval of the token.
-   *
-   * @param interval max inactive interval of the token in milliseconds since
-   *                 the epoch.
-   */
-  public void setMaxInactives(long interval) {
-    this.maxInactives = interval;
   }
 
   /**
@@ -118,10 +104,7 @@ public class AuthToken implements Principal {
    * @return true if the token has expired.
    */
   public boolean isExpired() {
-    return (getMaxInactives() != -1 &&
-        System.currentTimeMillis() > getMaxInactives())
-        || (getExpires() != -1 &&
-        System.currentTimeMillis() > getExpires());
+    return getExpires() != -1 && System.currentTimeMillis() > getExpires();
   }
 
   /**
@@ -132,10 +115,6 @@ public class AuthToken implements Principal {
     sb.append(USER_NAME).append("=").append(getUserName()).append(ATTR_SEPARATOR);
     sb.append(PRINCIPAL).append("=").append(getName()).append(ATTR_SEPARATOR);
     sb.append(TYPE).append("=").append(getType()).append(ATTR_SEPARATOR);
-    if (getMaxInactives() != -1) {
-      sb.append(MAX_INACTIVES).append("=")
-      .append(getMaxInactives()).append(ATTR_SEPARATOR);
-    }
     sb.append(EXPIRES).append("=").append(getExpires());
     tokenStr = sb.toString();
   }
@@ -166,15 +145,6 @@ public class AuthToken implements Principal {
    */
   public String getType() {
     return type;
-  }
-
-  /**
-   * Returns the max inactive time of the token.
-   *
-   * @return the max inactive time of the token, in milliseconds since Epoc.
-   */
-  public long getMaxInactives() {
-    return maxInactives;
   }
 
   /**
@@ -210,16 +180,11 @@ public class AuthToken implements Principal {
     // remove the signature part, since client doesn't care about it
     map.remove("s");
 
-    if (!map.keySet().containsAll(ATTRIBUTES)) {
+    if (!map.keySet().equals(ATTRIBUTES)) {
       throw new AuthenticationException("Invalid token string, missing attributes");
     }
     long expires = Long.parseLong(map.get(EXPIRES));
     AuthToken token = new AuthToken(map.get(USER_NAME), map.get(PRINCIPAL), map.get(TYPE));
-    //process optional attributes
-    if (map.containsKey(MAX_INACTIVES)) {
-      long maxInactives = Long.parseLong(map.get(MAX_INACTIVES));
-      token.setMaxInactives(maxInactives);
-    }
     token.setExpires(expires);
     return token;
   }

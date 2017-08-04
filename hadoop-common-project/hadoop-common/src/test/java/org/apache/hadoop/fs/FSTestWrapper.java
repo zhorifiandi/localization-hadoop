@@ -21,7 +21,6 @@ import java.io.IOException;
 
 import org.apache.commons.lang.RandomStringUtils;
 import org.apache.hadoop.fs.Options.CreateOpts;
-import org.apache.hadoop.test.GenericTestUtils;
 
 /**
  * Abstraction of filesystem functionality with additional helper methods
@@ -44,7 +43,7 @@ public abstract class FSTestWrapper implements FSWrapper {
   public FSTestWrapper(String testRootDir) {
     // Use default test dir if not provided
     if (testRootDir == null || testRootDir.isEmpty()) {
-      testRootDir = GenericTestUtils.getTestDir().getAbsolutePath();
+      testRootDir = System.getProperty("test.build.data", "build/test/data");
     }
     // salt test dir with some random digits for safe parallel runs
     this.testRootDir = testRootDir + "/"

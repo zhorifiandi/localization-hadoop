@@ -19,63 +19,33 @@
   <parent>
     <artifactId>hadoop-mapreduce-client</artifactId>
     <groupId>org.apache.hadoop</groupId>
-    <version>3.0.0-beta1-SNAPSHOT</version>
+    <version>2.7.1</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
+  <groupId>org.apache.hadoop</groupId>
   <artifactId>hadoop-mapreduce-client-core</artifactId>
-  <version>3.0.0-beta1-SNAPSHOT</version>
-  <name>Apache Hadoop MapReduce Core</name>
+  <version>2.7.1</version>
+  <name>hadoop-mapreduce-client-core</name>
 
   <properties>
     <!-- Needed for generating FindBugs warnings using parent pom -->
     <mr.basedir>${project.parent.basedir}/..</mr.basedir>
-    <should.run.jdiff>true</should.run.jdiff>
-    <dev-support.relative.dir>../../dev-support</dev-support.relative.dir>
   </properties>
 
   <dependencies>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
-      <artifactId>hadoop-yarn-client</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.hadoop</groupId>
-      <artifactId>hadoop-yarn-common</artifactId>
+      <artifactId>hadoop-yarn-common</artifactId> 
     </dependency>
     <dependency>
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-hdfs</artifactId>
       <scope>test</scope>
     </dependency>
-    <dependency>
-      <groupId>org.skyscreamer</groupId>
-      <artifactId>jsonassert</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.fasterxml.jackson.core</groupId>
-      <artifactId>jackson-databind</artifactId>
-    </dependency>
   </dependencies>
 
   <build>
     <plugins>
-      <plugin>
-        <artifactId>maven-jar-plugin</artifactId>
-        <executions>
-          <execution>
-            <goals>
-              <goal>test-jar</goal>
-            </goals>
-            <configuration>
-              <excludes>
-                <exclude>**/mapred-queues.xml</exclude>
-              </excludes>
-            </configuration>
-            <phase>test-compile</phase>
-          </execution>
-        </executions>
-      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
@@ -123,23 +93,7 @@
             <exclude>.gitattributes</exclude>
             <exclude>src/test/resources/recordSpanningMultipleSplits.txt</exclude>
             <exclude>src/test/resources/testBOM.txt</exclude>
-            <exclude>src/test/resources/TestSafeguardSplittingUnsplittableFiles.txt.gz</exclude>
           </excludes>
-        </configuration>
-      </plugin>
-      <plugin>
-        <artifactId>maven-clean-plugin</artifactId>
-        <configuration>
-          <filesets>
-            <fileset>
-              <directory>src/site/resources</directory>
-              <includes>
-                <include>configuration.xsl</include>
-                <include>mapred-default.xml</include>
-              </includes>
-              <followSymlinks>false</followSymlinks>
-            </fileset>
-          </filesets>
         </configuration>
       </plugin>
     </plugins>

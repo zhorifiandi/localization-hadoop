@@ -19,7 +19,6 @@ package org.apache.hadoop.hdfs.qjournal.server;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -35,7 +34,7 @@ import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.eclipse.jetty.util.ajax.JSON;
+import org.mortbay.util.ajax.JSON;
 
 /**
  * Test {@link JournalNodeMXBean}
@@ -53,7 +52,6 @@ public class TestJournalNodeMXBean {
     // start 1 journal node
     jCluster = new MiniJournalCluster.Builder(new Configuration()).format(true)
         .numJournalNodes(NUM_JN).build();
-    jCluster.waitActive();
     jn = jCluster.getJournalNode(0);
   }
   
@@ -61,7 +59,6 @@ public class TestJournalNodeMXBean {
   public void cleanup() throws IOException {
     if (jCluster != null) {
       jCluster.shutdown();
-      jCluster = null;
     }
   }
   
@@ -92,19 +89,19 @@ public class TestJournalNodeMXBean {
     Map<String, String> infoMap = new HashMap<String, String>();
     infoMap.put("Formatted", "true");
     jMap.put(NAMESERVICE, infoMap);
-    Map<String, String> infoMap1 = new HashMap<>();
-    infoMap1.put("Formatted", "false");
-    jMap.put(MiniJournalCluster.CLUSTER_WAITACTIVE_URI, infoMap1);
     assertEquals(JSON.toString(jMap), journalStatus);
     
     // restart journal node without formatting
     jCluster = new MiniJournalCluster.Builder(new Configuration()).format(false)
         .numJournalNodes(NUM_JN).build();
-    jCluster.waitActive();
     jn = jCluster.getJournalNode(0);
     // re-check 
     journalStatus = (String) mbs.getAttribute(mxbeanName, "JournalsStatus");
     assertEquals(jn.getJournalsStatus(), journalStatus);
+    jMap = new HashMap<String, Map<String, String>>();
+    infoMap = new HashMap<String, String>();
+    infoMap.put("Formatted", "true");
+    jMap.put(NAMESERVICE, infoMap);
     assertEquals(JSON.toString(jMap), journalStatus);
   }
 }

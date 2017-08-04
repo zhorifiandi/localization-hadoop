@@ -23,6 +23,7 @@ import org.apache.hadoop.mapreduce.v2.app.job.Task;
 import org.apache.hadoop.metrics2.MetricsRecordBuilder;
 
 import static org.apache.hadoop.test.MetricsAsserts.*;
+import static org.apache.hadoop.test.MockitoMaker.*;
 
 import org.junit.Test;
 
@@ -32,10 +33,10 @@ public class TestMRAppMetrics {
 
   @Test public void testNames() {
     Job job = mock(Job.class);
-    Task mapTask = mock(Task.class);
-    when(mapTask.getType()).thenReturn(TaskType.MAP);
-    Task reduceTask = mock(Task.class);
-    when(reduceTask.getType()).thenReturn(TaskType.REDUCE);
+    Task mapTask = make(stub(Task.class).returning(TaskType.MAP).
+                        from.getType());
+    Task reduceTask = make(stub(Task.class).returning(TaskType.REDUCE).
+                           from.getType());
     MRAppMetrics metrics = MRAppMetrics.create();
 
     metrics.submittedJob(job);

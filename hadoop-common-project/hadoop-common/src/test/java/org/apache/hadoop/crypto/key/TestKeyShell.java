@@ -25,8 +25,6 @@ import java.util.UUID;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.security.ProviderUtils;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -49,8 +47,8 @@ public class TestKeyShell {
   public void setup() throws Exception {
     outContent.reset();
     errContent.reset();
-    final File tmpDir = GenericTestUtils.getTestDir(UUID.randomUUID()
-        .toString());
+    final File tmpDir = new File(System.getProperty("test.build.data", "target"),
+        UUID.randomUUID().toString());
     if (!tmpDir.mkdirs()) {
       throw new IOException("Unable to create " + tmpDir);
     }
@@ -116,12 +114,6 @@ public class TestKeyShell {
     assertEquals(0, rc);
     assertTrue(outContent.toString().contains(keyName + " has been " +
             "successfully created"));
-    assertTrue(outContent.toString()
-        .contains(ProviderUtils.NO_PASSWORD_WARN));
-    assertTrue(outContent.toString()
-        .contains(ProviderUtils.NO_PASSWORD_INSTRUCTIONS_DOC));
-    assertTrue(outContent.toString()
-        .contains(ProviderUtils.NO_PASSWORD_CONT));
 
     String listOut = listKeys(ks, false);
     assertTrue(listOut.contains(keyName));
@@ -136,23 +128,14 @@ public class TestKeyShell {
     rc = ks.run(args2);
     assertEquals(0, rc);
     assertTrue(outContent.toString().contains("key1 has been successfully " +
-        "rolled."));
-
-    // jceks provider's invalidate is a no-op.
-    outContent.reset();
-    final String[] args3 =
-        {"invalidateCache", keyName, "-provider", jceksProvider};
-    rc = ks.run(args3);
-    assertEquals(0, rc);
-    assertTrue(outContent.toString()
-        .contains("key1 has been successfully " + "invalidated."));
+		"rolled."));
 
     deleteKey(ks, keyName);
 
     listOut = listKeys(ks, false);
     assertFalse(listOut, listOut.contains(keyName));
   }
-  
+
   /* HADOOP-10586 KeyShell didn't allow -description. */
   @Test
   public void testKeySuccessfulCreationWithDescription() throws Exception {
@@ -202,33 +185,34 @@ public class TestKeyShell {
   public void testInvalidProvider() throws Exception {
     final String[] args1 = {"create", "key1", "-cipher", "AES", "-provider",
       "sdff://file/tmp/keystore.jceks"};
-    
+
     int rc = 0;
     KeyShell ks = new KeyShell();
     ks.setConf(new Configuration());
     rc = ks.run(args1);
     assertEquals(1, rc);
-    assertTrue(outContent.toString().contains(KeyShell.NO_VALID_PROVIDERS));
+    assertTrue(outContent.toString().contains("There are no valid " +
+		"KeyProviders configured."));
   }
 
   @Test
   public void testTransientProviderWarning() throws Exception {
     final String[] args1 = {"create", "key1", "-cipher", "AES", "-provider",
       "user:///"};
-    
+
     int rc = 0;
     KeyShell ks = new KeyShell();
     ks.setConf(new Configuration());
     rc = ks.run(args1);
     assertEquals(0, rc);
     assertTrue(outContent.toString().contains("WARNING: you are modifying a " +
-        "transient provider."));
+		"transient provider."));
   }
-  
+
   @Test
   public void testTransientProviderOnlyConfig() throws Exception {
     final String[] args1 = {"create", "key1"};
-    
+
     int rc = 0;
     KeyShell ks = new KeyShell();
     Configuration config = new Configuration();
@@ -236,23 +220,8 @@ public class TestKeyShell {
     ks.setConf(config);
     rc = ks.run(args1);
     assertEquals(1, rc);
-    assertTrue(outContent.toString().contains(KeyShell.NO_VALID_PROVIDERS));
-  }
-
-  @Test
-  public void testStrict() throws Exception {
-    outContent.reset();
-    int rc = 0;
-    KeyShell ks = new KeyShell();
-    ks.setConf(new Configuration());
-    final String[] args1 = {"create", "hello", "-provider", jceksProvider,
-        "-strict"};
-    rc = ks.run(args1);
-    assertEquals(1, rc);
-    assertTrue(outContent.toString()
-        .contains(ProviderUtils.NO_PASSWORD_ERROR));
-    assertTrue(outContent.toString()
-        .contains(ProviderUtils.NO_PASSWORD_INSTRUCTIONS_DOC));
+    assertTrue(outContent.toString().contains("There are no valid " +
+		"KeyProviders configured."));
   }
 
   @Test
@@ -260,7 +229,7 @@ public class TestKeyShell {
     final String keyName = "key1";
     final String[] args1 = {"create", keyName, "-cipher", "AES/CBC/pkcs5Padding",
         "-provider", jceksProvider};
-    
+
     int rc = 0;
     KeyShell ks = new KeyShell();
     ks.setConf(new Configuration());

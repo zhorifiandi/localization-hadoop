@@ -87,10 +87,8 @@ public abstract class FSLimitException extends QuotaExceededException {
       super(msg);
     }
     
-    public MaxDirectoryItemsExceededException(String path, long quota,
-        long count) {
+    public MaxDirectoryItemsExceededException(long quota, long count) {
       super(quota, count);
-      setPathName(path);
     }
 
     @Override

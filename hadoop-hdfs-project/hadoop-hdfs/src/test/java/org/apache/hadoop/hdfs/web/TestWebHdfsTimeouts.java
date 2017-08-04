@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.hdfs.web;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
 
 import java.io.BufferedReader;
@@ -32,26 +33,18 @@ import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.authentication.client.ConnectionConfigurator;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import org.junit.Before;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameter;
-import org.junit.runners.Parameterized.Parameters;
 import org.junit.Test;
 
 /**
@@ -61,7 +54,6 @@ import org.junit.Test;
  * bogus server on the namenode HTTP port, which is rigged to not accept new
  * connections or to accept connections but not send responses.
  */
-@RunWith(Parameterized.class)
 public class TestWebHdfsTimeouts {
 
   private static final Log LOG = LogFactory.getLog(TestWebHdfsTimeouts.class);
@@ -85,41 +77,14 @@ public class TestWebHdfsTimeouts {
     }
   });
 
-  public enum TimeoutSource { ConnectionFactory, Configuration };
-
-  /**
-   * Run all tests twice: once with the timeouts set by the
-   * connection factory, and again with the timeouts set by
-   * configuration options.
-   */
-  @Parameters(name = "timeoutSource={0}")
-  public static Collection<Object[]> data() {
-    return Arrays.asList(new Object[][] {
-      { TimeoutSource.ConnectionFactory },
-      { TimeoutSource.Configuration }
-    });
-  }
-
-  @Parameter
-  public TimeoutSource timeoutSource;
-
   @Before
   public void setUp() throws Exception {
     Configuration conf = WebHdfsTestUtil.createConf();
     serverSocket = new ServerSocket(0, CONNECTION_BACKLOG);
     nnHttpAddress = new InetSocketAddress("localhost", serverSocket.getLocalPort());
     conf.set(DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY, "localhost:" + serverSocket.getLocalPort());
-    if (timeoutSource == TimeoutSource.Configuration) {
-      String v = Integer.toString(SHORT_SOCKET_TIMEOUT) + "ms";
-      conf.set(HdfsClientConfigKeys.DFS_WEBHDFS_SOCKET_CONNECT_TIMEOUT_KEY, v);
-      conf.set(HdfsClientConfigKeys.DFS_WEBHDFS_SOCKET_READ_TIMEOUT_KEY, v);
-    }
-
-    fs = WebHdfsTestUtil.getWebHdfsFileSystem(conf, WebHdfsConstants.WEBHDFS_SCHEME);
-    if (timeoutSource == TimeoutSource.ConnectionFactory) {
-      fs.connectionFactory = connectionFactory;
-    }
-
+    fs = WebHdfsTestUtil.getWebHdfsFileSystem(conf, WebHdfsFileSystem.SCHEME);
+    fs.connectionFactory = connectionFactory;
     clients = new ArrayList<SocketChannel>();
     serverThread = null;
   }
@@ -150,8 +115,7 @@ public class TestWebHdfsTimeouts {
       fs.listFiles(new Path("/"), false);
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(fs.getUri().getAuthority()
-          + ": connect timed out",e);
+      assertEquals("connect timed out", e.getMessage());
     }
   }
 
@@ -164,8 +128,7 @@ public class TestWebHdfsTimeouts {
       fs.listFiles(new Path("/"), false);
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(fs.getUri().getAuthority() +
-          ": Read timed out", e);
+      assertEquals("Read timed out", e.getMessage());
     }
   }
 
@@ -180,8 +143,7 @@ public class TestWebHdfsTimeouts {
       fs.getDelegationToken("renewer");
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(fs.getUri().getAuthority() +
-          ": connect timed out", e);
+      assertEquals("connect timed out", e.getMessage());
     }
   }
 
@@ -195,8 +157,7 @@ public class TestWebHdfsTimeouts {
       fs.getDelegationToken("renewer");
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(
-          fs.getUri().getAuthority() + ": Read timed out", e);
+      assertEquals("Read timed out", e.getMessage());
     }
   }
 
@@ -211,8 +172,7 @@ public class TestWebHdfsTimeouts {
       fs.getFileChecksum(new Path("/file"));
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(
-          fs.getUri().getAuthority() + ": connect timed out", e);
+      assertEquals("connect timed out", e.getMessage());
     }
   }
 
@@ -227,8 +187,7 @@ public class TestWebHdfsTimeouts {
       fs.getFileChecksum(new Path("/file"));
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(
-          fs.getUri().getAuthority() + ": Read timed out", e);
+      assertEquals("Read timed out", e.getMessage());
     }
   }
 
@@ -244,8 +203,7 @@ public class TestWebHdfsTimeouts {
       os = fs.create(new Path("/file"));
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains(
-          fs.getUri().getAuthority() + ": connect timed out", e);
+      assertEquals("connect timed out", e.getMessage());
     } finally {
       IOUtils.cleanup(LOG, os);
     }
@@ -265,7 +223,7 @@ public class TestWebHdfsTimeouts {
       os = null;
       fail("expected timeout");
     } catch (SocketTimeoutException e) {
-      GenericTestUtils.assertExceptionContains("Read timed out", e);
+      assertEquals("Read timed out", e.getMessage());
     } finally {
       IOUtils.cleanup(LOG, os);
     }

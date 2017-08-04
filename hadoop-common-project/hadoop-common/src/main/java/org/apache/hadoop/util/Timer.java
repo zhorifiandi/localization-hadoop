@@ -48,14 +48,4 @@ public class Timer {
    * @return a monotonic clock that counts in milliseconds.
    */
   public long monotonicNow() { return Time.monotonicNow(); }
-
-  /**
-   * Same as {@link #monotonicNow()} but returns its result in nanoseconds.
-   * Note that this is subject to the same resolution constraints as
-   * {@link System#nanoTime()}.
-   * @return a monotonic clock that counts in nanoseconds.
-   */
-  public long monotonicNowNanos() {
-    return Time.monotonicNowNanos();
-  }
 }

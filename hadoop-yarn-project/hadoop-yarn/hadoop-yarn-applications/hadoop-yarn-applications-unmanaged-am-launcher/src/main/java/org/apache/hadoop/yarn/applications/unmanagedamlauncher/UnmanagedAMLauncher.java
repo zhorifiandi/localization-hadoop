@@ -192,11 +192,11 @@ public class UnmanagedAMLauncher {
       throw new RuntimeException(ex);
     }
     tokenFile.deleteOnExit();
-    try (DataOutputStream os = new DataOutputStream(
-        new FileOutputStream(tokenFile, true))) {
-      credentials.writeTokenStorageToStream(os);
-    }
-
+    DataOutputStream os = new DataOutputStream(new FileOutputStream(tokenFile, 
+        true));
+    credentials.writeTokenStorageToStream(os);
+    os.close();
+    
     Map<String, String> env = System.getenv();
     ArrayList<String> envAMList = new ArrayList<String>();
     boolean setClasspath = false;

@@ -27,18 +27,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
-import java.util.TreeSet;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.apache.hadoop.yarn.api.records.ReservationId;
+import org.apache.hadoop.yarn.api.records.ReservationRequest;
 import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.server.resourcemanager.reservation.RLESparseResourceAllocation.RLEOperator;
-import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
-import org.apache.hadoop.yarn.server.resourcemanager.recovery.RMStateStore;
 import org.apache.hadoop.yarn.server.resourcemanager.reservation.exceptions.PlanningException;
-import org.apache.hadoop.yarn.server.resourcemanager.reservation.planning.Planner;
-import org.apache.hadoop.yarn.server.resourcemanager.reservation.planning.ReservationAgent;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.QueueMetrics;
 import org.apache.hadoop.yarn.util.Clock;
 import org.apache.hadoop.yarn.util.UTCClock;
@@ -47,17 +42,11 @@ import org.apache.hadoop.yarn.util.resource.Resources;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * This class represents an in memory representation of the state of our
- * reservation system, and provides accelerated access to both individual
- * reservations and aggregate utilization of resources over time.
- */
-public class InMemoryPlan implements Plan {
+class InMemoryPlan implements Plan {
 
   private static final Logger LOG = LoggerFactory.getLogger(InMemoryPlan.class);
 
   private static final Resource ZERO_RESOURCE = Resource.newInstance(0, 0);
-  private final RMStateStore rmStateStore;
 
   private TreeMap<ReservationInterval, Set<InMemoryReservationAllocation>> currentReservations =
       new TreeMap<ReservationInterval, Set<InMemoryReservationAllocation>>();
@@ -65,9 +54,6 @@ public class InMemoryPlan implements Plan {
   private RLESparseResourceAllocation rleSparseVector;
 
   private Map<String, RLESparseResourceAllocation> userResourceAlloc =
-      new HashMap<String, RLESparseResourceAllocation>();
-
-  private Map<String, RLESparseResourceAllocation> userActiveReservationCount =
       new HashMap<String, RLESparseResourceAllocation>();
 
   private Map<ReservationId, InMemoryReservationAllocation> reservationTable =
@@ -90,21 +76,18 @@ public class InMemoryPlan implements Plan {
 
   private Resource totalCapacity;
 
-  public InMemoryPlan(QueueMetrics queueMetrics, SharingPolicy policy,
+  InMemoryPlan(QueueMetrics queueMetrics, SharingPolicy policy,
       ReservationAgent agent, Resource totalCapacity, long step,
       ResourceCalculator resCalc, Resource minAlloc, Resource maxAlloc,
-      String queueName, Planner replanner, boolean getMoveOnExpiry,
-      RMContext rmContext) {
+      String queueName, Planner replanner, boolean getMoveOnExpiry) {
     this(queueMetrics, policy, agent, totalCapacity, step, resCalc, minAlloc,
-        maxAlloc, queueName, replanner, getMoveOnExpiry, rmContext,
-        new UTCClock());
+        maxAlloc, queueName, replanner, getMoveOnExpiry, new UTCClock());
   }
 
-  public InMemoryPlan(QueueMetrics queueMetrics, SharingPolicy policy,
+  InMemoryPlan(QueueMetrics queueMetrics, SharingPolicy policy,
       ReservationAgent agent, Resource totalCapacity, long step,
       ResourceCalculator resCalc, Resource minAlloc, Resource maxAlloc,
-      String queueName, Planner replanner, boolean getMoveOnExpiry,
-      RMContext rmContext, Clock clock) {
+      String queueName, Planner replanner, boolean getMoveOnExpiry, Clock clock) {
     this.queueMetrics = queueMetrics;
     this.policy = policy;
     this.agent = agent;
@@ -113,12 +96,11 @@ public class InMemoryPlan implements Plan {
     this.resCalc = resCalc;
     this.minAlloc = minAlloc;
     this.maxAlloc = maxAlloc;
-    this.rleSparseVector = new RLESparseResourceAllocation(resCalc);
+    this.rleSparseVector = new RLESparseResourceAllocation(resCalc, minAlloc);
     this.queueName = queueName;
     this.replanner = replanner;
     this.getMoveOnExpiry = getMoveOnExpiry;
     this.clock = clock;
-    this.rmStateStore = rmContext.getStateStore();
   }
 
   @Override
@@ -126,69 +108,37 @@ public class InMemoryPlan implements Plan {
     return queueMetrics;
   }
 
-
   private void incrementAllocation(ReservationAllocation reservation) {
     assert (readWriteLock.isWriteLockedByCurrentThread());
-    Map<ReservationInterval, Resource> allocationRequests =
+    Map<ReservationInterval, ReservationRequest> allocationRequests =
         reservation.getAllocationRequests();
     // check if we have encountered the user earlier and if not add an entry
     String user = reservation.getUser();
     RLESparseResourceAllocation resAlloc = userResourceAlloc.get(user);
     if (resAlloc == null) {
-      resAlloc = new RLESparseResourceAllocation(resCalc);
+      resAlloc = new RLESparseResourceAllocation(resCalc, minAlloc);
       userResourceAlloc.put(user, resAlloc);
     }
-    RLESparseResourceAllocation resCount = userActiveReservationCount.get(user);
-    if (resCount == null) {
-      resCount = new RLESparseResourceAllocation(resCalc);
-      userActiveReservationCount.put(user, resCount);
-    }
-
-    long earliestActive = Long.MAX_VALUE;
-    long latestActive = Long.MIN_VALUE;
-
-    for (Map.Entry<ReservationInterval, Resource> r : allocationRequests
+    for (Map.Entry<ReservationInterval, ReservationRequest> r : allocationRequests
         .entrySet()) {
       resAlloc.addInterval(r.getKey(), r.getValue());
       rleSparseVector.addInterval(r.getKey(), r.getValue());
-      if (Resources.greaterThan(resCalc, totalCapacity, r.getValue(),
-          ZERO_RESOURCE)) {
-        earliestActive = Math.min(earliestActive, r.getKey().getStartTime());
-        latestActive = Math.max(latestActive, r.getKey().getEndTime());
-      }
     }
-    resCount.addInterval(new ReservationInterval(earliestActive, latestActive),
-        Resource.newInstance(1, 1));
   }
 
   private void decrementAllocation(ReservationAllocation reservation) {
     assert (readWriteLock.isWriteLockedByCurrentThread());
-    Map<ReservationInterval, Resource> allocationRequests =
+    Map<ReservationInterval, ReservationRequest> allocationRequests =
         reservation.getAllocationRequests();
     String user = reservation.getUser();
     RLESparseResourceAllocation resAlloc = userResourceAlloc.get(user);
-
-    long earliestActive = Long.MAX_VALUE;
-    long latestActive = Long.MIN_VALUE;
-    for (Map.Entry<ReservationInterval, Resource> r : allocationRequests
+    for (Map.Entry<ReservationInterval, ReservationRequest> r : allocationRequests
         .entrySet()) {
       resAlloc.removeInterval(r.getKey(), r.getValue());
       rleSparseVector.removeInterval(r.getKey(), r.getValue());
-      if (Resources.greaterThan(resCalc, totalCapacity, r.getValue(),
-          ZERO_RESOURCE)) {
-        earliestActive = Math.min(earliestActive, r.getKey().getStartTime());
-        latestActive = Math.max(latestActive, r.getKey().getEndTime());
-      }
     }
     if (resAlloc.isEmpty()) {
       userResourceAlloc.remove(user);
-    }
-
-    RLESparseResourceAllocation resCount = userActiveReservationCount.get(user);
-    resCount.removeInterval(new ReservationInterval(earliestActive,
-        latestActive), Resource.newInstance(1, 1));
-    if (resCount.isEmpty()) {
-      userActiveReservationCount.remove(user);
     }
   }
 
@@ -197,9 +147,9 @@ public class InMemoryPlan implements Plan {
     try {
       if (currentReservations != null) {
         Set<ReservationAllocation> flattenedReservations =
-            new TreeSet<ReservationAllocation>();
-        for (Set<InMemoryReservationAllocation> reservationEntries :
-            currentReservations.values()) {
+            new HashSet<ReservationAllocation>();
+        for (Set<InMemoryReservationAllocation> reservationEntries : currentReservations
+            .values()) {
           flattenedReservations.addAll(reservationEntries);
         }
         return flattenedReservations;
@@ -212,8 +162,8 @@ public class InMemoryPlan implements Plan {
   }
 
   @Override
-  public boolean addReservation(ReservationAllocation reservation,
-      boolean isRecovering) throws PlanningException {
+  public boolean addReservation(ReservationAllocation reservation)
+      throws PlanningException {
     // Verify the allocation is memory based otherwise it is not supported
     InMemoryReservationAllocation inMemReservation =
         (InMemoryReservationAllocation) reservation;
@@ -236,16 +186,9 @@ public class InMemoryPlan implements Plan {
       }
       // Validate if we can accept this reservation, throws exception if
       // validation fails
-      if (!isRecovering) {
-        policy.validate(this, inMemReservation);
-        // we record here the time in which the allocation has been accepted
-        reservation.setAcceptanceTimestamp(clock.getTime());
-        if (rmStateStore != null) {
-          rmStateStore.storeNewReservation(
-              ReservationSystemUtil.buildStateProto(inMemReservation),
-              getQueueName(), inMemReservation.getReservationId().toString());
-        }
-      }
+      policy.validate(this, inMemReservation);
+      // we record here the time in which the allocation has been accepted
+      reservation.setAcceptanceTimestamp(clock.getTime());
       ReservationInterval searchInterval =
           new ReservationInterval(inMemReservation.getStartTime(),
               inMemReservation.getEndTime());
@@ -263,7 +206,7 @@ public class InMemoryPlan implements Plan {
       reservationTable.put(inMemReservation.getReservationId(),
           inMemReservation);
       incrementAllocation(inMemReservation);
-      LOG.info("Successfully added reservation: {} to plan.",
+      LOG.info("Sucessfully added reservation: {} to plan.",
           inMemReservation.getReservationId());
       return true;
     } finally {
@@ -295,18 +238,18 @@ public class InMemoryPlan implements Plan {
         return result;
       }
       try {
-        result = addReservation(reservation, false);
+        result = addReservation(reservation);
       } catch (PlanningException e) {
         LOG.error("Unable to update reservation: {} from plan due to {}.",
             reservation.getReservationId(), e.getMessage());
       }
       if (result) {
-        LOG.info("Successfully updated reservation: {} in plan.",
+        LOG.info("Sucessfully updated reservation: {} in plan.",
             reservation.getReservationId());
         return result;
       } else {
         // rollback delete
-        addReservation(currReservation, false);
+        addReservation(currReservation);
         LOG.info("Rollbacked update reservation: {} from plan.",
             reservation.getReservationId());
         return result;
@@ -324,10 +267,6 @@ public class InMemoryPlan implements Plan {
     Set<InMemoryReservationAllocation> reservations =
         currentReservations.get(searchInterval);
     if (reservations != null) {
-      if (rmStateStore != null) {
-        rmStateStore.removeReservation(getQueueName(),
-            reservation.getReservationId().toString());
-      }
       if (!reservations.remove(reservation)) {
         LOG.error("Unable to remove reservation: {} from plan.",
             reservation.getReservationId());
@@ -346,7 +285,7 @@ public class InMemoryPlan implements Plan {
     reservationTable.remove(reservation.getReservationId());
     decrementAllocation(reservation);
     LOG.info("Sucessfully deleted reservation: {} in plan.",
-            reservation.getReservationId());
+        reservation.getReservationId());
     return true;
   }
 
@@ -412,7 +351,30 @@ public class InMemoryPlan implements Plan {
 
   @Override
   public Set<ReservationAllocation> getReservationsAtTime(long tick) {
-    return getReservations(null, new ReservationInterval(tick, tick), "");
+    ReservationInterval searchInterval =
+        new ReservationInterval(tick, Long.MAX_VALUE);
+    readLock.lock();
+    try {
+      SortedMap<ReservationInterval, Set<InMemoryReservationAllocation>> reservations =
+          currentReservations.headMap(searchInterval, true);
+      if (!reservations.isEmpty()) {
+        Set<ReservationAllocation> flattenedReservations =
+            new HashSet<ReservationAllocation>();
+        for (Set<InMemoryReservationAllocation> reservationEntries : reservations
+            .values()) {
+          for (InMemoryReservationAllocation reservation : reservationEntries) {
+            if (reservation.getEndTime() > tick) {
+              flattenedReservations.add(reservation);
+            }
+          }
+        }
+        return Collections.unmodifiableSet(flattenedReservations);
+      } else {
+        return Collections.emptySet();
+      }
+    } finally {
+      readLock.unlock();
+    }
   }
 
   @Override
@@ -431,34 +393,14 @@ public class InMemoryPlan implements Plan {
   }
 
   @Override
-  public RLESparseResourceAllocation getReservationCountForUserOverTime(
-      String user, long start, long end) {
-    readLock.lock();
-    try {
-      RLESparseResourceAllocation userResAlloc =
-          userActiveReservationCount.get(user);
-
-      if (userResAlloc != null) {
-        return userResAlloc.getRangeOverlapping(start, end);
-      } else {
-        return new RLESparseResourceAllocation(resCalc);
-      }
-    } finally {
-      readLock.unlock();
-    }
-  }
-
-  @Override
-  public RLESparseResourceAllocation getConsumptionForUserOverTime(String user,
-      long start, long end) {
+  public Resource getConsumptionForUser(String user, long t) {
     readLock.lock();
     try {
       RLESparseResourceAllocation userResAlloc = userResourceAlloc.get(user);
-
       if (userResAlloc != null) {
-        return userResAlloc.getRangeOverlapping(start, end);
+        return userResAlloc.getCapacityAtTime(t);
       } else {
-        return new RLESparseResourceAllocation(resCalc);
+        return Resources.clone(ZERO_RESOURCE);
       }
     } finally {
       readLock.unlock();
@@ -470,56 +412,6 @@ public class InMemoryPlan implements Plan {
     readLock.lock();
     try {
       return rleSparseVector.getCapacityAtTime(t);
-    } finally {
-      readLock.unlock();
-    }
-  }
-
-  @Override
-  public Set<ReservationAllocation> getReservations(ReservationId
-                    reservationID, ReservationInterval interval) {
-    return getReservations(reservationID, interval, null);
-  }
-
-  @Override
-  public Set<ReservationAllocation> getReservations(ReservationId
-                    reservationID, ReservationInterval interval, String user) {
-    if (reservationID != null) {
-      ReservationAllocation allocation = getReservationById(reservationID);
-      if (allocation == null){
-        return Collections.emptySet();
-      }
-      return Collections.singleton(allocation);
-    }
-
-    long startTime = interval == null? 0 : interval.getStartTime();
-    long endTime = interval == null? Long.MAX_VALUE : interval.getEndTime();
-
-    ReservationInterval searchInterval =
-            new ReservationInterval(endTime, Long.MAX_VALUE);
-    readLock.lock();
-    try {
-      SortedMap<ReservationInterval, Set<InMemoryReservationAllocation>>
-            reservations = currentReservations.headMap(searchInterval, true);
-      if (!reservations.isEmpty()) {
-        Set<ReservationAllocation> flattenedReservations =
-                new HashSet<>();
-        for (Set<InMemoryReservationAllocation> reservationEntries :
-                reservations.values()) {
-          for (InMemoryReservationAllocation res : reservationEntries) {
-            if (res.getEndTime() > startTime) {
-              if (user != null && !user.isEmpty()
-                      && !res.getUser().equals(user)) {
-                continue;
-              }
-              flattenedReservations.add(res);
-            }
-          }
-        }
-        return Collections.unmodifiableSet(flattenedReservations);
-      } else {
-        return Collections.emptySet();
-      }
     } finally {
       readLock.unlock();
     }
@@ -543,43 +435,6 @@ public class InMemoryPlan implements Plan {
     readLock.lock();
     try {
       return Resources.clone(totalCapacity);
-    } finally {
-      readLock.unlock();
-    }
-  }
-
-  @Override
-  public RLESparseResourceAllocation getAvailableResourceOverTime(String user,
-      ReservationId oldId, long start, long end) throws PlanningException {
-    readLock.lock();
-    try {
-      // create RLE of totCapacity
-      TreeMap<Long, Resource> totAvailable = new TreeMap<Long, Resource>();
-      totAvailable.put(start, Resources.clone(totalCapacity));
-      RLESparseResourceAllocation totRLEAvail =
-          new RLESparseResourceAllocation(totAvailable, resCalc);
-
-      // subtract used from available
-      RLESparseResourceAllocation netAvailable;
-
-      netAvailable =
-          RLESparseResourceAllocation.merge(resCalc,
-              Resources.clone(totalCapacity), totRLEAvail, rleSparseVector,
-              RLEOperator.subtractTestNonNegative, start, end);
-
-      // add back in old reservation used resources if any
-      ReservationAllocation old = reservationTable.get(oldId);
-      if (old != null) {
-        netAvailable =
-            RLESparseResourceAllocation.merge(resCalc,
-                Resources.clone(totalCapacity), netAvailable,
-                old.getResourcesOverTime(), RLEOperator.add, start, end);
-      }
-      // lower it if this is needed by the sharing policy
-      netAvailable =
-          getSharingPolicy().availableResources(netAvailable, this, user,
-              oldId, start, end);
-      return netAvailable;
     } finally {
       readLock.unlock();
     }
@@ -613,7 +468,7 @@ public class InMemoryPlan implements Plan {
   public long getLastEndTime() {
     readLock.lock();
     try {
-      return rleSparseVector.getLatestNonNullTime();
+      return rleSparseVector.getLatestEndTime();
     } finally {
       readLock.unlock();
     }
@@ -670,32 +525,4 @@ public class InMemoryPlan implements Plan {
     }
   }
 
-  @Override
-  public Set<ReservationAllocation> getReservationByUserAtTime(String user,
-      long t) {
-    readLock.lock();
-    try {
-      Set<ReservationAllocation> resSet = new HashSet<ReservationAllocation>();
-      for (ReservationAllocation ra : getReservationsAtTime(t)) {
-        String resUser = ra.getUser();
-        if (resUser != null && resUser.equals(user)) {
-          resSet.add(ra);
-        }
-      }
-      return resSet;
-    } finally {
-      readLock.unlock();
-    }
-  }
-
-  @Override
-  public RLESparseResourceAllocation getCumulativeLoadOverTime(
-      long start, long end) {
-    readLock.lock();
-    try {
-      return rleSparseVector.getRangeOverlapping(start, end);
-    } finally {
-      readLock.unlock();
-    }
-  }
 }

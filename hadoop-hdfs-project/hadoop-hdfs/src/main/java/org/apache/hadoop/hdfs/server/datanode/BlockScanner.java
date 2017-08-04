@@ -64,15 +64,7 @@ public class BlockScanner {
   /**
    * The scanner configuration.
    */
-  private Conf conf;
-
-  @VisibleForTesting
-  void setConf(Conf conf) {
-    this.conf = conf;
-    for (Entry<String, VolumeScanner> entry : scanners.entrySet()) {
-      entry.getValue().setConf(conf);
-    }
-  }
+  private final Conf conf;
 
   /**
    * The cached scanner configuration.
@@ -173,10 +165,6 @@ public class BlockScanner {
     }
   }
 
-  public BlockScanner(DataNode datanode) {
-    this(datanode, datanode.getConf());
-  }
-
   public BlockScanner(DataNode datanode, Configuration conf) {
     this.datanode = datanode;
     this.conf = new Conf(conf);
@@ -209,17 +197,17 @@ public class BlockScanner {
       FsVolumeSpi volume = ref.getVolume();
       if (!isEnabled()) {
         LOG.debug("Not adding volume scanner for {}, because the block " +
-            "scanner is disabled.", volume);
+            "scanner is disabled.", volume.getBasePath());
         return;
       }
       VolumeScanner scanner = scanners.get(volume.getStorageID());
       if (scanner != null) {
         LOG.error("Already have a scanner for volume {}.",
-            volume);
+            volume.getBasePath());
         return;
       }
       LOG.debug("Adding scanner for volume {} (StorageID {})",
-          volume, volume.getStorageID());
+          volume.getBasePath(), volume.getStorageID());
       scanner = new VolumeScanner(conf, datanode, ref);
       scanner.start();
       scanners.put(volume.getStorageID(), scanner);
@@ -253,7 +241,7 @@ public class BlockScanner {
       return;
     }
     LOG.info("Removing scanner for volume {} (StorageID {})",
-        volume, volume.getStorageID());
+        volume.getBasePath(), volume.getStorageID());
     scanner.shutdown();
     scanners.remove(volume.getStorageID());
     Uninterruptibles.joinUninterruptibly(scanner, 5, TimeUnit.MINUTES);
@@ -329,7 +317,7 @@ public class BlockScanner {
    */
   synchronized void markSuspectBlock(String storageId, ExtendedBlock block) {
     if (!isEnabled()) {
-      LOG.debug("Not scanning suspicious block {} on {}, because the block " +
+      LOG.info("Not scanning suspicious block {} on {}, because the block " +
           "scanner is disabled.", block, storageId);
       return;
     }

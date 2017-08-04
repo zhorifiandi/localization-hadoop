@@ -84,7 +84,6 @@ import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.PolicyProvider;
 import org.apache.hadoop.service.AbstractService;
-import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.factories.RecordFactory;
 import org.apache.hadoop.yarn.factory.providers.RecordFactoryProvider;
 import org.apache.hadoop.yarn.ipc.YarnRPC;
@@ -142,9 +141,7 @@ public class MRClientService extends AbstractService implements ClientService {
       // running in user-land.
       webApp =
           WebApps.$for("mapreduce", AppContext.class, appContext, "ws")
-            .withHttpPolicy(conf, Policy.HTTP_ONLY)
-            .withPortRange(conf, MRJobConfig.MR_AM_WEBAPP_PORT_RANGE)
-            .start(new AMWebApp());
+            .withHttpPolicy(conf, Policy.HTTP_ONLY).start(new AMWebApp());
     } catch (Exception e) {
       LOG.error("Webapps failed to start. Ignoring for now:", e);
     }
@@ -372,7 +369,7 @@ public class MRClientService extends AbstractService implements ClientService {
           new TaskAttemptDiagnosticsUpdateEvent(taskAttemptId, message));
       appContext.getEventHandler().handle(
           new TaskAttemptEvent(taskAttemptId, 
-              TaskAttemptEventType.TA_FAILMSG_BY_CLIENT));
+              TaskAttemptEventType.TA_FAILMSG));
       FailTaskAttemptResponse response = recordFactory.
         newRecordInstance(FailTaskAttemptResponse.class);
       return response;
@@ -425,11 +422,6 @@ public class MRClientService extends AbstractService implements ClientService {
       throw new IOException("MR AM not authorized to cancel delegation" +
           " token");
     }
-  }
-
-  public KillTaskAttemptResponse forceKillTaskAttempt(
-      KillTaskAttemptRequest request) throws YarnException, IOException {
-    return protocolHandler.killTaskAttempt(request);
   }
 
   public WebApp getWebApp() {

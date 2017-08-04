@@ -22,12 +22,8 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.util.Random;
 
-import static org.junit.Assert.fail;
-import static org.junit.Assert.assertTrue;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.Assert;
+import junit.framework.TestCase;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -37,7 +33,6 @@ import org.apache.hadoop.io.WritableUtils;
 import org.apache.hadoop.io.file.tfile.TFile.Reader;
 import org.apache.hadoop.io.file.tfile.TFile.Writer;
 import org.apache.hadoop.io.file.tfile.TFile.Reader.Scanner;
-import org.apache.hadoop.test.GenericTestUtils;
 
 /**
  * 
@@ -46,8 +41,9 @@ import org.apache.hadoop.test.GenericTestUtils;
  * 
  */
 
-public class TestTFileStreams {
-  private static String ROOT = GenericTestUtils.getTestDir().getAbsolutePath();
+public class TestTFileStreams extends TestCase {
+  private static String ROOT =
+      System.getProperty("test.build.data", "/tmp/tfile-test");
 
   private final static int BLOCK_SIZE = 512;
   private final static int K = 1024;
@@ -68,7 +64,7 @@ public class TestTFileStreams {
     this.comparator = comparator;
   }
 
-  @Before
+  @Override
   public void setUp() throws IOException {
     conf = new Configuration();
     path = new Path(ROOT, outputFile);
@@ -77,7 +73,7 @@ public class TestTFileStreams {
     writer = new Writer(out, BLOCK_SIZE, compression, comparator, conf);
   }
 
-  @After
+  @Override
   public void tearDown() throws IOException {
     if (!skip) {
       try {
@@ -89,7 +85,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testNoEntry() throws IOException {
     if (skip)
       return;
@@ -97,7 +92,6 @@ public class TestTFileStreams {
     TestTFileByteArrays.readRecords(fs, path, 0, conf);
   }
 
-  @Test
   public void testOneEntryKnownLength() throws IOException {
     if (skip)
       return;
@@ -106,7 +100,6 @@ public class TestTFileStreams {
     TestTFileByteArrays.readRecords(fs, path, 1, conf);
   }
 
-  @Test
   public void testOneEntryUnknownLength() throws IOException {
     if (skip)
       return;
@@ -118,7 +111,6 @@ public class TestTFileStreams {
   }
 
   // known key length, unknown value length
-  @Test
   public void testOneEntryMixedLengths1() throws IOException {
     if (skip)
       return;
@@ -128,7 +120,6 @@ public class TestTFileStreams {
   }
 
   // unknown key length, known value length
-  @Test
   public void testOneEntryMixedLengths2() throws IOException {
     if (skip)
       return;
@@ -137,7 +128,6 @@ public class TestTFileStreams {
     TestTFileByteArrays.readRecords(fs, path, 1, conf);
   }
 
-  @Test
   public void testTwoEntriesKnownLength() throws IOException {
     if (skip)
       return;
@@ -147,7 +137,6 @@ public class TestTFileStreams {
   }
 
   // Negative test
-  @Test
   public void testFailureAddKeyWithoutValue() throws IOException {
     if (skip)
       return;
@@ -162,7 +151,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureAddValueWithoutKey() throws IOException {
     if (skip)
       return;
@@ -182,7 +170,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureOneEntryKnownLength() throws IOException {
     if (skip)
       return;
@@ -205,7 +192,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureKeyTooLong() throws IOException {
     if (skip)
       return;
@@ -213,7 +199,7 @@ public class TestTFileStreams {
     try {
       outKey.write("key0".getBytes());
       outKey.close();
-      fail("Key is longer than requested.");
+      Assert.fail("Key is longer than requested.");
     }
     catch (Exception e) {
       // noop, expecting an exception
@@ -222,7 +208,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureKeyTooShort() throws IOException {
     if (skip)
       return;
@@ -233,7 +218,7 @@ public class TestTFileStreams {
     try {
       outValue.write("value0".getBytes());
       outValue.close();
-      fail("Value is shorter than expected.");
+      Assert.fail("Value is shorter than expected.");
     }
     catch (Exception e) {
       // noop, expecting an exception
@@ -242,7 +227,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureValueTooLong() throws IOException {
     if (skip)
       return;
@@ -253,7 +237,7 @@ public class TestTFileStreams {
     try {
       outValue.write("value0".getBytes());
       outValue.close();
-      fail("Value is longer than expected.");
+      Assert.fail("Value is longer than expected.");
     }
     catch (Exception e) {
       // noop, expecting an exception
@@ -264,11 +248,10 @@ public class TestTFileStreams {
       outKey.close();
     }
     catch (Exception e) {
-      fail("Second or more close() should have no effect.");
+      Assert.fail("Second or more close() should have no effect.");
     }
   }
 
-  @Test
   public void testFailureValueTooShort() throws IOException {
     if (skip)
       return;
@@ -276,7 +259,7 @@ public class TestTFileStreams {
     try {
       outKey.write("key0".getBytes());
       outKey.close();
-      fail("Key is shorter than expected.");
+      Assert.fail("Key is shorter than expected.");
     }
     catch (Exception e) {
       // noop, expecting an exception
@@ -285,7 +268,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureCloseKeyStreamManyTimesInWriter() throws IOException {
     if (skip)
       return;
@@ -307,16 +289,15 @@ public class TestTFileStreams {
     }
     outKey.close();
     outKey.close();
-    assertTrue("Multiple close should have no effect.", true);
+    Assert.assertTrue("Multiple close should have no effect.", true);
   }
 
-  @Test
   public void testFailureKeyLongerThan64K() throws IOException {
     if (skip)
       return;
     try {
       DataOutputStream outKey = writer.prepareAppendKey(64 * K + 1);
-      fail("Failed to handle key longer than 64K.");
+      Assert.fail("Failed to handle key longer than 64K.");
     }
     catch (IndexOutOfBoundsException e) {
       // noop, expecting exceptions
@@ -324,7 +305,6 @@ public class TestTFileStreams {
     closeOutput();
   }
 
-  @Test
   public void testFailureKeyLongerThan64K_2() throws IOException {
     if (skip)
       return;
@@ -337,7 +317,7 @@ public class TestTFileStreams {
         outKey.write(buf);
       }
       outKey.close();
-      fail("Failed to handle key longer than 64K.");
+      Assert.fail("Failed to handle key longer than 64K.");
     }
     catch (EOFException e) {
       // noop, expecting exceptions
@@ -352,7 +332,6 @@ public class TestTFileStreams {
     }
   }
 
-  @Test
   public void testFailureNegativeOffset() throws IOException {
     if (skip)
       return;
@@ -363,7 +342,7 @@ public class TestTFileStreams {
     byte[] buf = new byte[K];
     try {
       scanner.entry().getKey(buf, -1);
-      fail("Failed to handle key negative offset.");
+      Assert.fail("Failed to handle key negative offset.");
     }
     catch (Exception e) {
       // noop, expecting exceptions
@@ -379,24 +358,22 @@ public class TestTFileStreams {
    * 
    * @throws IOException
    */
-  @Test
   public void testFailureCompressionNotWorking() throws IOException {
     if (skip)
       return;
     long rawDataSize = writeRecords(10000, false, false, false);
     if (!compression.equalsIgnoreCase(Compression.Algorithm.NONE.getName())) {
-      assertTrue(out.getPos() < rawDataSize);
+      Assert.assertTrue(out.getPos() < rawDataSize);
     }
     closeOutput();
   }
 
-  @Test
   public void testFailureCompressionNotWorking2() throws IOException {
     if (skip)
       return;
     long rawDataSize = writeRecords(10000, true, true, false);
     if (!compression.equalsIgnoreCase(Compression.Algorithm.NONE.getName())) {
-      assertTrue(out.getPos() < rawDataSize);
+      Assert.assertTrue(out.getPos() < rawDataSize);
     }
     closeOutput();
   }

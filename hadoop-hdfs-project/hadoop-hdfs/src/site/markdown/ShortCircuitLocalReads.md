@@ -15,7 +15,12 @@
 HDFS Short-Circuit Local Reads
 ==============================
 
-<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
+* [HDFS Short-Circuit Local Reads](#HDFS_Short-Circuit_Local_Reads)
+    * [Short-Circuit Local Reads](#Short-Circuit_Local_Reads)
+        * [Background](#Background)
+        * [Setup](#Setup)
+        * [Example Configuration](#Example_Configuration)
+    * [Legacy HDFS Short-Circuit Local Reads](#Legacy_HDFS_Short-Circuit_Local_Reads)
 
 Short-Circuit Local Reads
 -------------------------

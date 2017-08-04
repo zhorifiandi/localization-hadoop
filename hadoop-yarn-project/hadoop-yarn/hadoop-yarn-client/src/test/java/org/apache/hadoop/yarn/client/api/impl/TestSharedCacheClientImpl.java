@@ -19,7 +19,6 @@
 package org.apache.hadoop.yarn.client.api.impl;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNull;
 import static org.mockito.Matchers.isA;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -27,7 +26,6 @@ import static org.mockito.Mockito.when;
 import java.io.DataOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.URI;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -108,42 +106,15 @@ public class TestSharedCacheClientImpl {
   }
 
   @Test
-  public void testUseCacheMiss() throws Exception {
-    UseSharedCacheResourceResponse response =
-        new UseSharedCacheResourceResponsePBImpl();
-    response.setPath(null);
-    when(cProtocol.use(isA(UseSharedCacheResourceRequest.class))).thenReturn(
-        response);
-    Path newPath = client.use(mock(ApplicationId.class), "key", null);
-    assertNull("The path is not null!", newPath);
-  }
-
-  @Test
-  public void testUseWithResourceName() throws Exception {
+  public void testUse() throws Exception {
     Path file = new Path("viewfs://test/path");
-    URI useUri = new URI("viewfs://test/path#linkName");
-    Path usePath = new Path(useUri);
     UseSharedCacheResourceResponse response =
         new UseSharedCacheResourceResponsePBImpl();
     response.setPath(file.toString());
     when(cProtocol.use(isA(UseSharedCacheResourceRequest.class))).thenReturn(
         response);
-    Path newPath = client.use(mock(ApplicationId.class), "key", "linkName");
-    assertEquals("The paths are not equal!", usePath, newPath);
-  }
-
-  @Test
-  public void testUseWithSameResourceName() throws Exception {
-    Path file = new Path("viewfs://test/path");
-    URI useUri = new URI("viewfs://test/path");
-    Path usePath = new Path(useUri);
-    UseSharedCacheResourceResponse response =
-        new UseSharedCacheResourceResponsePBImpl();
-    response.setPath(file.toString());
-    when(cProtocol.use(isA(UseSharedCacheResourceRequest.class))).thenReturn(
-        response);
-    Path newPath = client.use(mock(ApplicationId.class), "key", "path");
-    assertEquals("The paths are not equal!", usePath, newPath);
+    Path newPath = client.use(mock(ApplicationId.class), "key");
+    assertEquals(file, newPath);
   }
 
   @Test(expected = YarnException.class)
@@ -151,7 +122,7 @@ public class TestSharedCacheClientImpl {
     String message = "Mock IOExcepiton!";
     when(cProtocol.use(isA(UseSharedCacheResourceRequest.class))).thenThrow(
         new IOException(message));
-    client.use(mock(ApplicationId.class), "key", null);
+    client.use(mock(ApplicationId.class), "key");
   }
 
   @Test

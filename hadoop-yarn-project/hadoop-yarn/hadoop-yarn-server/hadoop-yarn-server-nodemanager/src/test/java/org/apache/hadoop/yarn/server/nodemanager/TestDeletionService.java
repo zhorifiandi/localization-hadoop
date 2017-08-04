@@ -33,13 +33,11 @@ import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.UnsupportedFileSystemException;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.server.nodemanager.containermanager.deletion.task.FileDeletionTask;
-import org.apache.hadoop.yarn.server.nodemanager.executor.DeletionAsUserContext;
+import org.apache.hadoop.yarn.server.nodemanager.DeletionService.FileDeletionTask;
 import org.apache.hadoop.yarn.server.nodemanager.recovery.NMMemoryStateStoreService;
 import org.junit.AfterClass;
 import org.junit.Test;
 import org.mockito.Mockito;
-
 
 public class TestDeletionService {
 
@@ -82,28 +80,14 @@ public class TestDeletionService {
 
   static class FakeDefaultContainerExecutor extends DefaultContainerExecutor {
     @Override
-    public void deleteAsUser(DeletionAsUserContext ctx)
+    public void deleteAsUser(String user, Path subDir, Path... basedirs)
         throws IOException, InterruptedException {
-      String user = ctx.getUser();
-      Path subDir = ctx.getSubDir();
-      List<Path> basedirs = ctx.getBasedirs();
-
       if ((Long.parseLong(subDir.getName()) % 2) == 0) {
         assertNull(user);
       } else {
         assertEquals("dingo", user);
       }
-
-      DeletionAsUserContext.Builder builder = new DeletionAsUserContext
-          .Builder()
-          .setUser(user)
-          .setSubDir(subDir);
-
-      if (basedirs != null) {
-        builder.setBasedirs(basedirs.toArray(new Path[basedirs.size()]));
-      }
-
-      super.deleteAsUser(builder.build());
+      super.deleteAsUser(user, subDir, basedirs);
       assertFalse(lfs.util().exists(subDir));
     }
   }
@@ -124,9 +108,8 @@ public class TestDeletionService {
     del.start();
     try {
       for (Path p : dirs) {
-        FileDeletionTask deletionTask = new FileDeletionTask(del,
-            (Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo", p, null);
-        del.delete(deletionTask);
+        del.delete((Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo",
+            p, null);
       }
 
       int msecToWait = 20 * 1000;
@@ -161,10 +144,8 @@ public class TestDeletionService {
       del.start();
       for (Path p : content) {
         assertTrue(lfs.util().exists(new Path(baseDirs.get(0), p)));
-        FileDeletionTask deletionTask = new FileDeletionTask(del,
-            (Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo", p,
-            baseDirs);
-        del.delete(deletionTask);
+        del.delete((Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo",
+            p, baseDirs.toArray(new Path[4]));
       }
 
       int msecToWait = 20 * 1000;
@@ -200,9 +181,8 @@ public class TestDeletionService {
       del.init(conf);
       del.start();
       for (Path p : dirs) {
-        FileDeletionTask deletionTask = new FileDeletionTask(del,
-            (Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo", p, null);
-        del.delete(deletionTask);
+        del.delete((Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo", p,
+            null);
       }
       int msecToWait = 20 * 1000;
       for (Path p : dirs) {
@@ -225,9 +205,7 @@ public class TestDeletionService {
     try {
       del.init(conf);
       del.start();
-      FileDeletionTask deletionTask = new FileDeletionTask(del, "dingo",
-          new Path("/does/not/exist"), null);
-      del.delete(deletionTask);
+      del.delete("dingo", new Path("/does/not/exist"));
     } finally {
       del.stop();
     }
@@ -254,20 +232,18 @@ public class TestDeletionService {
       // first we will try to delete sub directories which are present. This
       // should then trigger parent directory to be deleted.
       List<Path> subDirs = buildDirs(r, dirs.get(0), 2);
-
+      
       FileDeletionTask dependentDeletionTask =
-          new FileDeletionTask(del, null, dirs.get(0), new ArrayList<Path>());
+          del.createFileDeletionTask(null, dirs.get(0), new Path[] {});
       List<FileDeletionTask> deletionTasks = new ArrayList<FileDeletionTask>();
       for (Path subDir : subDirs) {
-        List<Path> subDirList = new ArrayList<>();
-        subDirList.add(subDir);
         FileDeletionTask deletionTask =
-            new FileDeletionTask(del, null, dirs.get(0), subDirList);
-        deletionTask.addDeletionTaskDependency(dependentDeletionTask);
+            del.createFileDeletionTask(null, null, new Path[] { subDir });
+        deletionTask.addFileDeletionTaskDependency(dependentDeletionTask);
         deletionTasks.add(deletionTask);
       }
       for (FileDeletionTask task : deletionTasks) {
-        del.delete(task);
+        del.scheduleFileDeletionTask(task);
       }
 
       int msecToWait = 20 * 1000;
@@ -283,21 +259,19 @@ public class TestDeletionService {
       subDirs = buildDirs(r, dirs.get(1), 2);
       subDirs.add(new Path(dirs.get(1), "absentFile"));
       
-      dependentDeletionTask = new FileDeletionTask(del, null, dirs.get(1),
-          new ArrayList<Path>());
+      dependentDeletionTask =
+          del.createFileDeletionTask(null, dirs.get(1), new Path[] {});
       deletionTasks = new ArrayList<FileDeletionTask>();
       for (Path subDir : subDirs) {
-        List<Path> subDirList = new ArrayList<>();
-        subDirList.add(subDir);
-        FileDeletionTask deletionTask = new FileDeletionTask(del, null, null,
-            subDirList);
-        deletionTask.addDeletionTaskDependency(dependentDeletionTask);
+        FileDeletionTask deletionTask =
+            del.createFileDeletionTask(null, null, new Path[] { subDir });
+        deletionTask.addFileDeletionTaskDependency(dependentDeletionTask);
         deletionTasks.add(deletionTask);
       }
       // marking one of the tasks as a failure.
       deletionTasks.get(2).setSuccess(false);
       for (FileDeletionTask task : deletionTasks) {
-        del.delete(task);
+        del.scheduleFileDeletionTask(task);
       }
 
       msecToWait = 20 * 1000;
@@ -338,10 +312,8 @@ public class TestDeletionService {
       del.start();
       for (Path p : content) {
         assertTrue(lfs.util().exists(new Path(baseDirs.get(0), p)));
-        FileDeletionTask deletionTask = new FileDeletionTask(del,
-            (Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo", p,
-            baseDirs);
-        del.delete(deletionTask);
+        del.delete((Long.parseLong(p.getName()) % 2) == 0 ? null : "dingo",
+            p, baseDirs.toArray(new Path[4]));
       }
 
       // restart the deletion service
@@ -354,10 +326,8 @@ public class TestDeletionService {
       // verify paths are still eventually deleted
       int msecToWait = 10 * 1000;
       for (Path p : baseDirs) {
-        System.out.println("TEST Basedir: " + p.getName());
         for (Path q : content) {
           Path fp = new Path(p, q);
-          System.out.println("TEST Path: " + fp.toString());
           while (msecToWait > 0 && lfs.util().exists(fp)) {
             Thread.sleep(100);
             msecToWait -= 100;

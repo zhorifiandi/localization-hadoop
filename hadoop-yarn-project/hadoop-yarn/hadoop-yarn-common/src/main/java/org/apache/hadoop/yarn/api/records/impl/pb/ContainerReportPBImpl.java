@@ -270,7 +270,9 @@ public class ContainerReportPBImpl extends ContainerReport {
         && !((NodeIdPBImpl) nodeId).getProto().equals(builder.getNodeId())) {
       builder.setNodeId(convertToProtoFormat(this.nodeId));
     }
-    if (this.resource != null) {
+    if (this.resource != null
+        && !((ResourcePBImpl) this.resource).getProto().equals(
+          builder.getResource())) {
       builder.setResource(convertToProtoFormat(this.resource));
     }
     if (this.priority != null
@@ -316,7 +318,7 @@ public class ContainerReportPBImpl extends ContainerReport {
   }
 
   private ResourceProto convertToProtoFormat(Resource t) {
-    return ProtoUtils.convertToProtoFormat(t);
+    return ((ResourcePBImpl) t).getProto();
   }
 
   private PriorityPBImpl convertFromProtoFormat(PriorityProto p) {

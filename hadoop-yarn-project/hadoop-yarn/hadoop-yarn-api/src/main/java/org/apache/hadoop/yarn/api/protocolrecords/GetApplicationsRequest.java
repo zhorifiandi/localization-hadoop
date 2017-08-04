@@ -116,7 +116,6 @@ public abstract class GetApplicationsRequest {
    *
    * @param scope {@link ApplicationsRequestScope} to filter by
    * @see ApplicationClientProtocol#getApplications(GetApplicationsRequest)
-   * @return a report of Applications in {@link GetApplicationsRequest}
    */
   @Public
   @Stable
@@ -137,7 +136,6 @@ public abstract class GetApplicationsRequest {
    *
    *
    * @see ApplicationClientProtocol#getApplications(GetApplicationsRequest)
-   * @return a report of Applications in {@link GetApplicationsRequest}
    */
   @Public
   @Stable
@@ -158,7 +156,6 @@ public abstract class GetApplicationsRequest {
    *
    *
    * @see ApplicationClientProtocol#getApplications(GetApplicationsRequest)
-   * @return  a report of Applications in {@link GetApplicationsRequest}
    */
   @Public
   @Stable
@@ -179,7 +176,6 @@ public abstract class GetApplicationsRequest {
    *
    *
    * @see ApplicationClientProtocol#getApplications(GetApplicationsRequest)
-   * @return  a report of Applications in <code>GetApplicationsRequest</code>
    */
   @Public
   @Stable

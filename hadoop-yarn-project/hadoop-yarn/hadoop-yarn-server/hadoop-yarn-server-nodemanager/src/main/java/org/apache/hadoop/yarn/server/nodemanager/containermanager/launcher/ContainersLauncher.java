@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -30,7 +31,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.UnsupportedFileSystemException;
 import org.apache.hadoop.service.AbstractService;
-import org.apache.hadoop.util.concurrent.HadoopExecutors;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.event.Dispatcher;
 import org.apache.hadoop.yarn.event.EventHandler;
@@ -65,7 +65,7 @@ public class ContainersLauncher extends AbstractService
   private LocalDirsHandlerService dirsHandler;
   @VisibleForTesting
   public ExecutorService containerLauncher =
-      HadoopExecutors.newCachedThreadPool(
+    Executors.newCachedThreadPool(
         new ThreadFactoryBuilder()
           .setNameFormat("ContainersLauncher #%d")
           .build());
@@ -118,16 +118,6 @@ public class ContainersLauncher extends AbstractService
         containerLauncher.submit(launch);
         running.put(containerId, launch);
         break;
-      case RELAUNCH_CONTAINER:
-        app = context.getApplications().get(
-                containerId.getApplicationAttemptId().getApplicationId());
-
-        ContainerRelaunch relaunch =
-            new ContainerRelaunch(context, getConfig(), dispatcher, exec, app,
-                event.getContainer(), dirsHandler, containerManager);
-        containerLauncher.submit(relaunch);
-        running.put(containerId, relaunch);
-        break;
       case RECOVER_CONTAINER:
         app = context.getApplications().get(
             containerId.getApplicationAttemptId().getApplicationId());
@@ -137,7 +127,6 @@ public class ContainersLauncher extends AbstractService
         running.put(containerId, launch);
         break;
       case CLEANUP_CONTAINER:
-      case CLEANUP_CONTAINER_FOR_REINIT:
         ContainerLaunch launcher = running.remove(containerId);
         if (launcher == null) {
           // Container not launched. So nothing needs to be done.
@@ -153,23 +142,7 @@ public class ContainersLauncher extends AbstractService
               + ". Ignoring.");
         }
         break;
-      case SIGNAL_CONTAINER:
-        SignalContainersLauncherEvent signalEvent =
-            (SignalContainersLauncherEvent) event;
-        ContainerLaunch runningContainer = running.get(containerId);
-        if (runningContainer == null) {
-          // Container not launched. So nothing needs to be done.
-          LOG.info("Container " + containerId + " not running, nothing to signal.");
-          return;
-        }
-
-        try {
-          runningContainer.signalContainer(signalEvent.getCommand());
-        } catch (IOException e) {
-          LOG.warn("Got exception while signaling container " + containerId
-              + " with command " + signalEvent.getCommand());
-        }
-        break;
     }
   }
+
 }

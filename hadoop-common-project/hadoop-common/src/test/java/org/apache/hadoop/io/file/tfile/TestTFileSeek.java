@@ -21,11 +21,7 @@ import java.io.IOException;
 import java.util.Random;
 import java.util.StringTokenizer;
 
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
-
+import junit.framework.TestCase;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -45,13 +41,12 @@ import org.apache.hadoop.io.file.tfile.RandomDistribution.DiscreteRNG;
 import org.apache.hadoop.io.file.tfile.TFile.Reader;
 import org.apache.hadoop.io.file.tfile.TFile.Writer;
 import org.apache.hadoop.io.file.tfile.TFile.Reader.Scanner;
-import org.apache.hadoop.test.GenericTestUtils;
 
 /**
  * test the performance for seek.
  *
  */
-public class TestTFileSeek {
+public class TestTFileSeek extends TestCase { 
   private MyOptions options;
   private Configuration conf;
   private Path path;
@@ -61,7 +56,7 @@ public class TestTFileSeek {
   private DiscreteRNG keyLenGen;
   private KVGenerator kvGen;
 
-  @Before
+  @Override
   public void setUp() throws IOException {
     if (options == null) {
       options = new MyOptions(new String[0]);
@@ -88,7 +83,7 @@ public class TestTFileSeek {
             options.dictSize);
   }
   
-  @After
+  @Override
   public void tearDown() throws IOException {
     fs.delete(path, true);
   }
@@ -120,10 +115,10 @@ public class TestTFileSeek {
             }
           }
           kvGen.next(key, val, false);
-          writer.append(key.getBytes(), 0, key.getLength(), val.getBytes(), 0,
-              val.getLength());
-          totalBytes += key.getLength();
-          totalBytes += val.getLength();
+          writer.append(key.get(), 0, key.getSize(), val.get(), 0, val
+              .getSize());
+          totalBytes += key.getSize();
+          totalBytes += val.getSize();
         }
         timer.stop();
       }
@@ -161,11 +156,11 @@ public class TestTFileSeek {
     timer.start();
     for (int i = 0; i < options.seekCount; ++i) {
       kSampler.next(key);
-      scanner.lowerBound(key.getBytes(), 0, key.getLength());
+      scanner.lowerBound(key.get(), 0, key.getSize());
       if (!scanner.atEnd()) {
         scanner.entry().get(key, val);
-        totalBytes += key.getLength();
-        totalBytes += val.getLength();
+        totalBytes += key.getSize();
+        totalBytes += val.getSize();
       }
       else {
         ++miss;
@@ -180,8 +175,7 @@ public class TestTFileSeek {
         (double) totalBytes / 1024 / (options.seekCount - miss));
 
   }
-
-  @Test
+  
   public void testSeeks() throws IOException {
     String[] supported = TFile.getSupportedCompressionAlgorithms();
     boolean proceed = false;
@@ -247,7 +241,8 @@ public class TestTFileSeek {
     int fsOutputBufferSizeLzo = 1;
     int fsOutputBufferSizeGz = 1;
    
-    String rootDir = GenericTestUtils.getTestDir().getAbsolutePath();
+    String rootDir =
+        System.getProperty("test.build.data", "/tmp/tfile-test");
     String file = "TestTFileSeek";
     String compress = "gz";
     int minKeyLen = 10;

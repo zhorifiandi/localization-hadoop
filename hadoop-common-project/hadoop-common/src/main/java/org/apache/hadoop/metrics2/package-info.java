@@ -74,9 +74,7 @@
     </dd>
     <dt> <code>org.apache.hadoop.metrics2.sink</code></dt>
     <dd>Builtin metrics sink implementations including the
-      {@link org.apache.hadoop.metrics2.sink.FileSink},
-      {@link org.apache.hadoop.metrics2.sink.GraphiteSink}, and
-      {@link org.apache.hadoop.metrics2.sink.StatsDSink}.
+      {@link org.apache.hadoop.metrics2.sink.FileSink}.
     </dd>
     <dt> <code>org.apache.hadoop.metrics2.util</code></dt>
     <dd>General utilities for implementing metrics sinks etc., including the
@@ -327,7 +325,7 @@
         <td><pre>
   myprefix.sink.*.class=org.apache.hadoop.metrics2.sink.FileSink
   myprefix.sink.file0.context=context0
-  myprefix.sink.file0.filename=context0.out
+  myprefix.sink.file0.filename=context1.out
   myprefix.sink.file1.context=context1
   myprefix.sink.file1.filename=context1.out
   ...

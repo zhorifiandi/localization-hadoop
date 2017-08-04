@@ -25,8 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import javax.crypto.SecretKey;
-
-import org.apache.curator.test.TestingServer;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Tool;
@@ -36,7 +34,6 @@ import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.security.AMRMTokenIdentifier;
 import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
-import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
 import org.apache.hadoop.yarn.server.resourcemanager.recovery.records.ApplicationStateData;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
 import org.apache.hadoop.yarn.server.resourcemanager.security.AMRMTokenSecretManager;
@@ -76,11 +73,10 @@ public class TestZKRMStateStorePerf extends RMStateStoreTestBase
   private ZKRMStateStore store;
   private AMRMTokenSecretManager appTokenMgr;
   private ClientToAMTokenSecretManagerInRM clientToAMTokenMgr;
-  private TestingServer curatorTestingServer;
 
   @Before
   public void setUpZKServer() throws Exception {
-    curatorTestingServer = new TestingServer();
+    super.setUp();
   }
 
   @After
@@ -91,9 +87,7 @@ public class TestZKRMStateStorePerf extends RMStateStoreTestBase
     if (appTokenMgr != null) {
       appTokenMgr.stop();
     }
-    if (curatorTestingServer != null) {
-      curatorTestingServer.stop();
-    }
+    super.tearDown();
   }
 
   private void initStore(String hostPort) {
@@ -101,13 +95,10 @@ public class TestZKRMStateStorePerf extends RMStateStoreTestBase
     RMContext rmContext = mock(RMContext.class);
 
     conf = new YarnConfiguration();
-    conf.set(YarnConfiguration.RM_ZK_ADDRESS, optHostPort
-        .or((curatorTestingServer == null) ? "" : curatorTestingServer
-            .getConnectString()));
+    conf.set(YarnConfiguration.RM_ZK_ADDRESS, optHostPort.or(this.hostPort));
     conf.set(YarnConfiguration.ZK_RM_STATE_STORE_PARENT_PATH, workingZnode);
 
     store = new ZKRMStateStore();
-    store.setResourceManager(new ResourceManager());
     store.init(conf);
     store.start();
     when(rmContext.getStateStore()).thenReturn(store);
@@ -149,7 +140,7 @@ public class TestZKRMStateStorePerf extends RMStateStoreTestBase
 
     if (launchLocalZK) {
       try {
-        setUpZKServer();
+        setUp();
       } catch (Exception e) {
         System.err.println("failed to setup. : " + e.getMessage());
         return -1;

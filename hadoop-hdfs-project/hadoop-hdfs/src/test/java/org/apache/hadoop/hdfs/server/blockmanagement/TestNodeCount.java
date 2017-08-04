@@ -19,12 +19,12 @@ package org.apache.hadoop.hdfs.server.blockmanagement;
 
 import static org.junit.Assert.assertTrue;
 
+import java.util.Collection;
 import java.util.concurrent.TimeoutException;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSTestUtil;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
@@ -38,6 +38,9 @@ import org.junit.Test;
 /**
  * Test if live nodes count per node is correct 
  * so NN makes right decision for under/over-replicated blocks
+ * 
+ * Two of the "while" loops below use "busy wait"
+ * because they are detecting transient states.
  */
 public class TestNodeCount {
   final short REPLICATION_FACTOR = (short)2;
@@ -47,19 +50,10 @@ public class TestNodeCount {
   Block lastBlock = null;
   NumberReplicas lastNum = null;
 
-  @Test(timeout = 60000)
+  @Test
   public void testNodeCount() throws Exception {
-    final Configuration conf = new HdfsConfiguration();
-
-    // avoid invalidation by startup delay in order to make test non-transient
-    conf.setInt(DFSConfigKeys.DFS_NAMENODE_STARTUP_DELAY_BLOCK_DELETION_SEC_KEY,
-        60);
-
-    // reduce intervals to make test execution time shorter
-    conf.setInt(DFSConfigKeys.DFS_NAMENODE_REDUNDANCY_INTERVAL_SECONDS_KEY, 1);
-    conf.setInt(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
-
     // start a mini dfs cluster of 2 nodes
+    final Configuration conf = new HdfsConfiguration();
     final MiniDFSCluster cluster = 
       new MiniDFSCluster.Builder(conf).numDataNodes(REPLICATION_FACTOR).build();
     try {
@@ -96,7 +90,7 @@ public class TestNodeCount {
       cluster.restartDataNode(dnprop);
       cluster.waitActive();
       
-      // check if excessive replica is detected
+      // check if excessive replica is detected (transient)
       initializeTimeout(TIMEOUT);
       while (countNodes(block.getLocalBlock(), namesystem).excessReplicas() == 0) {
         checkTimeout("excess replicas not detected");
@@ -104,12 +98,10 @@ public class TestNodeCount {
       
       // find out a non-excess node
       DatanodeDescriptor nonExcessDN = null;
-
       for(DatanodeStorageInfo storage : bm.blocksMap.getStorages(block.getLocalBlock())) {
         final DatanodeDescriptor dn = storage.getDatanodeDescriptor();
-        final BlockInfo info = new BlockInfoContiguous(
-            block.getLocalBlock(), (short)0);
-        if (!bm.isExcess(dn, info)) {
+        Collection<Block> blocks = bm.excessReplicateMap.get(dn.getDatanodeUuid());
+        if (blocks == null || !blocks.contains(block.getLocalBlock()) ) {
           nonExcessDN = dn;
           break;
         }
@@ -132,7 +124,7 @@ public class TestNodeCount {
       cluster.restartDataNode(dnprop);
       cluster.waitActive();
 
-      // check if excessive replica is detected
+      // check if excessive replica is detected (transient)
       initializeTimeout(TIMEOUT);
       while (countNodes(block.getLocalBlock(), namesystem).excessReplicas() != 2) {
         checkTimeout("excess replica count not equal to 2");
@@ -149,8 +141,9 @@ public class TestNodeCount {
         + ((timeout <= 0) ? Long.MAX_VALUE : timeout);
   }
   
+  /* busy wait on transient conditions */
   void checkTimeout(String testLabel) throws TimeoutException {
-    checkTimeout(testLabel, 10);
+    checkTimeout(testLabel, 0);
   }
   
   /* check for timeout, then wait for cycleTime msec */
@@ -173,11 +166,10 @@ public class TestNodeCount {
 
   /* threadsafe read of the replication counts for this block */
   NumberReplicas countNodes(Block block, FSNamesystem namesystem) {
-    BlockManager blockManager = namesystem.getBlockManager();
     namesystem.readLock();
     try {
       lastBlock = block;
-      lastNum = blockManager.countNodes(blockManager.getStoredBlock(block));
+      lastNum = namesystem.getBlockManager().countNodes(block);
       return lastNum;
     }
     finally {

@@ -28,7 +28,7 @@ public class AggregatedLogsNavBlock extends HtmlBlock {
   protected void render(Block html) {
     html
       .div("#nav")
-        .h3().__("Logs").__()
-      .__();
+        .h3()._("Logs")._() // 
+      ._();
   }
 }

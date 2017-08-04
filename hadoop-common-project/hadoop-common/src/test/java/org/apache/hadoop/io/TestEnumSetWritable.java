@@ -18,20 +18,15 @@
 
 package org.apache.hadoop.io;
 
-import org.junit.Test;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertFalse;
-
-
 import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.lang.reflect.Type;
 
+import junit.framework.TestCase;
 
 /** Unit test for EnumSetWritable */
-public class TestEnumSetWritable {
+public class TestEnumSetWritable extends TestCase {
 
   enum TestEnumSet {
     CREATE, OVERWRITE, APPEND;
@@ -42,7 +37,6 @@ public class TestEnumSetWritable {
       new EnumSetWritable<TestEnumSet>(nonEmptyFlag);
 
   @SuppressWarnings("unchecked")
-  @Test
   public void testSerializeAndDeserializeNonEmpty() throws IOException {
     DataOutputBuffer out = new DataOutputBuffer();
     ObjectWritable.writeObject(out, nonEmptyFlagWritable, nonEmptyFlagWritable
@@ -57,7 +51,6 @@ public class TestEnumSetWritable {
   EnumSet<TestEnumSet> emptyFlag = EnumSet.noneOf(TestEnumSet.class);
 
   @SuppressWarnings("unchecked")
-  @Test
   public void testSerializeAndDeserializeEmpty() throws IOException {
 
     boolean gotException = false;
@@ -85,7 +78,6 @@ public class TestEnumSetWritable {
   }
 
   @SuppressWarnings("unchecked")
-  @Test
   public void testSerializeAndDeserializeNull() throws IOException {
 
     boolean gotException = false;
@@ -115,7 +107,6 @@ public class TestEnumSetWritable {
 
   public EnumSetWritable<TestEnumSet> testField;
 
-  @Test
   public void testAvroReflect() throws Exception {
     String schema = "{\"type\":\"array\",\"items\":{\"type\":\"enum\","
         + "\"name\":\"TestEnumSet\","
@@ -130,7 +121,6 @@ public class TestEnumSetWritable {
   /**
    * test {@link EnumSetWritable} equals() method
    */
-  @Test
   public void testEnumSetWritableEquals() {
     EnumSetWritable<TestEnumSet> eset1 = new EnumSetWritable<TestEnumSet>(
         EnumSet.of(TestEnumSet.APPEND, TestEnumSet.CREATE), TestEnumSet.class);
@@ -149,7 +139,6 @@ public class TestEnumSetWritable {
    * test {@code EnumSetWritable.write(DataOutputBuffer out)} 
    *  and iteration by TestEnumSet through iterator().
    */
-  @Test
   public void testEnumSetWritableWriteRead() throws Exception {
     EnumSetWritable<TestEnumSet> srcSet = new EnumSetWritable<TestEnumSet>(
         EnumSet.of(TestEnumSet.APPEND, TestEnumSet.CREATE), TestEnumSet.class);

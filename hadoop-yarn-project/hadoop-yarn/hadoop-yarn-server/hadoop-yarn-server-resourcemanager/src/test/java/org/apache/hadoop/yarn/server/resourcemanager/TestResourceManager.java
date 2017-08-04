@@ -39,7 +39,6 @@ import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttemptState;
 import org.apache.hadoop.yarn.server.resourcemanager.rmnode.RMNode;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.AppAttemptRemovedSchedulerEvent;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.NodeAddedSchedulerEvent;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.NodeUpdateSchedulerEvent;
@@ -58,8 +57,6 @@ public class TestResourceManager {
   @Before
   public void setUp() throws Exception {
     Configuration conf = new YarnConfiguration();
-    conf.set(YarnConfiguration.RM_SCHEDULER,
-        CapacityScheduler.class.getCanonicalName());
     UserGroupInformation.setConfiguration(conf);
     resourceManager = new ResourceManager();
     resourceManager.init(conf);
@@ -69,7 +66,6 @@ public class TestResourceManager {
 
   @After
   public void tearDown() throws Exception {
-    resourceManager.stop();
   }
 
   private org.apache.hadoop.yarn.server.resourcemanager.NodeManager
@@ -117,7 +113,8 @@ public class TestResourceManager {
     // Application resource requirements
     final int memory1 = 1024;
     Resource capability1 = Resources.createResource(memory1, 1);
-    Priority priority1 = Priority.newInstance(1);
+    Priority priority1 = 
+      org.apache.hadoop.yarn.server.resourcemanager.resource.Priority.create(1);
     application.addResourceRequestSpec(priority1, capability1);
     
     Task t1 = new Task(application, priority1, new String[] {host1, host2});
@@ -125,7 +122,8 @@ public class TestResourceManager {
     
     final int memory2 = 2048;
     Resource capability2 = Resources.createResource(memory2, 1);
-    Priority priority0 = Priority.newInstance(0); // higher
+    Priority priority0 = 
+        org.apache.hadoop.yarn.server.resourcemanager.resource.Priority.create(0); // higher
     application.addResourceRequestSpec(priority0, capability2);
     
     // Send resource requests to the scheduler
@@ -214,8 +212,9 @@ public class TestResourceManager {
   public void testResourceManagerInitConfigValidation() throws Exception {
     Configuration conf = new YarnConfiguration();
     conf.setInt(YarnConfiguration.RM_AM_MAX_ATTEMPTS, -1);
+    resourceManager = new ResourceManager();
     try {
-      resourceManager = new MockRM(conf);
+      resourceManager.init(conf);
       fail("Exception is expected because the global max attempts" +
           " is negative.");
     } catch (YarnRuntimeException e) {
@@ -230,8 +229,9 @@ public class TestResourceManager {
     Configuration conf = new YarnConfiguration();
     conf.setLong(YarnConfiguration.RM_NM_EXPIRY_INTERVAL_MS, 1000);
     conf.setLong(YarnConfiguration.RM_NM_HEARTBEAT_INTERVAL_MS, 1001);
+    resourceManager = new ResourceManager();;
     try {
-      resourceManager = new MockRM(conf);
+      resourceManager.init(conf);
     } catch (YarnRuntimeException e) {
       // Exception is expected.
       if (!e.getMessage().startsWith("Nodemanager expiry interval should be no"
@@ -262,8 +262,6 @@ public class TestResourceManager {
         }
       };
       Configuration conf = new YarnConfiguration();
-      conf.set(YarnConfiguration.RM_SCHEDULER,
-        CapacityScheduler.class.getCanonicalName());
       conf.set(filterInitializerConfKey, filterInitializer);
       conf.set("hadoop.security.authentication", "kerberos");
       conf.set("hadoop.http.authentication.type", "kerberos");
@@ -298,8 +296,6 @@ public class TestResourceManager {
     for (String filterInitializer : simpleFilterInitializers) {
       resourceManager = new ResourceManager();
       Configuration conf = new YarnConfiguration();
-      conf.set(YarnConfiguration.RM_SCHEDULER,
-        CapacityScheduler.class.getCanonicalName());
       conf.set(filterInitializerConfKey, filterInitializer);
       try {
         UserGroupInformation.setConfiguration(conf);

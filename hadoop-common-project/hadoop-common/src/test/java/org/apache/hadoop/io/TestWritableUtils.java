@@ -20,18 +20,15 @@ package org.apache.hadoop.io;
 
 import java.io.IOException;
 
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
+import junit.framework.TestCase;
 
-public class TestWritableUtils {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestWritableUtils.class);
+public class TestWritableUtils extends TestCase {
+  private static final Log LOG = LogFactory.getLog(TestWritableUtils.class);
 
-  private void testValue(int val, int vintlen) throws IOException {
+  public static void testValue(int val, int vintlen) throws IOException {
     DataOutputBuffer buf = new DataOutputBuffer();
     DataInputBuffer inbuf = new DataInputBuffer();
     WritableUtils.writeVInt(buf, val);
@@ -47,7 +44,8 @@ public class TestWritableUtils {
     assertEquals(vintlen, WritableUtils.getVIntSize(val));
     assertEquals(vintlen, WritableUtils.decodeVIntSize(buf.getData()[0]));
   }
-  private void testReadInRange(long val, int lower,
+  
+  public static void testReadInRange(long val, int lower,
       int upper, boolean expectSuccess) throws IOException {
     DataOutputBuffer buf = new DataOutputBuffer();
     DataInputBuffer inbuf = new DataInputBuffer();
@@ -67,8 +65,7 @@ public class TestWritableUtils {
     }
   }
 
-  @Test
-  public void testVInt() throws Exception {
+  public static void testVInt() throws Exception {
     testValue(12, 1);
     testValue(127, 1);
     testValue(-112, 1);

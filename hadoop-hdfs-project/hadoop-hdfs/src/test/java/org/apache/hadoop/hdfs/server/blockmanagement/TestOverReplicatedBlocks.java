@@ -22,6 +22,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
+import java.util.Collection;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
@@ -33,13 +34,15 @@ import org.apache.hadoop.hdfs.DFSTestUtil;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.MiniDFSCluster.DataNodeProperties;
+import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
-import org.apache.hadoop.hdfs.server.datanode.InternalDataNodeTestUtils;
+import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeRegistration;
+import org.apache.hadoop.util.Time;
 import org.junit.Test;
 
 public class TestOverReplicatedBlocks {
@@ -54,7 +57,7 @@ public class TestOverReplicatedBlocks {
     conf.setLong(DFSConfigKeys.DFS_DATANODE_SCAN_PERIOD_HOURS_KEY, 100L);
     conf.setLong(DFSConfigKeys.DFS_BLOCKREPORT_INTERVAL_MSEC_KEY, 1000L);
     conf.set(
-        DFSConfigKeys.DFS_NAMENODE_RECONSTRUCTION_PENDING_TIMEOUT_SEC_KEY,
+        DFSConfigKeys.DFS_NAMENODE_REPLICATION_PENDING_TIMEOUT_SEC_KEY,
         Integer.toString(2));
     MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
     FileSystem fs = cluster.getFileSystem();
@@ -66,7 +69,7 @@ public class TestOverReplicatedBlocks {
       
       // corrupt the block on datanode 0
       ExtendedBlock block = DFSTestUtil.getFirstBlock(fs, fileName);
-      cluster.corruptReplica(0, block);
+      assertTrue(cluster.corruptReplica(0, block));
       DataNodeProperties dnProps = cluster.stopDataNode(0);
       // remove block scanner log to trigger block scanning
       File scanCursor = new File(new File(MiniDFSCluster.getFinalizedDir(
@@ -88,7 +91,7 @@ public class TestOverReplicatedBlocks {
       
       String blockPoolId = cluster.getNamesystem().getBlockPoolId();
       final DatanodeID corruptDataNode = 
-        InternalDataNodeTestUtils.getDNRegistrationForBP(
+        DataNodeTestUtils.getDNRegistrationForBP(
             cluster.getDataNodes().get(2), blockPoolId);
          
       final FSNamesystem namesystem = cluster.getNamesystem();
@@ -114,8 +117,7 @@ public class TestOverReplicatedBlocks {
 
           // corrupt one won't be chosen to be excess one
           // without 4910 the number of live replicas would be 0: block gets lost
-          assertEquals(1, bm.countNodes(
-              bm.getStoredBlock(block.getLocalBlock())).liveReplicas());
+          assertEquals(1, bm.countNodes(block.getLocalBlock()).liveReplicas());
         }
       } finally {
         namesystem.writeUnlock();
@@ -152,13 +154,12 @@ public class TestOverReplicatedBlocks {
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
       fs = cluster.getFileSystem();
       final FSNamesystem namesystem = cluster.getNamesystem();
-      final BlockManager bm = namesystem.getBlockManager();
 
       conf.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 300);
       cluster.startDataNodes(conf, 1, true, null, null, null);
       DataNode lastDN = cluster.getDataNodes().get(3);
-      DatanodeRegistration dnReg = InternalDataNodeTestUtils.
-          getDNRegistrationForBP(lastDN, namesystem.getBlockPoolId());
+      DatanodeRegistration dnReg = DataNodeTestUtils.getDNRegistrationForBP(
+          lastDN, namesystem.getBlockPoolId());
       String lastDNid = dnReg.getDatanodeUuid();
 
       final Path fileName = new Path("/foo2");
@@ -171,7 +172,8 @@ public class TestOverReplicatedBlocks {
       long waitTime = DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_DEFAULT * 1000 *
         (DFSConfigKeys.DFS_NAMENODE_TOLERATE_HEARTBEAT_MULTIPLIER_DEFAULT + 1);
       do {
-        nodeInfo = bm.getDatanodeManager().getDatanode(dnReg);
+        nodeInfo = namesystem.getBlockManager().getDatanodeManager()
+            .getDatanode(dnReg);
         lastHeartbeat = nodeInfo.getLastUpdateMonotonic();
       } while (monotonicNow() - lastHeartbeat < waitTime);
       fs.setReplication(fileName, (short)3);
@@ -182,9 +184,10 @@ public class TestOverReplicatedBlocks {
       // All replicas for deletion should be scheduled on lastDN.
       // And should not actually be deleted, because lastDN does not heartbeat.
       namesystem.readLock();
-      final int dnBlocks = bm.getExcessSize4Testing(dnReg.getDatanodeUuid());
+      Collection<Block> dnBlocks = 
+        namesystem.getBlockManager().excessReplicateMap.get(lastDNid);
       assertEquals("Replicas on node " + lastDNid + " should have been deleted",
-          SMALL_FILE_LENGTH / SMALL_BLOCK_SIZE, dnBlocks);
+          SMALL_FILE_LENGTH / SMALL_BLOCK_SIZE, dnBlocks.size());
       namesystem.readUnlock();
       for(BlockLocation location : locs)
         assertEquals("Block should still have 4 replicas",
@@ -216,7 +219,7 @@ public class TestOverReplicatedBlocks {
       out.close();
       ExtendedBlock block = DFSTestUtil.getFirstBlock(fs, p);
       assertEquals("Expected only one live replica for the block", 1, bm
-          .countNodes(bm.getStoredBlock(block.getLocalBlock())).liveReplicas());
+          .countNodes(block.getLocalBlock()).liveReplicas());
     } finally {
       cluster.shutdown();
     }

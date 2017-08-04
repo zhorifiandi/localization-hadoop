@@ -22,7 +22,6 @@ import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY;
 
 import java.io.File;
 
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -43,8 +42,9 @@ public class TestCreateEditsLog {
 
   private static final File HDFS_DIR = new File(
     MiniDFSCluster.getBaseDirectory()).getAbsoluteFile();
-  private static final File TEST_DIR =
-      GenericTestUtils.getTestDir("TestCreateEditsLog");
+  private static final File TEST_DIR = new File(
+    System.getProperty("test.build.data", "build/test/data"),
+    "TestCreateEditsLog").getAbsoluteFile();
 
   private MiniDFSCluster cluster;
 

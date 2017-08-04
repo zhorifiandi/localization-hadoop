@@ -49,9 +49,7 @@ public class VisualizeStateMachine {
       if (gname.endsWith("Impl")) {
         gname = gname.substring(0, gname.length()-4);
       }
-      if (ret != null) {
-        ret.addSubGraph(factory.generateStateGraph(gname));
-      }
+      ret.addSubGraph(factory.generateStateGraph(gname));
     }
     return ret;
   }

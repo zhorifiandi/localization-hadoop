@@ -20,14 +20,9 @@ package org.apache.hadoop.hdfs.server.datanode;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.hdfs.server.datanode.BPServiceActor.Scheduler;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
-
-import java.util.Arrays;
-import java.util.List;
-import java.util.Random;
 
 import static java.lang.Math.abs;
 import static org.hamcrest.core.Is.is;
@@ -36,6 +31,11 @@ import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
+import org.apache.hadoop.hdfs.server.datanode.BPServiceActor.Scheduler;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.Random;
 
 
 /**
@@ -49,9 +49,7 @@ public class TestBpServiceActorScheduler {
   public Timeout timeout = new Timeout(300000);
 
   private static final long HEARTBEAT_INTERVAL_MS = 5000;      // 5 seconds
-  private static final long LIFELINE_INTERVAL_MS = 3 * HEARTBEAT_INTERVAL_MS;
   private static final long BLOCK_REPORT_INTERVAL_MS = 10000;  // 10 seconds
-  private static final long OUTLIER_REPORT_INTERVAL_MS = 10000;  // 10 seconds
   private final Random random = new Random(System.nanoTime());
 
   @Test
@@ -59,7 +57,7 @@ public class TestBpServiceActorScheduler {
     for (final long now : getTimestamps()) {
       Scheduler scheduler = makeMockScheduler(now);
       assertTrue(scheduler.isHeartbeatDue(now));
-      assertTrue(scheduler.isBlockReportDue(scheduler.monotonicNow()));
+      assertTrue(scheduler.isBlockReportDue());
     }
   }
 
@@ -146,63 +144,12 @@ public class TestBpServiceActorScheduler {
     }
   }
 
-
-  /**
-   * Regression test for HDFS-9305.
-   * Delayed processing of a heartbeat can cause a subsequent heartbeat
-   * storm.
-   */
-  @Test
-  public void testScheduleDelayedHeartbeat() {
-    for (final long now : getTimestamps()) {
-      Scheduler scheduler = makeMockScheduler(now);
-      scheduler.scheduleNextHeartbeat();
-      assertFalse(scheduler.isHeartbeatDue(now));
-
-      // Simulate a delayed heartbeat e.g. due to slow processing by NN.
-      scheduler.nextHeartbeatTime = now - (HEARTBEAT_INTERVAL_MS * 10);
-      scheduler.scheduleNextHeartbeat();
-
-      // Ensure that the next heartbeat is not due immediately.
-      assertFalse(scheduler.isHeartbeatDue(now));
-    }
-  }
-
-  @Test
-  public void testScheduleLifeline() {
-    for (final long now : getTimestamps()) {
-      Scheduler scheduler = makeMockScheduler(now);
-      scheduler.scheduleNextLifeline(now);
-      assertFalse(scheduler.isLifelineDue(now));
-      assertThat(scheduler.getLifelineWaitTime(), is(LIFELINE_INTERVAL_MS));
-      scheduler.scheduleNextLifeline(now - LIFELINE_INTERVAL_MS);
-      assertTrue(scheduler.isLifelineDue(now));
-      assertThat(scheduler.getLifelineWaitTime(), is(0L));
-    }
-  }
-
-  @Test
-  public void testOutlierReportScheduling() {
-    for (final long now : getTimestamps()) {
-      Scheduler scheduler = makeMockScheduler(now);
-      assertTrue(scheduler.isOutliersReportDue(now));
-      scheduler.scheduleNextOutlierReport();
-      assertFalse(scheduler.isOutliersReportDue(now));
-      assertFalse(scheduler.isOutliersReportDue(now + 1));
-      assertTrue(scheduler.isOutliersReportDue(
-          now + OUTLIER_REPORT_INTERVAL_MS));
-    }
-  }
-
   private Scheduler makeMockScheduler(long now) {
     LOG.info("Using now = " + now);
-    Scheduler mockScheduler = spy(new Scheduler(
-        HEARTBEAT_INTERVAL_MS, LIFELINE_INTERVAL_MS,
-        BLOCK_REPORT_INTERVAL_MS, OUTLIER_REPORT_INTERVAL_MS));
+    Scheduler mockScheduler = spy(new Scheduler(HEARTBEAT_INTERVAL_MS, BLOCK_REPORT_INTERVAL_MS));
     doReturn(now).when(mockScheduler).monotonicNow();
     mockScheduler.nextBlockReportTime = now;
     mockScheduler.nextHeartbeatTime = now;
-    mockScheduler.nextOutliersReportTime = now;
     return mockScheduler;
   }
 

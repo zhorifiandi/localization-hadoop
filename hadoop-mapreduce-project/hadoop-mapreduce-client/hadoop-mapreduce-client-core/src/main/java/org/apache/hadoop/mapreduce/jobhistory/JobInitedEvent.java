@@ -18,15 +18,11 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.util.Set;
-
-import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.mapreduce.JobID;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
+
+import org.apache.avro.util.Utf8;
 
 /**
  * Event to record the initialization of a job
@@ -48,12 +44,12 @@ public class JobInitedEvent implements HistoryEvent {
    */
   public JobInitedEvent(JobID id, long launchTime, int totalMaps,
                         int totalReduces, String jobStatus, boolean uberized) {
-    datum.setJobid(new Utf8(id.toString()));
-    datum.setLaunchTime(launchTime);
-    datum.setTotalMaps(totalMaps);
-    datum.setTotalReduces(totalReduces);
-    datum.setJobStatus(new Utf8(jobStatus));
-    datum.setUberized(uberized);
+    datum.jobid = new Utf8(id.toString());
+    datum.launchTime = launchTime;
+    datum.totalMaps = totalMaps;
+    datum.totalReduces = totalReduces;
+    datum.jobStatus = new Utf8(jobStatus);
+    datum.uberized = uberized;
   }
 
   JobInitedEvent() { }
@@ -62,36 +58,19 @@ public class JobInitedEvent implements HistoryEvent {
   public void setDatum(Object datum) { this.datum = (JobInited)datum; }
 
   /** Get the job ID */
-  public JobID getJobId() { return JobID.forName(datum.getJobid().toString()); }
+  public JobID getJobId() { return JobID.forName(datum.jobid.toString()); }
   /** Get the launch time */
-  public long getLaunchTime() { return datum.getLaunchTime(); }
+  public long getLaunchTime() { return datum.launchTime; }
   /** Get the total number of maps */
-  public int getTotalMaps() { return datum.getTotalMaps(); }
+  public int getTotalMaps() { return datum.totalMaps; }
   /** Get the total number of reduces */
-  public int getTotalReduces() { return datum.getTotalReduces(); }
+  public int getTotalReduces() { return datum.totalReduces; }
   /** Get the status */
-  public String getStatus() { return datum.getJobStatus().toString(); }
+  public String getStatus() { return datum.jobStatus.toString(); }
   /** Get the event type */
   public EventType getEventType() {
     return EventType.JOB_INITED;
   }
   /** Get whether the job's map and reduce stages were combined */
-  public boolean getUberized() { return datum.getUberized(); }
-
-  @Override
-  public TimelineEvent toTimelineEvent() {
-    TimelineEvent tEvent = new TimelineEvent();
-    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
-    tEvent.addInfo("START_TIME", getLaunchTime());
-    tEvent.addInfo("STATUS", getStatus());
-    tEvent.addInfo("TOTAL_MAPS", getTotalMaps());
-    tEvent.addInfo("TOTAL_REDUCES", getTotalReduces());
-    tEvent.addInfo("UBERIZED", getUberized());
-    return tEvent;
-  }
-
-  @Override
-  public Set<TimelineMetric> getTimelineMetrics() {
-    return null;
-  }
+  public boolean getUberized() { return datum.uberized; }
 }

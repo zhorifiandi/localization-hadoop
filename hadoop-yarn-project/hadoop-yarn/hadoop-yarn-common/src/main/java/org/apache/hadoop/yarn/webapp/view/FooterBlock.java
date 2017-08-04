@@ -25,6 +25,6 @@ public class FooterBlock extends HtmlBlock {
 
   @Override protected void render(Block html) {
     html.
-      div("#footer.ui-widget").__();
+      div("#footer.ui-widget")._();
   }
 }

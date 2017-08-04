@@ -31,7 +31,6 @@ import org.apache.hadoop.hdfs.server.namenode.FSImageUtil;
 import org.apache.hadoop.hdfs.server.namenode.FsImageProto.FileSummary;
 import org.apache.hadoop.hdfs.server.namenode.FsImageProto.INodeSection;
 import org.apache.hadoop.util.LimitInputStream;
-import org.apache.hadoop.util.StringUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -76,14 +75,11 @@ final class FileDistributionCalculator {
   private long totalSpace;
   private long maxFileSize;
 
-  private boolean formatOutput = false;
-
   FileDistributionCalculator(Configuration conf, long maxSize, int steps,
-      boolean formatOutput, PrintStream out) {
+      PrintStream out) {
     this.conf = conf;
     this.maxSize = maxSize == 0 ? MAX_SIZE_DEFAULT : maxSize;
     this.steps = steps == 0 ? INTERVAL_DEFAULT : steps;
-    this.formatOutput = formatOutput;
     this.out = out;
     long numIntervals = this.maxSize / this.steps;
     // avoid OutOfMemoryError when allocating an array
@@ -132,12 +128,6 @@ final class FileDistributionCalculator {
 
         int bucket = fileSize > maxSize ? distribution.length - 1 : (int) Math
             .ceil((double)fileSize / steps);
-        // Compare the bucket value with distribution's length again,
-        // because sometimes the bucket value will be equal to
-        // the length when maxSize can't be divided completely by step.
-        if (bucket >= distribution.length) {
-          bucket = distribution.length - 1;
-        }
         ++distribution[bucket];
 
       } else if (p.getType() == INodeSection.INode.Type.DIRECTORY) {
@@ -152,20 +142,10 @@ final class FileDistributionCalculator {
 
   private void output() {
     // write the distribution into the output file
-    out.print((formatOutput ? "Size Range" : "Size") + "\tNumFiles\n");
+    out.print("Size\tNumFiles\n");
     for (int i = 0; i < distribution.length; i++) {
       if (distribution[i] != 0) {
-        if (formatOutput) {
-          out.print((i == 0 ? "[" : "(")
-              + StringUtils.byteDesc(((long) (i == 0 ? 0 : i - 1) * steps))
-              + ", "
-              + StringUtils.byteDesc((long)
-                  (i == distribution.length - 1 ? maxFileSize :
-                      (long) i * steps)) + "]\t" + distribution[i]);
-        } else {
-          out.print(((long) i * steps) + "\t" + distribution[i]);
-        }
-
+        out.print(((long) i * steps) + "\t" + distribution[i]);
         out.print('\n');
       }
     }

@@ -26,24 +26,18 @@ import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 
 import org.junit.Test;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 public class TestFileStatus {
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestFileStatus.class);
+  private static final Log LOG =
+    LogFactory.getLog(TestFileStatus.class);
   
   /** Values for creating {@link FileStatus} in some tests */
   static final int LENGTH = 1;
@@ -189,25 +183,6 @@ public class TestFileStatus {
     validateToString(fileStatus);
   }
   
-  @Test
-  public void testCompareTo() throws IOException {
-    Path path1 = new Path("path1");
-    Path path2 = new Path("path2");
-    FileStatus fileStatus1 =
-        new FileStatus(1, true, 1, 1, 1, 1, FsPermission.valueOf("-rw-rw-rw-"),
-            "one", "one", null, path1);
-    FileStatus fileStatus2 =
-        new FileStatus(1, true, 1, 1, 1, 1, FsPermission.valueOf("-rw-rw-rw-"),
-            "one", "one", null, path2);
-    assertTrue(fileStatus1.compareTo(fileStatus2) < 0);
-    assertTrue(fileStatus2.compareTo(fileStatus1) > 0);
-
-    List<FileStatus> statList = new ArrayList<>();
-    statList.add(fileStatus1);
-    statList.add(fileStatus2);
-    assertTrue(Collections.binarySearch(statList, fileStatus1) > -1);
-  }
-
   /**
    * Check that toString produces the expected output for a symlink.
    */
@@ -218,23 +193,6 @@ public class TestFileStatus {
     FileStatus fileStatus = new FileStatus(LENGTH, isdir, REPLICATION, BLKSIZE,
         MTIME, ATIME, PERMISSION, OWNER, GROUP, symlink, PATH);  
     validateToString(fileStatus);
-  }
-
-  @Test
-  public void testSerializable() throws Exception {
-    Path p = new Path("uqsf://ybpnyubfg:8020/sbb/one/onm");
-    FsPermission perm = FsPermission.getFileDefault();
-    FileStatus stat = new FileStatus(4344L, false, 4, 512L << 20, 12345678L,
-        87654321L, perm, "yak", "dingo", p);
-    ByteArrayOutputStream baos = new ByteArrayOutputStream(1024);
-    try (ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(stat);
-    }
-    ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-    try (ObjectInputStream ois = new ObjectInputStream(bais)) {
-      FileStatus deser = (FileStatus) ois.readObject();
-      assertEquals(stat, deser);
-    }
   }
   
   /**
@@ -296,15 +254,11 @@ public class TestFileStatus {
     expected.append("permission=").append(fileStatus.getPermission()).append("; ");
     if(fileStatus.isSymlink()) {
       expected.append("isSymlink=").append(true).append("; ");
-      expected.append("symlink=").append(fileStatus.getSymlink()).append("; ");
+      expected.append("symlink=").append(fileStatus.getSymlink()).append("}");
     } else {
-      expected.append("isSymlink=").append(false).append("; ");
+      expected.append("isSymlink=").append(false).append("}");
     }
-    expected.append("hasAcl=").append(fileStatus.hasAcl()).append("; ");
-    expected.append("isEncrypted=").append(
-        fileStatus.isEncrypted()).append("; ");
-    expected.append("isErasureCoded=").append(
-        fileStatus.isErasureCoded()).append("}");
+    
     assertEquals(expected.toString(), fileStatus.toString());
   }
 }

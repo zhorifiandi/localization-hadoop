@@ -22,10 +22,8 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.Vector;
 
 import org.apache.commons.cli.CommandLine;
@@ -70,14 +68,12 @@ import org.apache.hadoop.yarn.api.records.QueueACL;
 import org.apache.hadoop.yarn.api.records.QueueInfo;
 import org.apache.hadoop.yarn.api.records.QueueUserACLInfo;
 import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.api.records.URL;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.api.records.YarnClusterMetrics;
 import org.apache.hadoop.yarn.api.records.timeline.TimelineDomain;
 import org.apache.hadoop.yarn.client.api.TimelineClient;
 import org.apache.hadoop.yarn.client.api.YarnClient;
 import org.apache.hadoop.yarn.client.api.YarnClientApplication;
-import org.apache.hadoop.yarn.client.util.YarnClientUtils;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.util.ConverterUtils;
@@ -130,7 +126,7 @@ public class Client {
   // Queue for App master
   private String amQueue = "";
   // Amt. of memory resource to request for to run the App Master
-  private long amMemory = 100;
+  private int amMemory = 10; 
   // Amt. of virtual core resource to request for to run the App Master
   private int amVCores = 1;
 
@@ -172,8 +168,6 @@ public class Client {
 
   private long attemptFailuresValidityInterval = -1;
 
-  private Vector<CharSequence> containerRetryOptions = new Vector<>(5);
-
   // Debug flag
   boolean debugFlag = false;
 
@@ -188,10 +182,6 @@ public class Client {
 
   // Timeline domain writer access control
   private String modifyACLs = null;
-
-  private String flowName = null;
-  private String flowVersion = null;
-  private long flowRunId = 0L;
 
   // Command line options
   private Options opts;
@@ -264,8 +254,7 @@ public class Client {
     opts.addOption("shell_args", true, "Command line args for the shell script." +
         "Multiple args can be separated by empty space.");
     opts.getOption("shell_args").setArgs(Option.UNLIMITED_VALUES);
-    opts.addOption("shell_env", true,
-        "Environment for shell script. Specified as env_key=env_val pairs");
+    opts.addOption("shell_env", true, "Environment for shell script. Specified as env_key=env_val pairs");
     opts.addOption("shell_cmd_priority", true, "Priority for the shell command containers");
     opts.addOption("container_memory", true, "Amount of memory in MB to be requested to run the shell command");
     opts.addOption("container_vcores", true, "Amount of virtual cores to be requested to run the shell command");
@@ -291,12 +280,6 @@ public class Client {
         + "modify the timeline entities in the given domain");
     opts.addOption("create", false, "Flag to indicate whether to create the "
         + "domain specified with -domain.");
-    opts.addOption("flow_name", true, "Flow name which the distributed shell "
-        + "app belongs to");
-    opts.addOption("flow_version", true, "Flow version which the distributed "
-        + "shell app belongs to");
-    opts.addOption("flow_run_id", true, "Flow run ID which the distributed "
-        + "shell app belongs to");
     opts.addOption("help", false, "Print usage");
     opts.addOption("node_label_expression", true,
         "Node label expression to determine the nodes"
@@ -304,18 +287,6 @@ public class Client {
             + " will be allocated, \"\" means containers"
             + " can be allocated anywhere, if you don't specify the option,"
             + " default node_label_expression of queue will be used.");
-    opts.addOption("container_retry_policy", true,
-        "Retry policy when container fails to run, "
-            + "0: NEVER_RETRY, 1: RETRY_ON_ALL_ERRORS, "
-            + "2: RETRY_ON_SPECIFIC_ERROR_CODES");
-    opts.addOption("container_retry_error_codes", true,
-        "When retry policy is set to RETRY_ON_SPECIFIC_ERROR_CODES, error "
-            + "codes is specified with this option, "
-            + "e.g. --container_retry_error_codes 1,2,3");
-    opts.addOption("container_max_retries", true,
-        "If container could retry, it specifies max retires");
-    opts.addOption("container_retry_interval", true,
-        "Interval between each retry, unit is milliseconds");
   }
 
   /**
@@ -372,7 +343,7 @@ public class Client {
     appName = cliParser.getOptionValue("appname", "DistributedShell");
     amPriority = Integer.parseInt(cliParser.getOptionValue("priority", "0"));
     amQueue = cliParser.getOptionValue("queue", "default");
-    amMemory = Integer.parseInt(cliParser.getOptionValue("master_memory", "100"));
+    amMemory = Integer.parseInt(cliParser.getOptionValue("master_memory", "10"));		
     amVCores = Integer.parseInt(cliParser.getOptionValue("master_vcores", "1"));
 
     if (amMemory < 0) {
@@ -458,38 +429,6 @@ public class Client {
       }
     }
 
-    // Get container retry options
-    if (cliParser.hasOption("container_retry_policy")) {
-      containerRetryOptions.add("--container_retry_policy "
-          + cliParser.getOptionValue("container_retry_policy"));
-    }
-    if (cliParser.hasOption("container_retry_error_codes")) {
-      containerRetryOptions.add("--container_retry_error_codes "
-          + cliParser.getOptionValue("container_retry_error_codes"));
-    }
-    if (cliParser.hasOption("container_max_retries")) {
-      containerRetryOptions.add("--container_max_retries "
-          + cliParser.getOptionValue("container_max_retries"));
-    }
-    if (cliParser.hasOption("container_retry_interval")) {
-      containerRetryOptions.add("--container_retry_interval "
-          + cliParser.getOptionValue("container_retry_interval"));
-    }
-
-    if (cliParser.hasOption("flow_name")) {
-      flowName = cliParser.getOptionValue("flow_name");
-    }
-    if (cliParser.hasOption("flow_version")) {
-      flowVersion = cliParser.getOptionValue("flow_version");
-    }
-    if (cliParser.hasOption("flow_run_id")) {
-      try {
-        flowRunId = Long.parseLong(cliParser.getOptionValue("flow_run_id"));
-      } catch (NumberFormatException e) {
-        throw new IllegalArgumentException(
-            "Flow run is not a valid long value", e);
-      }
-    }
     return true;
   }
 
@@ -514,9 +453,9 @@ public class Client {
     for (NodeReport node : clusterNodeReports) {
       LOG.info("Got node report from ASM for"
           + ", nodeId=" + node.getNodeId() 
-          + ", nodeAddress=" + node.getHttpAddress()
-          + ", nodeRackName=" + node.getRackName()
-          + ", nodeNumContainers=" + node.getNumContainers());
+          + ", nodeAddress" + node.getHttpAddress()
+          + ", nodeRackName" + node.getRackName()
+          + ", nodeNumContainers" + node.getNumContainers());
     }
 
     QueueInfo queueInfo = yarnClient.getQueueInfo(this.amQueue);
@@ -548,8 +487,8 @@ public class Client {
     // the required resources from the RM for the app master
     // Memory ask has to be a multiple of min and less than max. 
     // Dump out information about cluster capability as seen by the resource manager
-    long maxMem = appResponse.getMaximumResourceCapability().getMemorySize();
-    LOG.info("Max mem capability of resources in this cluster " + maxMem);
+    int maxMem = appResponse.getMaximumResourceCapability().getMemory();
+    LOG.info("Max mem capabililty of resources in this cluster " + maxMem);
 
     // A resource ask cannot exceed the max. 
     if (amMemory > maxMem) {
@@ -560,7 +499,7 @@ public class Client {
     }				
 
     int maxVCores = appResponse.getMaximumResourceCapability().getVirtualCores();
-    LOG.info("Max virtual cores capability of resources in this cluster " + maxVCores);
+    LOG.info("Max virtual cores capabililty of resources in this cluster " + maxVCores);
     
     if (amVCores > maxVCores) {
       LOG.info("AM virtual cores specified above max threshold of cluster. " 
@@ -580,18 +519,6 @@ public class Client {
       appContext
         .setAttemptFailuresValidityInterval(attemptFailuresValidityInterval);
     }
-
-    Set<String> tags = new HashSet<String>();
-    if (flowName != null) {
-      tags.add(TimelineUtils.generateFlowNameTag(flowName));
-    }
-    if (flowVersion != null) {
-      tags.add(TimelineUtils.generateFlowVersionTag(flowVersion));
-    }
-    if (flowRunId != 0) {
-      tags.add(TimelineUtils.generateFlowRunIdTag(flowRunId));
-    }
-    appContext.setApplicationTags(tags);
 
     // set local resources for the application master
     // local files or archives as needed
@@ -706,12 +633,10 @@ public class Client {
 
     for (Map.Entry<String, String> entry : shellEnv.entrySet()) {
       vargs.add("--shell_env " + entry.getKey() + "=" + entry.getValue());
-    }
+    }			
     if (debugFlag) {
       vargs.add("--debug");
     }
-
-    vargs.addAll(containerRetryOptions);
 
     vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/AppMaster.stdout");
     vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/AppMaster.stderr");
@@ -722,7 +647,7 @@ public class Client {
       command.append(str).append(" ");
     }
 
-    LOG.info("Completed setting up app master command " + command.toString());
+    LOG.info("Completed setting up app master command " + command.toString());	   
     List<String> commands = new ArrayList<String>();
     commands.add(command.toString());		
 
@@ -744,7 +669,7 @@ public class Client {
     if (UserGroupInformation.isSecurityEnabled()) {
       // Note: Credentials class is marked as LimitedPrivate for HDFS and MapReduce
       Credentials credentials = new Credentials();
-      String tokenRenewer = YarnClientUtils.getRmPrincipal(conf);
+      String tokenRenewer = conf.get(YarnConfiguration.RM_PRINCIPAL);
       if (tokenRenewer == null || tokenRenewer.length() == 0) {
         throw new IOException(
           "Can't get Master Kerberos principal for the RM to use as renewer");
@@ -897,7 +822,7 @@ public class Client {
     FileStatus scFileStatus = fs.getFileStatus(dst);
     LocalResource scRsrc =
         LocalResource.newInstance(
-            URL.fromURI(dst.toUri()),
+            ConverterUtils.getYarnUrlFromURI(dst.toUri()),
             LocalResourceType.FILE, LocalResourceVisibility.APPLICATION,
             scFileStatus.getLen(), scFileStatus.getModificationTime());
     localResources.put(fileDstPath, scRsrc);

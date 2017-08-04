@@ -32,9 +32,7 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.MiniDFSCluster.DataNodeProperties;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockManager;
 import org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas;
-import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
 import org.junit.Test;
 
 public class TestProcessCorruptBlocks {
@@ -58,7 +56,7 @@ public class TestProcessCorruptBlocks {
   public void testWhenDecreasingReplication() throws Exception {
     Configuration conf = new HdfsConfiguration();
     conf.setLong(DFSConfigKeys.DFS_BLOCKREPORT_INTERVAL_MSEC_KEY, 1000L);
-    conf.set(DFSConfigKeys.DFS_NAMENODE_RECONSTRUCTION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
+    conf.set(DFSConfigKeys.DFS_NAMENODE_REPLICATION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
     MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
     FileSystem fs = cluster.getFileSystem();
     final FSNamesystem namesystem = cluster.getNamesystem();
@@ -113,7 +111,7 @@ public class TestProcessCorruptBlocks {
   public void testByAddingAnExtraDataNode() throws Exception {
     Configuration conf = new HdfsConfiguration();
     conf.setLong(DFSConfigKeys.DFS_BLOCKREPORT_INTERVAL_MSEC_KEY, 1000L);
-    conf.set(DFSConfigKeys.DFS_NAMENODE_RECONSTRUCTION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
+    conf.set(DFSConfigKeys.DFS_NAMENODE_REPLICATION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
     MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).numDataNodes(4).build();
     FileSystem fs = cluster.getFileSystem();
     final FSNamesystem namesystem = cluster.getNamesystem();
@@ -164,7 +162,7 @@ public class TestProcessCorruptBlocks {
   public void testWithReplicationFactorAsOne() throws Exception {
     Configuration conf = new HdfsConfiguration();
     conf.setLong(DFSConfigKeys.DFS_BLOCKREPORT_INTERVAL_MSEC_KEY, 1000L);
-    conf.set(DFSConfigKeys.DFS_NAMENODE_RECONSTRUCTION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
+    conf.set(DFSConfigKeys.DFS_NAMENODE_REPLICATION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
     MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).numDataNodes(2).build();
     FileSystem fs = cluster.getFileSystem();
     final FSNamesystem namesystem = cluster.getNamesystem();
@@ -218,7 +216,7 @@ public class TestProcessCorruptBlocks {
   public void testWithAllCorruptReplicas() throws Exception {
     Configuration conf = new HdfsConfiguration();
     conf.setLong(DFSConfigKeys.DFS_BLOCKREPORT_INTERVAL_MSEC_KEY, 1000L);
-    conf.set(DFSConfigKeys.DFS_NAMENODE_RECONSTRUCTION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
+    conf.set(DFSConfigKeys.DFS_NAMENODE_REPLICATION_PENDING_TIMEOUT_SEC_KEY, Integer.toString(2));
     MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
     FileSystem fs = cluster.getFileSystem();
     final FSNamesystem namesystem = cluster.getNamesystem();
@@ -261,22 +259,16 @@ public class TestProcessCorruptBlocks {
   }
 
   private static NumberReplicas countReplicas(final FSNamesystem namesystem, ExtendedBlock block) {
-    final BlockManager blockManager = namesystem.getBlockManager();
-    return blockManager.countNodes(blockManager.getStoredBlock(
-        block.getLocalBlock()));
+    return namesystem.getBlockManager().countNodes(block.getLocalBlock());
   }
 
   private void corruptBlock(MiniDFSCluster cluster, FileSystem fs, final Path fileName,
       int dnIndex, ExtendedBlock block) throws IOException {
-    // Truncate the block on the first datanode that has not been corrupted,
-    // so that directory scanner can discover the corruption from file size
-    // change.
+    // corrupt the block on datanode dnIndex
     // the indexes change once the nodes are restarted.
     // But the datadirectory will not change
-    cluster.getMaterializedReplica(0, block).truncateData(10);
+    assertTrue(cluster.corruptReplica(dnIndex, block));
 
-    // Run directory scanner to update the DN's volume map  
-    DataNodeTestUtils.runDirectoryScanner(cluster.getDataNodes().get(0));
     DataNodeProperties dnProps = cluster.stopDataNode(0);
 
     // Each datanode has multiple data dirs, check each

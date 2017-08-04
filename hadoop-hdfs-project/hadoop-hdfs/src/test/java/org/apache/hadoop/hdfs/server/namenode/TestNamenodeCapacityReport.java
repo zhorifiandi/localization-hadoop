@@ -18,9 +18,10 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_CLIENT_BLOCK_WRITE_LOCATEFOLLOWINGBLOCK_RETRIES_KEY;
+import static org.junit.Assert.*;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,22 +29,21 @@ import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.DF;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSOutputStream;
 import org.apache.hadoop.hdfs.DFSTestUtil;
-import org.apache.hadoop.hdfs.DFSUtilClient;
+import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockManagerTestUtil;
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor;
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeManager;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
-import org.apache.hadoop.hdfs.server.datanode.FsDatasetTestUtils;
 import org.junit.Test;
 
 
@@ -71,6 +71,7 @@ public class TestNamenodeCapacityReport {
     try {
       cluster = new MiniDFSCluster.Builder(conf).build();
       cluster.waitActive();
+      
       final FSNamesystem namesystem = cluster.getNamesystem();
       final DatanodeManager dm = cluster.getNamesystem().getBlockManager(
           ).getDatanodeManager();
@@ -99,17 +100,17 @@ public class TestNamenodeCapacityReport {
             + " used " + used + " non DFS used " + nonDFSUsed 
             + " remaining " + remaining + " perentUsed " + percentUsed
             + " percentRemaining " + percentRemaining);
-        // There will be 5% space reserved in ext filesystem which is not
-        // considered.
-        assertTrue(configCapacity >= (used + remaining + nonDFSUsed));
-        assertTrue(percentUsed == DFSUtilClient.getPercentUsed(used,
-                                                               configCapacity));
-        assertTrue(percentRemaining == DFSUtilClient.getPercentRemaining(
-            remaining, configCapacity));
-        assertTrue(percentBpUsed == DFSUtilClient.getPercentUsed(bpUsed,
-                                                                 configCapacity));
+        
+        assertTrue(configCapacity == (used + remaining + nonDFSUsed));
+        assertTrue(percentUsed == DFSUtil.getPercentUsed(used, configCapacity));
+        assertTrue(percentRemaining == DFSUtil.getPercentRemaining(remaining,
+            configCapacity));
+        assertTrue(percentBpUsed == DFSUtil.getPercentUsed(bpUsed,
+            configCapacity));
       }   
-
+      
+      DF df = new DF(new File(cluster.getDataDirectory()), conf);
+     
       //
       // Currently two data directories are created by the data node
       // in the MiniDFSCluster. This results in each data directory having
@@ -120,10 +121,9 @@ public class TestNamenodeCapacityReport {
       // So multiply the disk capacity and reserved space by two 
       // for accommodating it
       //
-      final FsDatasetTestUtils utils = cluster.getFsDatasetTestUtils(0);
-      int numOfDataDirs = utils.getDefaultNumOfDataDirs();
-
-      long diskCapacity = numOfDataDirs * utils.getRawCapacity();
+      int numOfDataDirs = 2;
+      
+      long diskCapacity = numOfDataDirs * df.getCapacity();
       reserved *= numOfDataDirs;
       
       configCapacity = namesystem.getCapacityTotal();
@@ -148,64 +148,28 @@ public class TestNamenodeCapacityReport {
       assertTrue(configCapacity == diskCapacity - reserved);
       
       // Ensure new total capacity reported excludes the reserved space
-      // There will be 5% space reserved in ext filesystem which is not
-      // considered.
-      assertTrue(configCapacity >= (used + remaining + nonDFSUsed));
+      assertTrue(configCapacity == (used + remaining + nonDFSUsed));
 
       // Ensure percent used is calculated based on used and present capacity
-      assertTrue(percentUsed == DFSUtilClient.getPercentUsed(used,
-                                                             configCapacity));
+      assertTrue(percentUsed == DFSUtil.getPercentUsed(used, configCapacity));
 
       // Ensure percent used is calculated based on used and present capacity
-      assertTrue(percentBpUsed == DFSUtilClient.getPercentUsed(bpUsed,
-                                                               configCapacity));
+      assertTrue(percentBpUsed == DFSUtil.getPercentUsed(bpUsed, configCapacity));
 
       // Ensure percent used is calculated based on used and present capacity
       assertTrue(percentRemaining == ((float)remaining * 100.0f)/(float)configCapacity);
-
-      //Adding testcase for non-dfs used where we need to consider
-      // reserved replica also.
-      final int fileCount = 5;
-      final DistributedFileSystem fs = cluster.getFileSystem();
-      // create streams and hsync to force datastreamers to start
-      DFSOutputStream[] streams = new DFSOutputStream[fileCount];
-      for (int i=0; i < fileCount; i++) {
-        streams[i] = (DFSOutputStream)fs.create(new Path("/f"+i))
-            .getWrappedStream();
-        streams[i].write("1".getBytes());
-        streams[i].hsync();
-      }
-      triggerHeartbeats(cluster.getDataNodes());
-      assertTrue(configCapacity > (namesystem.getCapacityUsed() + namesystem
-          .getCapacityRemaining() + namesystem.getNonDfsUsedSpace()));
-      // There is a chance that nonDFS usage might have slightly due to
-      // testlogs, So assume 1MB other files used within this gap
-      assertTrue(
-          (namesystem.getCapacityUsed() + namesystem.getCapacityRemaining()
-              + namesystem.getNonDfsUsedSpace() + fileCount * fs
-              .getDefaultBlockSize()) - configCapacity < 1 * 1024);
     }
     finally {
-      if (cluster != null) {
-        cluster.shutdown();
-      }
+      if (cluster != null) {cluster.shutdown();}
     }
   }
   
   private static final float EPSILON = 0.0001f;
   @Test
   public void testXceiverCount() throws Exception {
-    testXceiverCountInternal(0);
-    testXceiverCountInternal(1);
-  }
-
-  public void testXceiverCountInternal(int minMaintenanceR) throws Exception {
     Configuration conf = new HdfsConfiguration();
     // retry one time, if close fails
-    conf.setInt(
-        HdfsClientConfigKeys.BlockWrite.LOCATEFOLLOWINGBLOCK_RETRIES_KEY, 1);
-    conf.setInt(DFSConfigKeys.DFS_NAMENODE_MAINTENANCE_REPLICATION_MIN_KEY,
-        minMaintenanceR);
+    conf.setInt(DFS_CLIENT_BLOCK_WRITE_LOCATEFOLLOWINGBLOCK_RETRIES_KEY, 1);
     MiniDFSCluster cluster = null;
 
     final int nodes = 8;
@@ -228,23 +192,18 @@ public class TestNamenodeCapacityReport {
       int expectedTotalLoad = nodes;  // xceiver server adds 1 to load
       int expectedInServiceNodes = nodes;
       int expectedInServiceLoad = nodes;
-      checkClusterHealth(nodes, namesystem, expectedTotalLoad,
-          expectedInServiceNodes, expectedInServiceLoad);
-
-      // Shutdown half the nodes followed by admin operations on those nodes.
-      // Ensure counts are accurate.
+      checkClusterHealth(nodes, namesystem, expectedTotalLoad, expectedInServiceNodes, expectedInServiceLoad);
+      
+      // shutdown half the nodes and force a heartbeat check to ensure
+      // counts are accurate
       for (int i=0; i < nodes/2; i++) {
         DataNode dn = datanodes.get(i);
         DatanodeDescriptor dnd = dnm.getDatanode(dn.getDatanodeId());
         dn.shutdown();
         DFSTestUtil.setDatanodeDead(dnd);
         BlockManagerTestUtil.checkHeartbeat(namesystem.getBlockManager());
-        //Admin operations on dead nodes won't impact nodesInService metrics.
-        startDecommissionOrMaintenance(dnm, dnd, (i % 2 == 0));
         expectedInServiceNodes--;
         assertEquals(expectedInServiceNodes, namesystem.getNumLiveDataNodes());
-        assertEquals(expectedInServiceNodes, getNumDNInService(namesystem));
-        stopDecommissionOrMaintenance(dnm, dnd, (i % 2 == 0));
         assertEquals(expectedInServiceNodes, getNumDNInService(namesystem));
       }
 
@@ -255,9 +214,8 @@ public class TestNamenodeCapacityReport {
       datanodes = cluster.getDataNodes();
       expectedInServiceNodes = nodes;
       assertEquals(nodes, datanodes.size());
-      checkClusterHealth(nodes, namesystem, expectedTotalLoad,
-          expectedInServiceNodes, expectedInServiceLoad);
-
+      checkClusterHealth(nodes, namesystem, expectedTotalLoad, expectedInServiceNodes, expectedInServiceLoad);
+      
       // create streams and hsync to force datastreamers to start
       DFSOutputStream[] streams = new DFSOutputStream[fileCount];
       for (int i=0; i < fileCount; i++) {
@@ -272,32 +230,30 @@ public class TestNamenodeCapacityReport {
       }
       // force nodes to send load update
       triggerHeartbeats(datanodes);
-      checkClusterHealth(nodes, namesystem, expectedTotalLoad,
-          expectedInServiceNodes, expectedInServiceLoad);
+      checkClusterHealth(nodes, namesystem, expectedTotalLoad, expectedInServiceNodes, expectedInServiceLoad);
 
-      // admin operations on a few nodes, substract their load from the
-      // expected load, trigger heartbeat to force load update.
+      // decomm a few nodes, substract their load from the expected load,
+      // trigger heartbeat to force load update
       for (int i=0; i < fileRepl; i++) {
         expectedInServiceNodes--;
         DatanodeDescriptor dnd =
             dnm.getDatanode(datanodes.get(i).getDatanodeId());
         expectedInServiceLoad -= dnd.getXceiverCount();
-        startDecommissionOrMaintenance(dnm, dnd, (i % 2 == 0));
+        dnm.getDecomManager().startDecommission(dnd);
         DataNodeTestUtils.triggerHeartbeat(datanodes.get(i));
         Thread.sleep(100);
-        checkClusterHealth(nodes, namesystem, expectedTotalLoad,
-            expectedInServiceNodes, expectedInServiceLoad);
+        checkClusterHealth(nodes, namesystem, expectedTotalLoad, expectedInServiceNodes, expectedInServiceLoad);
       }
-
+      
       // check expected load while closing each stream.  recalc expected
       // load based on whether the nodes in the pipeline are decomm
       for (int i=0; i < fileCount; i++) {
-        int adminOps = 0;
+        int decomm = 0;
         for (DatanodeInfo dni : streams[i].getPipeline()) {
           DatanodeDescriptor dnd = dnm.getDatanode(dni);
           expectedTotalLoad -= 2;
-          if (!dnd.isInService()) {
-            adminOps++;
+          if (dnd.isDecommissionInProgress() || dnd.isDecommissioned()) {
+            decomm++;
           } else {
             expectedInServiceLoad -= 2;
           }
@@ -308,17 +264,16 @@ public class TestNamenodeCapacityReport {
           // nodes will go decommissioned even if there's a UC block whose
           // other locations are decommissioned too.  we'll ignore that
           // bug for now
-          if (adminOps < fileRepl) {
+          if (decomm < fileRepl) {
             throw ioe;
           }
         }
         triggerHeartbeats(datanodes);
         // verify node count and loads 
-        checkClusterHealth(nodes, namesystem, expectedTotalLoad,
-            expectedInServiceNodes, expectedInServiceLoad);
+        checkClusterHealth(nodes, namesystem, expectedTotalLoad, expectedInServiceNodes, expectedInServiceLoad);
       }
 
-      // shutdown each node, verify node counts based on admin state
+      // shutdown each node, verify node counts based on decomm state
       for (int i=0; i < nodes; i++) {
         DataNode dn = datanodes.get(i);
         dn.shutdown();
@@ -332,35 +287,19 @@ public class TestNamenodeCapacityReport {
           expectedInServiceNodes--;
         }
         assertEquals(expectedInServiceNodes, getNumDNInService(namesystem));
+        
         // live nodes always report load of 1.  no nodes is load 0
         double expectedXceiverAvg = (i == nodes-1) ? 0.0 : 1.0;
         assertEquals((double)expectedXceiverAvg,
             getInServiceXceiverAverage(namesystem), EPSILON);
       }
+      
       // final sanity check
       checkClusterHealth(0, namesystem, 0.0, 0, 0.0);
     } finally {
       if (cluster != null) {
         cluster.shutdown();
       }
-    }
-  }
-
-  private void startDecommissionOrMaintenance(DatanodeManager dnm,
-      DatanodeDescriptor dnd, boolean decomm) {
-    if (decomm) {
-      dnm.getDatanodeAdminManager().startDecommission(dnd);
-    } else {
-      dnm.getDatanodeAdminManager().startMaintenance(dnd, Long.MAX_VALUE);
-    }
-  }
-
-  private void stopDecommissionOrMaintenance(DatanodeManager dnm,
-      DatanodeDescriptor dnd, boolean decomm) {
-    if (decomm) {
-      dnm.getDatanodeAdminManager().stopDecommission(dnd);
-    } else {
-      dnm.getDatanodeAdminManager().stopMaintenance(dnd);
     }
   }
 

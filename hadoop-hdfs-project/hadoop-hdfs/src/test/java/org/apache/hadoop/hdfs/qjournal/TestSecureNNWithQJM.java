@@ -17,14 +17,11 @@
  */
 package org.apache.hadoop.hdfs.qjournal;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import static org.junit.Assert.*;
 
 import static org.apache.hadoop.fs.CommonConfigurationKeys.IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SASL_KEY;
-import static org.apache.hadoop.hdfs.client.HdfsClientConfigKeys.DFS_DATA_TRANSFER_PROTECTION_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_BLOCK_ACCESS_TOKEN_ENABLE_KEY;
-import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_CLIENT_HTTPS_KEYSTORE_RESOURCE_KEY;
+import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATA_TRANSFER_PROTECTION_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_HTTPS_ADDRESS_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_KERBEROS_PRINCIPAL_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_KEYTAB_FILE_KEY;
@@ -38,7 +35,6 @@ import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_HTTPS_ADDRESS_KE
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_KERBEROS_PRINCIPAL_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_KEYTAB_FILE_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_NAMENODE_SECONDARY_HTTP_ADDRESS_KEY;
-import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_SERVER_HTTPS_KEYSTORE_RESOURCE_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_WEB_AUTHENTICATION_KERBEROS_PRINCIPAL_KEY;
 
 import java.io.File;
@@ -57,7 +53,6 @@ import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
 import org.apache.hadoop.security.ssl.KeyStoreTestUtil;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -73,8 +68,6 @@ public class TestSecureNNWithQJM {
 
   private static HdfsConfiguration baseConf;
   private static File baseDir;
-  private static String keystoresDir;
-  private static String sslConfDir;
   private static MiniKdc kdc;
 
   private MiniDFSCluster cluster;
@@ -83,12 +76,12 @@ public class TestSecureNNWithQJM {
   private MiniJournalCluster mjc;
 
   @Rule
-  public Timeout timeout = new Timeout(180000);
+  public Timeout timeout = new Timeout(30000);
 
   @BeforeClass
   public static void init() throws Exception {
-    baseDir =
-        GenericTestUtils.getTestDir(TestSecureNNWithQJM.class.getSimpleName());
+    baseDir = new File(System.getProperty("test.build.dir", "target/test-dir"),
+      TestSecureNNWithQJM.class.getSimpleName());
     FileUtil.fullyDelete(baseDir);
     assertTrue(baseDir.mkdirs());
 
@@ -131,23 +124,18 @@ public class TestSecureNNWithQJM {
     baseConf.set(DFS_JOURNALNODE_HTTPS_ADDRESS_KEY, "localhost:0");
     baseConf.setInt(IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SASL_KEY, 10);
 
-    keystoresDir = baseDir.getAbsolutePath();
-    sslConfDir = KeyStoreTestUtil.getClasspathDir(
+    String keystoresDir = baseDir.getAbsolutePath();
+    String sslConfDir = KeyStoreTestUtil.getClasspathDir(
       TestSecureNNWithQJM.class);
     KeyStoreTestUtil.setupSSLConfig(keystoresDir, sslConfDir, baseConf, false);
-    baseConf.set(DFS_CLIENT_HTTPS_KEYSTORE_RESOURCE_KEY,
-        KeyStoreTestUtil.getClientSSLConfigFileName());
-    baseConf.set(DFS_SERVER_HTTPS_KEYSTORE_RESOURCE_KEY,
-        KeyStoreTestUtil.getServerSSLConfigFileName());
   }
 
   @AfterClass
-  public static void destroy() throws Exception {
+  public static void destroy() {
     if (kdc != null) {
       kdc.stop();
     }
     FileUtil.fullyDelete(baseDir);
-    KeyStoreTestUtil.cleanupSSLConfig(keystoresDir, sslConfDir);
   }
 
   @Before
@@ -160,11 +148,9 @@ public class TestSecureNNWithQJM {
     IOUtils.cleanup(null, fs);
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
     if (mjc != null) {
       mjc.shutdown();
-      mjc = null;
     }
   }
 
@@ -220,7 +206,6 @@ public class TestSecureNNWithQJM {
   private void startCluster() throws IOException {
     mjc = new MiniJournalCluster.Builder(conf)
       .build();
-    mjc.waitActive();
     conf.set(DFS_NAMENODE_EDITS_DIR_KEY,
       mjc.getQuorumJournalURI("myjournal").toString());
     cluster = new MiniDFSCluster.Builder(conf)

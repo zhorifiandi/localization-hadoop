@@ -18,7 +18,7 @@
 
 package org.apache.hadoop.fs.swift.auth.entities;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.codehaus.jackson.annotate.JsonIgnoreProperties;
 
 /**
  * Access token representation of Openstack Keystone authentication.

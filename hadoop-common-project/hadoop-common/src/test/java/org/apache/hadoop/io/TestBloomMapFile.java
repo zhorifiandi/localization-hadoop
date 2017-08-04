@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import junit.framework.TestCase;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalFileSystem;
@@ -38,34 +40,27 @@ import org.apache.hadoop.io.compress.CompressionInputStream;
 import org.apache.hadoop.io.compress.CompressionOutputStream;
 import org.apache.hadoop.io.compress.Compressor;
 import org.apache.hadoop.io.compress.Decompressor;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Progressable;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import org.junit.Before;
-import org.junit.Test;
+import org.junit.Assert;
 
-public class TestBloomMapFile {
+public class TestBloomMapFile extends TestCase {
   private static Configuration conf = new Configuration();
-  private static final Path TEST_ROOT = new Path(GenericTestUtils.getTempPath(
-      TestMapFile.class.getSimpleName()));
+  private static final Path TEST_ROOT = new Path(
+      System.getProperty("test.build.data", "/tmp"),
+      TestMapFile.class.getSimpleName());
   private static final Path TEST_DIR = new Path(TEST_ROOT, "testfile");
   private static final Path TEST_FILE = new Path(TEST_ROOT, "testfile");
 
-  @Before
+  @Override
   public void setUp() throws Exception {
     LocalFileSystem fs = FileSystem.getLocal(conf);
     if (fs.exists(TEST_ROOT) && !fs.delete(TEST_ROOT, true)) {
-      fail("Can't clean up test root dir");
+      Assert.fail("Can't clean up test root dir");
     }
     fs.mkdirs(TEST_ROOT);
   }
   
   @SuppressWarnings("deprecation")
-  @Test
   public void testMembershipTest() throws Exception {
     // write the file
     FileSystem fs = FileSystem.getLocal(conf);
@@ -112,7 +107,7 @@ public class TestBloomMapFile {
   }
 
   @SuppressWarnings("deprecation")
-  private void checkMembershipVaryingSizedKeys(List<Text> keys)
+  private void checkMembershipVaryingSizedKeys(String name, List<Text> keys)
       throws Exception {
     FileSystem fs = FileSystem.getLocal(conf);
     Path qualifiedDirName = fs.makeQualified(TEST_DIR);
@@ -140,26 +135,23 @@ public class TestBloomMapFile {
     }
   }
 
-  @Test
   public void testMembershipVaryingSizedKeysTest1() throws Exception {
     ArrayList<Text> list = new ArrayList<Text>();
     list.add(new Text("A"));
     list.add(new Text("BB"));
-    checkMembershipVaryingSizedKeys(list);
+    checkMembershipVaryingSizedKeys(getName(), list);
   }
 
-  @Test
   public void testMembershipVaryingSizedKeysTest2() throws Exception {
     ArrayList<Text> list = new ArrayList<Text>();
     list.add(new Text("AA"));
     list.add(new Text("B"));
-    checkMembershipVaryingSizedKeys(list);
+    checkMembershipVaryingSizedKeys(getName(), list);
   }
 
   /**
    * test {@code BloomMapFile.delete()} method
    */
-  @Test
   public void testDeleteFile() {
     BloomMapFile.Writer writer = null;
     try {
@@ -181,7 +173,6 @@ public class TestBloomMapFile {
    * test {@link BloomMapFile.Reader} constructor with 
    * IOException
    */
-  @Test
   public void testIOExceptionInWriterConstructor() {
     Path dirNameSpy = spy(TEST_FILE);
     BloomMapFile.Reader reader = null;
@@ -207,9 +198,8 @@ public class TestBloomMapFile {
   }
 
   /**
-   *  test {@link BloomMapFile.Reader#get(WritableComparable, Writable)} method
+   *  test {@link BloomMapFile.Reader.get()} method 
    */
-  @Test
   public void testGetBloomMapFile() {
     int SIZE = 10;
     BloomMapFile.Reader reader = null;
@@ -245,7 +235,6 @@ public class TestBloomMapFile {
    * test {@code BloomMapFile.Writer} constructors
    */
   @SuppressWarnings("deprecation")
-  @Test
   public void testBloomMapFileConstructors() {
     BloomMapFile.Writer writer = null;
     try {

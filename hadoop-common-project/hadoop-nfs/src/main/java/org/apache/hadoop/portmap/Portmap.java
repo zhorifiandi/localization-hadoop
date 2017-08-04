@@ -22,6 +22,8 @@ import java.net.SocketAddress;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.oncrpc.RpcProgram;
 import org.apache.hadoop.oncrpc.RpcUtil;
 import org.apache.hadoop.util.StringUtils;
@@ -39,14 +41,12 @@ import org.jboss.netty.handler.timeout.IdleStateHandler;
 import org.jboss.netty.util.HashedWheelTimer;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Portmap service for binding RPC protocols. See RFC 1833 for details.
  */
 final class Portmap {
-  private static final Logger LOG = LoggerFactory.getLogger(Portmap.class);
+  private static final Log LOG = LogFactory.getLog(Portmap.class);
   private static final int DEFAULT_IDLE_TIME_MILLISECONDS = 5000;
 
   private ConnectionlessBootstrap udpServer;
@@ -65,7 +65,7 @@ final class Portmap {
       pm.start(DEFAULT_IDLE_TIME_MILLISECONDS,
           new InetSocketAddress(port), new InetSocketAddress(port));
     } catch (Throwable e) {
-      LOG.error("Failed to start the server. Cause:", e);
+      LOG.fatal("Failed to start the server. Cause:", e);
       pm.shutdown();
       System.exit(-1);
     }
@@ -109,15 +109,12 @@ final class Portmap {
             RpcUtil.STAGE_RPC_TCP_RESPONSE);
       }
     });
-    tcpServer.setOption("reuseAddress", true);
-    tcpServer.setOption("child.reuseAddress", true);
 
     udpServer = new ConnectionlessBootstrap(new NioDatagramChannelFactory(
         Executors.newCachedThreadPool()));
 
     udpServer.setPipeline(Channels.pipeline(RpcUtil.STAGE_RPC_MESSAGE_PARSER,
         handler, RpcUtil.STAGE_RPC_UDP_RESPONSE));
-    udpServer.setOption("reuseAddress", true);
 
     tcpChannel = tcpServer.bind(tcpAddress);
     udpChannel = udpServer.bind(udpAddress);

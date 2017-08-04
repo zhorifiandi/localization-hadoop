@@ -70,8 +70,4 @@ public class OffsetRange {
     }
     return false;
   }
-
-  public String toString() {
-    return "[" + getMin() + ", " + getMax() + ")";
-  }
 }

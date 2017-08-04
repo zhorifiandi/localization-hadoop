@@ -26,7 +26,6 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.util.DiskChecker.DiskErrorException;
 import org.apache.hadoop.util.Shell;
 
 import org.junit.runner.RunWith;
@@ -34,8 +33,8 @@ import org.junit.runners.Parameterized;
 import org.junit.runners.Parameterized.Parameters;
 import org.junit.Test;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
 import static org.junit.Assert.*;
+import static org.junit.Assume.*;
 
 /** This test LocalDirAllocator works correctly;
  * Every test case uses different buffer dirs to
@@ -57,6 +56,8 @@ public class TestLocalDirAllocator {
   final static private LocalDirAllocator dirAllocator =
     new LocalDirAllocator(CONTEXT);
   static LocalFileSystem localFs;
+  final static private boolean isWindows =
+    System.getProperty("os.name").startsWith("Windows");
   final static int SMALL_FILE_SIZE = 100;
   final static private String RELATIVE = "/RELATIVE";
   final static private String ABSOLUTE = "/ABSOLUTE";
@@ -130,7 +131,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void test0() throws Exception {
-    assumeNotWindows();
+    if (isWindows) return;
     String dir0 = buildBufferDir(ROOT, 0);
     String dir1 = buildBufferDir(ROOT, 1);
     try {
@@ -152,7 +153,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void testROBufferDirAndRWBufferDir() throws Exception {
-    assumeNotWindows();
+    if (isWindows) return;
     String dir1 = buildBufferDir(ROOT, 1);
     String dir2 = buildBufferDir(ROOT, 2);
     try {
@@ -172,7 +173,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void testDirsNotExist() throws Exception {
-    assumeNotWindows();
+    if (isWindows) return;
     String dir2 = buildBufferDir(ROOT, 2);
     String dir3 = buildBufferDir(ROOT, 3);
     try {
@@ -198,7 +199,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void testRWBufferDirBecomesRO() throws Exception {
-    assumeNotWindows();
+    if (isWindows) return;
     String dir3 = buildBufferDir(ROOT, 3);
     String dir4 = buildBufferDir(ROOT, 4);
     try {
@@ -236,7 +237,7 @@ public class TestLocalDirAllocator {
   static final int TRIALS = 100;
   @Test (timeout = 30000)
   public void testCreateManyFiles() throws Exception {
-    assumeNotWindows();
+    if (isWindows) return;
     String dir5 = buildBufferDir(ROOT, 5);
     String dir6 = buildBufferDir(ROOT, 6);
     try {
@@ -298,46 +299,6 @@ public class TestLocalDirAllocator {
     }
   }
 
-  /*
-   * Test when mapred.local.dir not configured and called
-   * getLocalPathForWrite
-   */
-  @Test (timeout = 30000)
-  public void testShouldNotthrowNPE() throws Exception {
-    Configuration conf1 = new Configuration();
-    try {
-      dirAllocator.getLocalPathForWrite("/test", conf1);
-      fail("Exception not thrown when " + CONTEXT + " is not set");
-    } catch (IOException e) {
-      assertEquals(CONTEXT + " not configured", e.getMessage());
-    } catch (NullPointerException e) {
-      fail("Lack of configuration should not have thrown a NPE.");
-    }
-
-    String  NEW_CONTEXT = CONTEXT + ".new";
-    conf1.set(NEW_CONTEXT, "");
-    LocalDirAllocator newDirAllocator = new LocalDirAllocator(NEW_CONTEXT);
-    try {
-      newDirAllocator.getLocalPathForWrite("/test", conf1);
-      fail("Exception not thrown when " + NEW_CONTEXT +
-          " is set to empty string");
-    } catch (IOException e) {
-      assertTrue(e instanceof DiskErrorException);
-    } catch (NullPointerException e) {
-      fail("Wrong configuration should not have thrown a NPE.");
-    }
-
-    try {
-      newDirAllocator.getLocalPathToRead("/test", conf1);
-      fail("Exception not thrown when " + NEW_CONTEXT +
-          " is set to empty string");
-    } catch (IOException e) {
-      assertTrue(e instanceof DiskErrorException);
-    } catch (NullPointerException e) {
-      fail("Wrong configuration should not have thrown a NPE.");
-    }
-  }
-
   /** Test no side effect files are left over. After creating a temp
    * temp file, remove both the temp file and its parent. Verify that
    * no files or directories are left over as can happen when File objects
@@ -346,7 +307,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void testNoSideEffects() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!isWindows);
     String dir = buildBufferDir(ROOT, 0);
     try {
       conf.set(CONTEXT, dir);
@@ -368,7 +329,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void testGetLocalPathToRead() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!isWindows);
     String dir = buildBufferDir(ROOT, 0);
     try {
       conf.set(CONTEXT, dir);
@@ -393,7 +354,7 @@ public class TestLocalDirAllocator {
    */
   @Test (timeout = 30000)
   public void testGetAllLocalPathsToRead() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!isWindows);
     
     String dir0 = buildBufferDir(ROOT, 0);
     String dir1 = buildBufferDir(ROOT, 1);
@@ -453,23 +414,6 @@ public class TestLocalDirAllocator {
       assertFalse(LocalDirAllocator.isContextValid(contextCfgItemName));
     } finally {
       rmBufferDirs();
-    }
-  }
-
-  /**
-   * Test to check the LocalDirAllocation for the invalid path HADOOP-8437
-   *
-   * @throws Exception
-   */
-  @Test(timeout = 30000)
-  public void testGetLocalPathForWriteForInvalidPaths() throws Exception {
-    conf.set(CONTEXT, " ");
-    try {
-      dirAllocator.getLocalPathForWrite("/test", conf);
-      fail("not throwing the exception");
-    } catch (IOException e) {
-      assertEquals("Incorrect exception message",
-          "No space available in any of the local directories.", e.getMessage());
     }
   }
 

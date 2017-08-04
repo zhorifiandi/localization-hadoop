@@ -25,10 +25,11 @@ import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.server.nodemanager.Context;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.Container;
 import org.apache.hadoop.yarn.server.nodemanager.webapp.dao.ContainerInfo;
+import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.webapp.SubView;
 import org.apache.hadoop.yarn.webapp.YarnWebParams;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.DIV;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.DIV;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 import org.apache.hadoop.yarn.webapp.view.InfoBlock;
 
@@ -37,7 +38,7 @@ import com.google.inject.Inject;
 public class ContainerPage extends NMView implements YarnWebParams {
 
   @Override
-  protected void preHead(Page.HTML<__> html) {
+  protected void preHead(Page.HTML<_> html) {
     commonPreHead(html);
 
     setTitle("Container " + $(CONTAINER_ID));
@@ -62,9 +63,9 @@ public class ContainerPage extends NMView implements YarnWebParams {
     protected void render(Block html) {
       ContainerId containerID;
       try {
-        containerID = ContainerId.fromString($(CONTAINER_ID));
+        containerID = ConverterUtils.toContainerId($(CONTAINER_ID));
       } catch (IllegalArgumentException e) {
-        html.p().__("Invalid containerId " + $(CONTAINER_ID)).__();
+        html.p()._("Invalid containerId " + $(CONTAINER_ID))._();
         return;
       }
 
@@ -72,22 +73,21 @@ public class ContainerPage extends NMView implements YarnWebParams {
       Container container = this.nmContext.getContainers().get(containerID);
       if (container == null) {
         div.h1("Unknown Container. Container might have completed, "
-                + "please go back to the previous page and retry.").__();
+                + "please go back to the previous page and retry.")._();
         return;
       }
       ContainerInfo info = new ContainerInfo(this.nmContext, container);
 
       info("Container information")
-        .__("ContainerID", info.getId())
-        .__("ContainerState", info.getState())
-        .__("ExitStatus", info.getExitStatus())
-        .__("Diagnostics", info.getDiagnostics())
-        .__("User", info.getUser())
-        .__("TotalMemoryNeeded", info.getMemoryNeeded())
-        .__("TotalVCoresNeeded", info.getVCoresNeeded())
-        .__("ExecutionType", info.getExecutionType())
-        .__("logs", info.getShortLogLink(), "Link to logs");
-      html.__(InfoBlock.class);
+        ._("ContainerID", info.getId())
+        ._("ContainerState", info.getState())
+        ._("ExitStatus", info.getExitStatus())
+        ._("Diagnostics", info.getDiagnostics())
+        ._("User", info.getUser())
+        ._("TotalMemoryNeeded", info.getMemoryNeeded())
+        ._("TotalVCoresNeeded", info.getVCoresNeeded())
+        ._("logs", info.getShortLogLink(), "Link to logs");
+      html._(InfoBlock.class);
     }
   }
 }

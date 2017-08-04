@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -32,13 +31,12 @@ import org.junit.Test;
  * Tests resolution of AbstractFileSystems for a given path with symlinks.
  */
 public class TestFileContextResolveAfs {
-  static {
+  static{
     FileSystem.enableSymlinks();
   }
-
-  private static String TEST_ROOT_DIR_LOCAL =
-      GenericTestUtils.getTestDir().getAbsolutePath();
-
+  private static String TEST_ROOT_DIR_LOCAL
+    = System.getProperty("test.build.data","/tmp");
+  
   private FileContext fc;
   private FileSystem localFs;
   

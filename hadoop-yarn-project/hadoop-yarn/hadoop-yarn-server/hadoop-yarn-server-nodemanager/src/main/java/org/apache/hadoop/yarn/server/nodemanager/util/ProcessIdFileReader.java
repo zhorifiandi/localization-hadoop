@@ -27,7 +27,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.util.Shell;
-import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 
 /**
@@ -48,9 +47,8 @@ public class ProcessIdFileReader {
     if (path == null) {
       throw new IOException("Trying to access process id from a null path");
     }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Accessing pid from pid file " + path);
-    }
+    
+    LOG.debug("Accessing pid from pid file " + path);
     String processId = null;
     BufferedReader bufReader = null;
 
@@ -71,7 +69,7 @@ public class ProcessIdFileReader {
               // On Windows, pid is expected to be a container ID, so find first
               // line that parses successfully as a container ID.
               try {
-                ContainerId.fromString(temp);
+                ConverterUtils.toContainerId(temp);
                 processId = temp;
                 break;
               } catch (Exception e) {
@@ -81,7 +79,7 @@ public class ProcessIdFileReader {
             else {
               // Otherwise, find first line containing a numeric pid.
               try {
-                long pid = Long.parseLong(temp);
+                Long pid = Long.valueOf(temp);
                 if (pid > 0) {
                   processId = temp;
                   break;
@@ -98,10 +96,9 @@ public class ProcessIdFileReader {
         bufReader.close();
       }
     }
-    if (LOG.isDebugEnabled()) {
-      LOG.debug("Got pid " + (processId != null ? processId : "null")
-          + " from path " + path);
-    }
+    LOG.debug("Got pid " 
+        + (processId != null? processId : "null")  
+        + " from path " + path);
     return processId;
   }
 

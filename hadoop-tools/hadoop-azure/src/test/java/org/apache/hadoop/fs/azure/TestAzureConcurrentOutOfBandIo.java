@@ -40,9 +40,9 @@ public class TestAzureConcurrentOutOfBandIo {
   static final int BLOB_SIZE = 32 * 1024 * 1024;
 
   // Number of blocks to be written before flush.
-  static final int NUMBER_OF_BLOCKS = 2;
+  private static final int NUMBER_OF_BLOCKS = 2;
 
-  protected AzureBlobStorageTestAccount testAccount;
+  private AzureBlobStorageTestAccount testAccount;
 
   // Overridden TestCase methods.
   @Before
@@ -155,7 +155,7 @@ public class TestAzureConcurrentOutOfBandIo {
         "WASB_String.txt");
    writeBlockTask.startWriting();
    int count = 0;
-   InputStream inputStream = null;
+   DataInputStream inputStream = null;
 
    for (int i = 0; i < 5; i++) {
      try {

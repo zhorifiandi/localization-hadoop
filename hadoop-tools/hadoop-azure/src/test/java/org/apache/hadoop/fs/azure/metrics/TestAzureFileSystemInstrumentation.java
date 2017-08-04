@@ -48,7 +48,6 @@ import org.apache.hadoop.fs.azure.AzureBlobStorageTestAccount;
 import org.apache.hadoop.fs.azure.AzureException;
 import org.apache.hadoop.fs.azure.AzureNativeFileSystemStore;
 import org.apache.hadoop.fs.azure.NativeAzureFileSystem;
-import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.metrics2.MetricsRecordBuilder;
 import org.apache.hadoop.metrics2.MetricsTag;
 import org.hamcrest.BaseMatcher;
@@ -117,8 +116,7 @@ public class TestAzureFileSystemInstrumentation {
     // levels, and then 2 requests for checking/stamping the version of AS,
     // totaling 11.
     // Also, there's the initial 1 request for container check so total is 12.
-    // The getAncestor call at the very beginning adds another 4 calls, totalling 16.
-    base = assertWebResponsesInRange(base, 1, 16);
+    base = assertWebResponsesInRange(base, 1, 12);
     assertEquals(1,
         AzureMetricsTestUtil.getLongCounterValue(getInstrumentation(), WASB_DIRECTORIES_CREATED));
 
@@ -407,30 +405,22 @@ public class TestAzureFileSystemInstrumentation {
 
   @Test
   public void testClientErrorMetrics() throws Exception {
-    String fileName = "metricsTestFile_ClientError";
-    Path filePath = new Path("/"+fileName);
-    final int FILE_SIZE = 100;
-    OutputStream outputStream = null;
-    String leaseID = null;
+    String directoryName = "metricsTestDirectory_ClientError";
+    Path directoryPath = new Path("/" + directoryName);
+    assertTrue(fs.mkdirs(directoryPath));
+    String leaseID = testAccount.acquireShortLease(directoryName);
     try {
-      // Create a file
-      outputStream = fs.create(filePath);
-      leaseID = testAccount.acquireShortLease(fileName);
       try {
-        outputStream.write(new byte[FILE_SIZE]);
-        outputStream.close();
-        assertTrue("Should've thrown", false);
+        fs.delete(directoryPath, true);
+        assertTrue("Should've thrown.", false);
       } catch (AzureException ex) {
         assertTrue("Unexpected exception: " + ex,
-          ex.getMessage().contains("lease"));
+            ex.getMessage().contains("lease"));
       }
       assertEquals(1, AzureMetricsTestUtil.getLongCounterValue(getInstrumentation(), WASB_CLIENT_ERRORS));
       assertEquals(0, AzureMetricsTestUtil.getLongCounterValue(getInstrumentation(), WASB_SERVER_ERRORS));
     } finally {
-      if(leaseID != null){
-        testAccount.releaseLease(leaseID, fileName);
-      }
-      IOUtils.closeStream(outputStream);
+      testAccount.releaseLease(leaseID, directoryName);
     }
   }
 

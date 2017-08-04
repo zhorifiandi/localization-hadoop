@@ -438,7 +438,7 @@ public class RegisterApplicationMasterResponsePBImpl extends
   }
 
   private ResourceProto convertToProtoFormat(Resource resource) {
-    return ProtoUtils.convertToProtoFormat(resource);
+    return ((ResourcePBImpl)resource).getProto();
   }
 
   private ContainerPBImpl convertFromProtoFormat(ContainerProto p) {

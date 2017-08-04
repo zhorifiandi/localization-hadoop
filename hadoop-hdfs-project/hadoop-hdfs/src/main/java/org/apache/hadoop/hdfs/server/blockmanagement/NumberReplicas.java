@@ -17,91 +17,44 @@
  */
 package org.apache.hadoop.hdfs.server.blockmanagement;
 
-import org.apache.hadoop.hdfs.util.EnumCounters;
-
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.CORRUPT;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.DECOMMISSIONED;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.DECOMMISSIONING;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.EXCESS;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.LIVE;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.MAINTENANCE_FOR_READ;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.MAINTENANCE_NOT_FOR_READ;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.READONLY;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.REDUNDANT;
-import static org.apache.hadoop.hdfs.server.blockmanagement.NumberReplicas.StoredReplicaState.STALESTORAGE;
-
 /**
  * A immutable object that stores the number of live replicas and
- * the number of decommissioned Replicas.
+ * the number of decommissined Replicas.
  */
-public class NumberReplicas extends EnumCounters<NumberReplicas.StoredReplicaState> {
+public class NumberReplicas {
+  private int liveReplicas;
+  private int decommissionedReplicas;
+  private int corruptReplicas;
+  private int excessReplicas;
+  private int replicasOnStaleNodes;
 
-  public enum StoredReplicaState {
-    // live replicas. for a striped block, this value excludes redundant
-    // replicas for the same internal block
-    LIVE,
-    READONLY,
-    DECOMMISSIONING,
-    DECOMMISSIONED,
-    // We need live ENTERING_MAINTENANCE nodes to continue
-    // to serve read request while it is being transitioned to live
-    // IN_MAINTENANCE if these are the only replicas left.
-    // MAINTENANCE_NOT_FOR_READ == maintenanceReplicas -
-    // Live ENTERING_MAINTENANCE.
-    MAINTENANCE_NOT_FOR_READ,
-    // Live ENTERING_MAINTENANCE nodes to serve read requests.
-    MAINTENANCE_FOR_READ,
-    CORRUPT,
-    // excess replicas already tracked by blockmanager's excess map
-    EXCESS,
-    STALESTORAGE,
-    // for striped blocks only. number of redundant internal block replicas
-    // that have not been tracked by blockmanager yet (i.e., not in excess)
-    REDUNDANT
+  NumberReplicas() {
+    initialize(0, 0, 0, 0, 0);
   }
 
-  public NumberReplicas() {
-    super(StoredReplicaState.class);
+  NumberReplicas(int live, int decommissioned, int corrupt, int excess, int stale) {
+    initialize(live, decommissioned, corrupt, excess, stale);
+  }
+
+  void initialize(int live, int decommissioned, int corrupt, int excess, int stale) {
+    liveReplicas = live;
+    decommissionedReplicas = decommissioned;
+    corruptReplicas = corrupt;
+    excessReplicas = excess;
+    replicasOnStaleNodes = stale;
   }
 
   public int liveReplicas() {
-    return (int) get(LIVE);
+    return liveReplicas;
   }
-
-  public int readOnlyReplicas() {
-    return (int) get(READONLY);
+  public int decommissionedReplicas() {
+    return decommissionedReplicas;
   }
-
-  /**
-   *
-   * @return decommissioned and decommissioning replicas
-   */
-  public int decommissionedAndDecommissioning() {
-    return decommissioned() + decommissioning();
-  }
-
-  /**
-   *
-   * @return decommissioned replicas only
-   */
-  public int decommissioned() {
-    return (int) get(DECOMMISSIONED);
-  }
-
-  /**
-   *
-   * @return decommissioning replicas only
-   */
-  public int decommissioning() {
-    return (int) get(DECOMMISSIONING);
-  }
-
   public int corruptReplicas() {
-    return (int) get(CORRUPT);
+    return corruptReplicas;
   }
-
   public int excessReplicas() {
-    return (int) get(EXCESS);
+    return excessReplicas;
   }
   
   /**
@@ -110,26 +63,6 @@ public class NumberReplicas extends EnumCounters<NumberReplicas.StoredReplicaSta
    * replica may count as both "live" and "stale".
    */
   public int replicasOnStaleNodes() {
-    return (int) get(STALESTORAGE);
+    return replicasOnStaleNodes;
   }
-
-  public int redundantInternalBlocks() {
-    return (int) get(REDUNDANT);
-  }
-
-  public int maintenanceNotForReadReplicas() {
-    return (int) get(MAINTENANCE_NOT_FOR_READ);
-  }
-
-  public int maintenanceReplicas() {
-    return (int) (get(MAINTENANCE_NOT_FOR_READ) + get(MAINTENANCE_FOR_READ));
-  }
-
-  public int outOfServiceReplicas() {
-    return maintenanceReplicas() + decommissionedAndDecommissioning();
-  }
-
-  public int liveEnteringMaintenanceReplicas() {
-    return (int)get(MAINTENANCE_FOR_READ);
-  }
-}
+} 

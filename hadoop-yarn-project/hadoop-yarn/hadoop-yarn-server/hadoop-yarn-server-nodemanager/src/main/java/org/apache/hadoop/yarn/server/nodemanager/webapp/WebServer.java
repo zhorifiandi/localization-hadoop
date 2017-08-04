@@ -22,11 +22,8 @@ import static org.apache.hadoop.yarn.util.StringHelper.pajoin;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.security.AuthenticationFilterInitializer;
-import org.apache.hadoop.security.HttpCrossOriginFilterInitializer;
+import org.apache.hadoop.http.HttpConfig;
 import org.apache.hadoop.service.AbstractService;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.server.nodemanager.Context;
@@ -38,10 +35,6 @@ import org.apache.hadoop.yarn.webapp.WebApp;
 import org.apache.hadoop.yarn.webapp.WebApps;
 import org.apache.hadoop.yarn.webapp.YarnWebParams;
 import org.apache.hadoop.yarn.webapp.util.WebAppUtils;
-
-import com.sun.jersey.guice.spi.container.servlet.GuiceContainer;
-import java.util.ArrayList;
-import java.util.List;
 
 public class WebServer extends AbstractService {
 
@@ -62,52 +55,21 @@ public class WebServer extends AbstractService {
 
   @Override
   protected void serviceStart() throws Exception {
-    Configuration conf = getConfig();
-    String bindAddress = WebAppUtils.getWebAppBindURL(conf,
+    String bindAddress = WebAppUtils.getWebAppBindURL(getConfig(),
                           YarnConfiguration.NM_BIND_HOST,
-                          WebAppUtils.getNMWebAppURLWithoutScheme(conf));
-    boolean enableCors = conf
-        .getBoolean(YarnConfiguration.NM_WEBAPP_ENABLE_CORS_FILTER,
-            YarnConfiguration.DEFAULT_NM_WEBAPP_ENABLE_CORS_FILTER);
-    if (enableCors) {
-      getConfig().setBoolean(HttpCrossOriginFilterInitializer.PREFIX
-          + HttpCrossOriginFilterInitializer.ENABLED_SUFFIX, true);
-    }
-
-    // Always load pseudo authentication filter to parse "user.name" in an URL
-    // to identify a HTTP request's user.
-    boolean hasHadoopAuthFilterInitializer = false;
-    String filterInitializerConfKey = "hadoop.http.filter.initializers";
-    Class<?>[] initializersClasses =
-            conf.getClasses(filterInitializerConfKey);
-    List<String> targets = new ArrayList<String>();
-    if (initializersClasses != null) {
-      for (Class<?> initializer : initializersClasses) {
-        if (initializer.getName().equals(
-            AuthenticationFilterInitializer.class.getName())) {
-          hasHadoopAuthFilterInitializer = true;
-          break;
-        }
-        targets.add(initializer.getName());
-      }
-    }
-    if (!hasHadoopAuthFilterInitializer) {
-      targets.add(AuthenticationFilterInitializer.class.getName());
-      conf.set(filterInitializerConfKey, StringUtils.join(",", targets));
-    }
+                          WebAppUtils.getNMWebAppURLWithoutScheme(getConfig()));
+    
     LOG.info("Instantiating NMWebApp at " + bindAddress);
     try {
       this.webApp =
           WebApps
             .$for("node", Context.class, this.nmContext, "ws")
             .at(bindAddress)
-            .with(conf)
+            .with(getConfig())
             .withHttpSpnegoPrincipalKey(
               YarnConfiguration.NM_WEBAPP_SPNEGO_USER_NAME_KEY)
             .withHttpSpnegoKeytabKey(
-                YarnConfiguration.NM_WEBAPP_SPNEGO_KEYTAB_FILE_KEY)
-              .withCSRFProtection(YarnConfiguration.NM_CSRF_PREFIX)
-              .withXFSProtection(YarnConfiguration.NM_XFS_PREFIX)
+              YarnConfiguration.NM_WEBAPP_SPNEGO_KEYTAB_FILE_KEY)
             .start(this.nmWebApp);
       this.port = this.webApp.httpServer().getConnectorAddress(0).getPort();
     } catch (Exception e) {
@@ -164,12 +126,7 @@ public class WebServer extends AbstractService {
       route(
           pajoin("/containerlogs", CONTAINER_ID, APP_OWNER, CONTAINER_LOG_TYPE),
           NMController.class, "logs");
-      route("/errors-and-warnings", NMController.class, "errorsAndWarnings");
     }
 
-    @Override
-    protected Class<? extends GuiceContainer> getWebAppFilterClass() {
-      return NMWebAppFilter.class;
-    }
   }
 }

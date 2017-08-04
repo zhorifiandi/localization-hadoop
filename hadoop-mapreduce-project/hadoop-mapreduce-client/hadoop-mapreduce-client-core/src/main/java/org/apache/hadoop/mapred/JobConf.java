@@ -20,10 +20,8 @@ package org.apache.hadoop.mapred;
 
 
 import java.io.IOException;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -46,13 +44,13 @@ import org.apache.hadoop.mapred.lib.KeyFieldBasedComparator;
 import org.apache.hadoop.mapred.lib.KeyFieldBasedPartitioner;
 import org.apache.hadoop.mapreduce.MRConfig;
 import org.apache.hadoop.mapreduce.MRJobConfig;
-import org.apache.hadoop.mapreduce.TaskType;
 import org.apache.hadoop.mapreduce.filecache.DistributedCache;
 import org.apache.hadoop.mapreduce.util.ConfigUtil;
 import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.util.ClassUtil;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.util.Tool;
+import org.apache.log4j.Level;
 
 /** 
  * A map/reduce job configuration.
@@ -116,8 +114,6 @@ import org.apache.hadoop.util.Tool;
 public class JobConf extends Configuration {
 
   private static final Log LOG = LogFactory.getLog(JobConf.class);
-  private static final Pattern JAVA_OPTS_XMX_PATTERN =
-          Pattern.compile(".*(?:^|\\s)-Xmx(\\d+)([gGmMkK]?)(?:$|\\s).*");
 
   static{
     ConfigUtil.loadResources();
@@ -251,9 +247,9 @@ public class JobConf extends Configuration {
    */
   public static final String MAPRED_REDUCE_TASK_JAVA_OPTS = 
     JobContext.REDUCE_JAVA_OPTS;
-
-  public static final String DEFAULT_MAPRED_TASK_JAVA_OPTS = "";
-
+  
+  public static final String DEFAULT_MAPRED_TASK_JAVA_OPTS = "-Xmx200m";
+  
   /**
    * @deprecated
    * Configuration key to set the maximum virtual memory available to the child
@@ -293,6 +289,8 @@ public class JobConf extends Configuration {
    * Example:
    * <ul>
    *   <li> A=foo - This will set the env variable A to foo. </li>
+   *   <li> B=$X:c This is inherit tasktracker's X env variable on Linux. </li>
+   *   <li> B=%X%;c This is inherit tasktracker's X env variable on Windows. </li>
    * </ul>
    * 
    * @deprecated Use {@link #MAPRED_MAP_TASK_ENV} or 
@@ -311,6 +309,8 @@ public class JobConf extends Configuration {
    * Example:
    * <ul>
    *   <li> A=foo - This will set the env variable A to foo. </li>
+   *   <li> B=$X:c This is inherit tasktracker's X env variable on Linux. </li>
+   *   <li> B=%X%;c This is inherit tasktracker's X env variable on Windows. </li>
    * </ul>
    */
   public static final String MAPRED_MAP_TASK_ENV = JobContext.MAP_ENV;
@@ -325,6 +325,8 @@ public class JobConf extends Configuration {
    * Example:
    * <ul>
    *   <li> A=foo - This will set the env variable A to foo. </li>
+   *   <li> B=$X:c This is inherit tasktracker's X env variable on Linux. </li>
+   *   <li> B=%X%;c This is inherit tasktracker's X env variable on Windows. </li>
    * </ul>
    */
   public static final String MAPRED_REDUCE_TASK_ENV = JobContext.REDUCE_ENV;
@@ -332,7 +334,7 @@ public class JobConf extends Configuration {
   private Credentials credentials = new Credentials();
   
   /**
-   * Configuration key to set the logging level for the map task.
+   * Configuration key to set the logging {@link Level} for the map task.
    *
    * The allowed logging levels are:
    * OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE and ALL.
@@ -341,7 +343,7 @@ public class JobConf extends Configuration {
     JobContext.MAP_LOG_LEVEL;
   
   /**
-   * Configuration key to set the logging level for the reduce task.
+   * Configuration key to set the logging {@link Level} for the reduce task.
    *
    * The allowed logging levels are:
    * OFF, FATAL, ERROR, WARN, INFO, DEBUG, TRACE and ALL.
@@ -352,7 +354,7 @@ public class JobConf extends Configuration {
   /**
    * Default logging level for map/reduce tasks.
    */
-  public static final String DEFAULT_LOG_LEVEL = JobContext.DEFAULT_LOG_LEVEL;
+  public static final Level DEFAULT_LOG_LEVEL = Level.INFO;
 
   /**
    * The variable is kept for M/R 1.x applications, M/R 2.x applications should
@@ -1285,10 +1287,10 @@ public class JobConf extends Configuration {
   }
 
   /**
-   * Get the configured number of map tasks for this job.
+   * Get configured the number of reduce tasks for this job.
    * Defaults to <code>1</code>.
    * 
-   * @return the number of map tasks for this job.
+   * @return the number of reduce tasks for this job.
    */
   public int getNumMapTasks() { return getInt(JobContext.NUM_MAPS, 1); }
   
@@ -1317,7 +1319,7 @@ public class JobConf extends Configuration {
    * bytes, of input files. However, the {@link FileSystem} blocksize of the 
    * input files is treated as an upper bound for input splits. A lower bound 
    * on the split size can be set via 
-   * <a href="{@docRoot}/../hadoop-mapreduce-client/hadoop-mapreduce-client-core/mapred-default.xml#mapreduce.input.fileinputformat.split.minsize">
+   * <a href="{@docRoot}/../mapred-default.html#mapreduce.input.fileinputformat.split.minsize">
    * mapreduce.input.fileinputformat.split.minsize</a>.</p>
    *  
    * <p>Thus, if you expect 10TB of input data and have a blocksize of 128MB, 
@@ -1333,9 +1335,9 @@ public class JobConf extends Configuration {
   public void setNumMapTasks(int n) { setInt(JobContext.NUM_MAPS, n); }
 
   /**
-   * Get the configured number of reduce tasks for this job. Defaults to
+   * Get configured the number of reduce tasks for this job. Defaults to 
    * <code>1</code>.
-   *
+   * 
    * @return the number of reduce tasks for this job.
    */
   public int getNumReduceTasks() { return getInt(JobContext.NUM_REDUCES, 1); }
@@ -1346,14 +1348,9 @@ public class JobConf extends Configuration {
    * <b id="NoOfReduces">How many reduces?</b>
    * 
    * <p>The right number of reduces seems to be <code>0.95</code> or 
-   * <code>1.75</code> multiplied by (
-   * <i>available memory for reduce tasks</i>
-   * (The value of this should be smaller than
-   * numNodes * yarn.nodemanager.resource.memory-mb
-   * since the resource of memory is shared by map tasks and other
-   * applications) /
-   * <a href="{@docRoot}/../hadoop-mapreduce-client/hadoop-mapreduce-client-core/mapred-default.xml#mapreduce.reduce.memory.mb">
-   * mapreduce.reduce.memory.mb</a>).
+   * <code>1.75</code> multiplied by (&lt;<i>no. of nodes</i>&gt; * 
+   * <a href="{@docRoot}/../mapred-default.html#mapreduce.tasktracker.reduce.tasks.maximum">
+   * mapreduce.tasktracker.reduce.tasks.maximum</a>).
    * </p>
    * 
    * <p>With <code>0.95</code> all of the reduces can launch immediately and 
@@ -1557,105 +1554,25 @@ public class JobConf extends Configuration {
   
   /**
    * Set {@link JobPriority} for this job.
-   *
+   * 
    * @param prio the {@link JobPriority} for this job.
    */
   public void setJobPriority(JobPriority prio) {
     set(JobContext.PRIORITY, prio.toString());
   }
-
-  /**
-   * Set {@link JobPriority} for this job.
-   *
-   * @param prio the {@link JobPriority} for this job.
-   */
-  public void setJobPriorityAsInteger(int prio) {
-    set(JobContext.PRIORITY, Integer.toString(prio));
-  }
-
+  
   /**
    * Get the {@link JobPriority} for this job.
-   *
+   * 
    * @return the {@link JobPriority} for this job.
    */
   public JobPriority getJobPriority() {
     String prio = get(JobContext.PRIORITY);
-    if (prio == null) {
-      return JobPriority.DEFAULT;
-    }
-
-    JobPriority priority = JobPriority.DEFAULT;
-    try {
-      priority = JobPriority.valueOf(prio);
-    } catch (IllegalArgumentException e) {
-      return convertToJobPriority(Integer.parseInt(prio));
-    }
-    return priority;
-  }
-
-  /**
-   * Get the priority for this job.
-   *
-   * @return the priority for this job.
-   */
-  public int getJobPriorityAsInteger() {
-    String priority = get(JobContext.PRIORITY);
-    if (priority == null) {
-      return 0;
-    }
-
-    int jobPriority = 0;
-    try {
-      jobPriority = convertPriorityToInteger(priority);
-    } catch (IllegalArgumentException e) {
-      return Integer.parseInt(priority);
-    }
-    return jobPriority;
-  }
-
-  private int convertPriorityToInteger(String priority) {
-    JobPriority jobPriority = JobPriority.valueOf(priority);
-    switch (jobPriority) {
-    case VERY_HIGH :
-      return 5;
-    case HIGH :
-      return 4;
-    case NORMAL :
-      return 3;
-    case LOW :
-      return 2;
-    case VERY_LOW :
-      return 1;
-    case DEFAULT :
-      return 0;
-    default:
-      break;
-    }
-
-    // If a user sets the priority as "UNDEFINED_PRIORITY", we can return
-    // 0 which is also default value.
-    return 0;
-  }
-
-  private JobPriority convertToJobPriority(int priority) {
-    switch (priority) {
-    case 5 :
-      return JobPriority.VERY_HIGH;
-    case 4 :
-      return JobPriority.HIGH;
-    case 3 :
+    if(prio == null) {
       return JobPriority.NORMAL;
-    case 2 :
-      return JobPriority.LOW;
-    case 1 :
-      return JobPriority.VERY_LOW;
-    case 0 :
-      return JobPriority.DEFAULT;
-    default:
-      break;
     }
-
-    return JobPriority.UNDEFINED_PRIORITY;
+    
+    return JobPriority.valueOf(prio);
   }
 
   /**
@@ -1902,7 +1819,8 @@ public class JobConf extends Configuration {
   public long getMemoryForMapTask() {
     long value = getDeprecatedMemoryValue();
     if (value < 0) {
-      return getMemoryRequired(TaskType.MAP);
+      return getLong(JobConf.MAPRED_JOB_MAP_MEMORY_MB_PROPERTY,
+          JobContext.DEFAULT_MAP_MEMORY_MB);
     }
     return value;
   }
@@ -1928,7 +1846,8 @@ public class JobConf extends Configuration {
   public long getMemoryForReduceTask() {
     long value = getDeprecatedMemoryValue();
     if (value < 0) {
-      return getMemoryRequired(TaskType.REDUCE);
+      return getLong(JobConf.MAPRED_JOB_REDUCE_MEMORY_MB_PROPERTY,
+          JobContext.DEFAULT_REDUCE_MEMORY_MB);
     }
     return value;
   }
@@ -2100,128 +2019,7 @@ public class JobConf extends Configuration {
       LOG.warn(JobConf.deprecatedString(JobConf.MAPRED_REDUCE_TASK_ULIMIT));
     }
   }
-
-  private String getConfiguredTaskJavaOpts(TaskType taskType) {
-    String userClasspath = "";
-    String adminClasspath = "";
-    if (taskType == TaskType.MAP) {
-      userClasspath = get(MAPRED_MAP_TASK_JAVA_OPTS,
-          get(MAPRED_TASK_JAVA_OPTS, DEFAULT_MAPRED_TASK_JAVA_OPTS));
-      adminClasspath = get(MRJobConfig.MAPRED_MAP_ADMIN_JAVA_OPTS,
-          MRJobConfig.DEFAULT_MAPRED_ADMIN_JAVA_OPTS);
-    } else {
-      userClasspath = get(MAPRED_REDUCE_TASK_JAVA_OPTS,
-          get(MAPRED_TASK_JAVA_OPTS, DEFAULT_MAPRED_TASK_JAVA_OPTS));
-      adminClasspath = get(MRJobConfig.MAPRED_REDUCE_ADMIN_JAVA_OPTS,
-          MRJobConfig.DEFAULT_MAPRED_ADMIN_JAVA_OPTS);
-    }
-
-    return adminClasspath + " " + userClasspath;
-  }
-
-  @Private
-  public String getTaskJavaOpts(TaskType taskType) {
-    String javaOpts = getConfiguredTaskJavaOpts(taskType);
-
-    if (!javaOpts.contains("-Xmx")) {
-      float heapRatio = getFloat(MRJobConfig.HEAP_MEMORY_MB_RATIO,
-          MRJobConfig.DEFAULT_HEAP_MEMORY_MB_RATIO);
-
-      if (heapRatio > 1.0f || heapRatio < 0) {
-        LOG.warn("Invalid value for " + MRJobConfig.HEAP_MEMORY_MB_RATIO
-            + ", using the default.");
-        heapRatio = MRJobConfig.DEFAULT_HEAP_MEMORY_MB_RATIO;
-      }
-
-      int taskContainerMb = getMemoryRequired(taskType);
-      int taskHeapSize = (int)Math.ceil(taskContainerMb * heapRatio);
-
-      String xmxArg = String.format("-Xmx%dm", taskHeapSize);
-      LOG.info("Task java-opts do not specify heap size. Setting task attempt" +
-          " jvm max heap size to " + xmxArg);
-
-      javaOpts += " " + xmxArg;
-    }
-
-    return javaOpts;
-  }
-
-  /**
-   * Parse the Maximum heap size from the java opts as specified by the -Xmx option
-   * Format: -Xmx&lt;size&gt;[g|G|m|M|k|K]
-   * @param javaOpts String to parse to read maximum heap size
-   * @return Maximum heap size in MB or -1 if not specified
-   */
-  @Private
-  @VisibleForTesting
-  public static int parseMaximumHeapSizeMB(String javaOpts) {
-    // Find the last matching -Xmx following word boundaries
-    Matcher m = JAVA_OPTS_XMX_PATTERN.matcher(javaOpts);
-    if (m.matches()) {
-      long size = Long.parseLong(m.group(1));
-      if (size <= 0) {
-        return -1;
-      }
-      if (m.group(2).isEmpty()) {
-        // -Xmx specified in bytes
-        return (int) (size / (1024 * 1024));
-      }
-      char unit = m.group(2).charAt(0);
-      switch (unit) {
-        case 'g':
-        case 'G':
-          // -Xmx specified in GB
-          return (int) (size * 1024);
-        case 'm':
-        case 'M':
-          // -Xmx specified in MB
-          return (int) size;
-        case 'k':
-        case 'K':
-          // -Xmx specified in KB
-          return (int) (size / 1024);
-      }
-    }
-    // -Xmx not specified
-    return -1;
-  }
-
-  private int getMemoryRequiredHelper(
-      String configName, int defaultValue, int heapSize, float heapRatio) {
-    int memory = getInt(configName, -1);
-    if (memory <= 0) {
-      if (heapSize > 0) {
-        memory = (int) Math.ceil(heapSize / heapRatio);
-        LOG.info("Figured value for " + configName + " from javaOpts");
-      } else {
-        memory = defaultValue;
-      }
-    }
-
-    return memory;
-  }
-
-  @Private
-  public int getMemoryRequired(TaskType taskType) {
-    int memory = 1024;
-    int heapSize = parseMaximumHeapSizeMB(getConfiguredTaskJavaOpts(taskType));
-    float heapRatio = getFloat(MRJobConfig.HEAP_MEMORY_MB_RATIO,
-        MRJobConfig.DEFAULT_HEAP_MEMORY_MB_RATIO);
-    if (taskType == TaskType.MAP) {
-      return getMemoryRequiredHelper(MRJobConfig.MAP_MEMORY_MB,
-          MRJobConfig.DEFAULT_MAP_MEMORY_MB, heapSize, heapRatio);
-    } else if (taskType == TaskType.REDUCE) {
-      return getMemoryRequiredHelper(MRJobConfig.REDUCE_MEMORY_MB,
-          MRJobConfig.DEFAULT_REDUCE_MEMORY_MB, heapSize, heapRatio);
-    } else {
-      return memory;
-    }
-  }
-
-  /* For debugging. Dump configurations to system output as XML format. */
-  public static void main(String[] args) throws Exception {
-    new JobConf(new Configuration()).writeXml(System.out);
-  }
+  
 
 }
 

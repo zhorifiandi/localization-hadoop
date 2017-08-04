@@ -18,14 +18,8 @@
 
 package org.apache.hadoop.yarn.server.nodemanager.containermanager;
 
-import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
-import static org.mockito.Mockito.verify;
-
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -34,48 +28,38 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-import com.google.common.base.Supplier;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.UnsupportedFileSystemException;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.service.Service;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Shell;
-import org.apache.hadoop.yarn.api.protocolrecords.ContainerUpdateRequest;
-import org.apache.hadoop.yarn.api.protocolrecords.ContainerUpdateResponse;
 import org.apache.hadoop.yarn.api.protocolrecords.GetContainerStatusesRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.GetContainerStatusesResponse;
-import org.apache.hadoop.yarn.api.protocolrecords.ResourceLocalizationRequest;
-import org.apache.hadoop.yarn.api.protocolrecords.SignalContainerRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.StartContainerRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.StartContainersRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.StartContainersResponse;
 import org.apache.hadoop.yarn.api.protocolrecords.StopContainersRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.StopContainersResponse;
-import org.apache.hadoop.yarn.api.protocolrecords.impl.pb.GetContainerStatusesRequestPBImpl;
-import org.apache.hadoop.yarn.api.protocolrecords.impl.pb.StartContainersRequestPBImpl;
-import org.apache.hadoop.yarn.api.protocolrecords.impl.pb.StopContainersRequestPBImpl;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerExitStatus;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.ContainerLaunchContext;
-import org.apache.hadoop.yarn.api.records.ContainerRetryContext;
-import org.apache.hadoop.yarn.api.records.ContainerRetryPolicy;
 import org.apache.hadoop.yarn.api.records.ContainerState;
 import org.apache.hadoop.yarn.api.records.ContainerStatus;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.api.records.LocalResourceType;
 import org.apache.hadoop.yarn.api.records.LocalResourceVisibility;
+import org.apache.hadoop.yarn.api.records.LogAggregationContext;
+import org.apache.hadoop.yarn.api.records.NodeId;
+import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.SerializedException;
-import org.apache.hadoop.yarn.api.records.SignalContainerCommand;
 import org.apache.hadoop.yarn.api.records.Token;
 import org.apache.hadoop.yarn.api.records.URL;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
@@ -85,26 +69,20 @@ import org.apache.hadoop.yarn.security.ContainerTokenIdentifier;
 import org.apache.hadoop.yarn.security.NMTokenIdentifier;
 import org.apache.hadoop.yarn.server.api.ResourceManagerConstants;
 import org.apache.hadoop.yarn.server.nodemanager.CMgrCompletedAppsEvent;
-import org.apache.hadoop.yarn.server.nodemanager.CMgrDecreaseContainersResourceEvent;
-import org.apache.hadoop.yarn.server.nodemanager.CMgrSignalContainersEvent;
-import org.apache.hadoop.yarn.server.nodemanager.ContainerExecutor.Signal;
 import org.apache.hadoop.yarn.server.nodemanager.DefaultContainerExecutor;
 import org.apache.hadoop.yarn.server.nodemanager.DeletionService;
-import org.apache.hadoop.yarn.server.nodemanager.NodeManager;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.TestAuxServices.ServiceA;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.application.ApplicationState;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.Container;
-import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.ContainerImpl;
-import org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainerLaunch;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.localizer.ContainerLocalizer;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.localizer.ResourceLocalizationService;
-import org.apache.hadoop.yarn.server.nodemanager.executor.ContainerSignalContext;
+import org.apache.hadoop.yarn.server.nodemanager.security.NMContainerTokenSecretManager;
+import org.apache.hadoop.yarn.server.security.ApplicationACLsManager;
 import org.apache.hadoop.yarn.server.utils.BuilderUtils;
+import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.ArgumentCaptor;
-import org.mockito.Mockito;
 
 public class TestContainerManager extends BaseContainerManagerTest {
 
@@ -121,12 +99,25 @@ public class TestContainerManager extends BaseContainerManagerTest {
   public void setup() throws IOException {
     super.setup();
   }
+
+  private ContainerId createContainerId(int id) {
+    ApplicationId appId = ApplicationId.newInstance(0, 0);
+    ApplicationAttemptId appAttemptId =
+        ApplicationAttemptId.newInstance(appId, 1);
+    ContainerId containerId = ContainerId.newContainerId(appAttemptId, id);
+    return containerId;
+  }
   
   @Override
   protected ContainerManagerImpl
       createContainerManager(DeletionService delSrvc) {
     return new ContainerManagerImpl(context, exec, delSrvc, nodeStatusUpdater,
-      metrics, dirsHandler) {
+      metrics, new ApplicationACLsManager(conf), dirsHandler) {
+      @Override
+      public void
+          setBlockNewContainerRequests(boolean blockNewContainerRequests) {
+        // do nothing
+      }
 
       @Override
       protected UserGroupInformation getRemoteUgi() throws YarnException {
@@ -140,9 +131,17 @@ public class TestContainerManager extends BaseContainerManagerTest {
           .getKeyId()));
         return ugi;
       }
+
+      @Override
+      protected void authorizeGetAndStopContainerRequest(ContainerId containerId,
+          Container container, boolean stopRequest, NMTokenIdentifier identifier) throws YarnException {
+        if(container == null || container.getUser().equals("Fail")){
+          throw new YarnException("Reject this container");
+        }
+      }
     };
   }
-
+  
   @Test
   public void testContainerManagerInitialization() throws IOException {
 
@@ -159,7 +158,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
     // Just do a query for a non-existing container.
     boolean throwsException = false;
     try {
-      List<ContainerId> containerIds = new ArrayList<>();
+      List<ContainerId> containerIds = new ArrayList<ContainerId>();
       ContainerId id =createContainerId(0);
       containerIds.add(id);
       GetContainerStatusesRequest request =
@@ -195,7 +194,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
     ContainerLaunchContext containerLaunchContext = 
         recordFactory.newRecordInstance(ContainerLaunchContext.class);
     URL resource_alpha =
-        URL.fromPath(localFS
+        ConverterUtils.getYarnUrlFromPath(localFS
             .makeQualified(new Path(file.getAbsolutePath())));
     LocalResource rsrc_alpha = recordFactory.newRecordInstance(LocalResource.class);    
     rsrc_alpha.setResource(resource_alpha);
@@ -214,19 +213,19 @@ public class TestContainerManager extends BaseContainerManagerTest {
           containerLaunchContext,
           createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
             user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
+    List<StartContainerRequest> list = new ArrayList<StartContainerRequest>();
     list.add(scRequest);
     StartContainersRequest allRequests =
         StartContainersRequest.newInstance(list);
     containerManager.startContainers(allRequests);
 
     BaseContainerManagerTest.waitForContainerState(containerManager, cId,
-        ContainerState.COMPLETE, 40);
+        ContainerState.COMPLETE);
 
     // Now ascertain that the resources are localised correctly.
     ApplicationId appId = cId.getApplicationAttemptId().getApplicationId();
-    String appIDStr = appId.toString();
-    String containerIDStr = cId.toString();
+    String appIDStr = ConverterUtils.toString(appId);
+    String containerIDStr = ConverterUtils.toString(cId);
     File userCacheDir = new File(localDir, ContainerLocalizer.USERCACHE);
     File userDir = new File(userCacheDir, user);
     File appCache = new File(userDir, ContainerLocalizer.APPCACHE);
@@ -255,7 +254,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
     Assert.assertEquals(null, reader.readLine());
   }
 
-  //@Test
+  @Test
   public void testContainerLaunchAndStop() throws IOException,
       InterruptedException, YarnException {
     containerManager.start();
@@ -284,7 +283,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
         recordFactory.newRecordInstance(ContainerLaunchContext.class);
 
     URL resource_alpha =
-        URL.fromPath(localFS
+        ConverterUtils.getYarnUrlFromPath(localFS
             .makeQualified(new Path(scriptFile.getAbsolutePath())));
     LocalResource rsrc_alpha =
         recordFactory.newRecordInstance(LocalResource.class);
@@ -306,7 +305,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
           createContainerToken(cId,
             DUMMY_RM_IDENTIFIER, context.getNodeId(), user,
             context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
+    List<StartContainerRequest> list = new ArrayList<StartContainerRequest>();
     list.add(scRequest);
     StartContainersRequest allRequests =
         StartContainersRequest.newInstance(list);
@@ -338,7 +337,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
     Assert.assertTrue("Process is not alive!",
       DefaultContainerExecutor.containerIsAlive(pid));
 
-    List<ContainerId> containerIds = new ArrayList<>();
+    List<ContainerId> containerIds = new ArrayList<ContainerId>();
     containerIds.add(cId);
     StopContainersRequest stopRequest =
         StopContainersRequest.newInstance(containerIds);
@@ -358,439 +357,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
       DefaultContainerExecutor.containerIsAlive(pid));
   }
 
-  @Test
-  public void testContainerRestart() throws IOException, InterruptedException,
-      YarnException {
-    containerManager.start();
-    // ////// Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    File oldStartFile = new File(tmpDir, "start_file_o.txt").getAbsoluteFile();
-
-    String pid = prepareInitialContainer(cId, oldStartFile);
-
-    // Test that the container can restart
-    // Also, Since there was no rollback context present before the
-    // restart, rollback should NOT be possible after the restart
-    doRestartTests(cId, oldStartFile, "Hello World!", pid, false);
-  }
-
-  private String doRestartTests(ContainerId cId, File oldStartFile,
-      String testString, String pid, boolean canRollback)
-      throws YarnException, IOException, InterruptedException {
-    int beforeRestart = metrics.getRunningContainers();
-    Container container =
-        containerManager.getContext().getContainers().get(cId);
-    Assert.assertFalse(container.isReInitializing());
-    containerManager.restartContainer(cId);
-    Assert.assertTrue(container.isReInitializing());
-
-    // Wait for original process to die and the new process to restart
-    int timeoutSecs = 0;
-    while (DefaultContainerExecutor.containerIsAlive(pid)
-        && (metrics.getRunningContainers() == beforeRestart)
-        && container.isReInitializing()
-        && timeoutSecs++ < 20) {
-      Thread.sleep(1000);
-      LOG.info("Waiting for Original process to die.." +
-          "and new process to start!!");
-    }
-
-    Assert.assertFalse("Old Process Still alive!!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-
-    String newPid = null;
-    timeoutSecs = 0;
-    while (timeoutSecs++ < 20) {
-      LOG.info("Waiting for New process file to be created!!");
-      // Now verify the contents of the file
-      BufferedReader reader =
-          new BufferedReader(new FileReader(oldStartFile));
-      Assert.assertEquals(testString, reader.readLine());
-      // Get the pid of the process
-      newPid = reader.readLine().trim();
-      // No more lines
-      Assert.assertEquals(null, reader.readLine());
-      reader.close();
-      if (!newPid.equals(pid)) {
-        break;
-      }
-      Thread.sleep(1000);
-    }
-
-    // Assert both pids are different
-    Assert.assertNotEquals(pid, newPid);
-
-    // Container cannot rollback from a restart
-    Assert.assertEquals(canRollback, container.canRollback());
-
-    return newPid;
-  }
-
-  private String[] testContainerReInitSuccess(boolean autoCommit)
-      throws IOException, InterruptedException, YarnException {
-    containerManager.start();
-    // ////// Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    File oldStartFile = new File(tmpDir, "start_file_o.txt").getAbsoluteFile();
-
-    String pid = prepareInitialContainer(cId, oldStartFile);
-
-    File newStartFile = new File(tmpDir, "start_file_n.txt").getAbsoluteFile();
-
-    prepareContainerUpgrade(autoCommit, false, false, cId, newStartFile);
-
-    // Assert that the First process is not alive anymore
-    Assert.assertFalse("Process is still alive!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-
-    BufferedReader reader =
-        new BufferedReader(new FileReader(newStartFile));
-    Assert.assertEquals("Upgrade World!", reader.readLine());
-
-    // Get the pid of the process
-    String newPid = reader.readLine().trim();
-    Assert.assertNotEquals("Old and New Pids must be different !", pid, newPid);
-    // No more lines
-    Assert.assertEquals(null, reader.readLine());
-
-    reader.close();
-
-    // Verify old file still exists and is accessible by
-    // the new process...
-    reader = new BufferedReader(new FileReader(oldStartFile));
-    Assert.assertEquals("Hello World!", reader.readLine());
-
-    // Assert that the New process is alive
-    Assert.assertTrue("New Process is not alive!",
-        DefaultContainerExecutor.containerIsAlive(newPid));
-    return new String[]{pid, newPid};
-  }
-
-  @Test
-  public void testContainerUpgradeSuccessAutoCommit() throws IOException,
-      InterruptedException, YarnException {
-    testContainerReInitSuccess(true);
-    // Should not be able to Commit (since already auto committed)
-    try {
-      containerManager.commitLastReInitialization(createContainerId(0));
-      Assert.fail();
-    } catch (Exception e) {
-      Assert.assertTrue(e.getMessage().contains("Nothing to Commit"));
-    }
-  }
-
-  @Test
-  public void testContainerUpgradeSuccessExplicitCommit() throws IOException,
-      InterruptedException, YarnException {
-    testContainerReInitSuccess(false);
-    ContainerId cId = createContainerId(0);
-    containerManager.commitLastReInitialization(cId);
-    // Should not be able to Rollback once committed
-    try {
-      containerManager.rollbackLastReInitialization(cId);
-      Assert.fail();
-    } catch (Exception e) {
-      Assert.assertTrue(e.getMessage().contains("Nothing to rollback to"));
-    }
-  }
-
-  @Test
-  public void testContainerUpgradeSuccessExplicitRollback() throws IOException,
-      InterruptedException, YarnException {
-    String[] pids = testContainerReInitSuccess(false);
-
-    // Test that the container can be Restarted after the successful upgrrade.
-    // Also, since there is a rollback context present before the restart, it
-    // should be possible to rollback the container AFTER the restart.
-    pids[1] = doRestartTests(createContainerId(0),
-        new File(tmpDir, "start_file_n.txt").getAbsoluteFile(),
-        "Upgrade World!", pids[1], true);
-
-    // Delete the old start File..
-    File oldStartFile = new File(tmpDir, "start_file_o.txt").getAbsoluteFile();
-
-    oldStartFile.delete();
-
-    ContainerId cId = createContainerId(0);
-    // Explicit Rollback
-    containerManager.rollbackLastReInitialization(cId);
-
-    Container container =
-        containerManager.getContext().getContainers().get(cId);
-    Assert.assertTrue(container.isReInitializing());
-    // Original should be dead anyway
-    Assert.assertFalse("Original Process is still alive!",
-        DefaultContainerExecutor.containerIsAlive(pids[0]));
-
-    // Wait for new container to startup
-    int timeoutSecs = 0;
-    while (container.isReInitializing() && timeoutSecs++ < 20) {
-      Thread.sleep(1000);
-      LOG.info("Waiting for ReInitialization to complete..");
-    }
-    Assert.assertFalse(container.isReInitializing());
-
-    timeoutSecs = 0;
-    // Wait for new processStartfile to be created
-    while (!oldStartFile.exists() && timeoutSecs++ < 20) {
-      Thread.sleep(1000);
-      LOG.info("Waiting for New process start-file to be created");
-    }
-
-    // Now verify the contents of the file
-    BufferedReader reader =
-        new BufferedReader(new FileReader(oldStartFile));
-    Assert.assertEquals("Hello World!", reader.readLine());
-    // Get the pid of the process
-    String rolledBackPid = reader.readLine().trim();
-    // No more lines
-    Assert.assertEquals(null, reader.readLine());
-
-    Assert.assertNotEquals("The Rolled-back process should be a different pid",
-        pids[0], rolledBackPid);
-  }
-
-  @Test
-  public void testContainerUpgradeLocalizationFailure() throws IOException,
-      InterruptedException, YarnException {
-    if (Shell.WINDOWS) {
-      return;
-    }
-    containerManager.start();
-    // ////// Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    File oldStartFile = new File(tmpDir, "start_file_o.txt").getAbsoluteFile();
-
-    String pid = prepareInitialContainer(cId, oldStartFile);
-
-    File newStartFile = new File(tmpDir, "start_file_n.txt").getAbsoluteFile();
-
-    prepareContainerUpgrade(false, true, true, cId, newStartFile);
-
-    // Assert that the First process is STILL alive
-    // since upgrade was terminated..
-    Assert.assertTrue("Process is NOT alive!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-  }
-
-  @Test
-  public void testContainerUpgradeProcessFailure() throws IOException,
-      InterruptedException, YarnException {
-    if (Shell.WINDOWS) {
-      return;
-    }
-    containerManager.start();
-    // ////// Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    File oldStartFile = new File(tmpDir, "start_file_o.txt").getAbsoluteFile();
-
-    String pid = prepareInitialContainer(cId, oldStartFile);
-
-    File newStartFile = new File(tmpDir, "start_file_n.txt").getAbsoluteFile();
-
-    // Since Autocommit is true, there is also no rollback context...
-    // which implies that if the new process fails, since there is no
-    // rollback, it is terminated.
-    prepareContainerUpgrade(true, true, false, cId, newStartFile);
-
-    // Assert that the First process is not alive anymore
-    Assert.assertFalse("Process is still alive!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-  }
-
-  @Test
-  public void testContainerUpgradeRollbackDueToFailure() throws IOException,
-      InterruptedException, YarnException {
-    if (Shell.WINDOWS) {
-      return;
-    }
-    containerManager.start();
-    // ////// Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    File oldStartFile = new File(tmpDir, "start_file_o.txt").getAbsoluteFile();
-
-    String pid = prepareInitialContainer(cId, oldStartFile);
-
-    File newStartFile = new File(tmpDir, "start_file_n.txt").getAbsoluteFile();
-
-    prepareContainerUpgrade(false, true, false, cId, newStartFile);
-
-    // Assert that the First process is not alive anymore
-    Assert.assertFalse("Original Process is still alive!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-
-    int timeoutSecs = 0;
-    // Wait for oldStartFile to be created
-    while (!oldStartFile.exists() && timeoutSecs++ < 20) {
-      System.out.println("\nFiles: " +
-          Arrays.toString(oldStartFile.getParentFile().list()));
-      Thread.sleep(1000);
-      LOG.info("Waiting for New process start-file to be created");
-    }
-
-    // Now verify the contents of the file
-    BufferedReader reader =
-        new BufferedReader(new FileReader(oldStartFile));
-    Assert.assertEquals("Hello World!", reader.readLine());
-    // Get the pid of the process
-    String rolledBackPid = reader.readLine().trim();
-    // No more lines
-    Assert.assertEquals(null, reader.readLine());
-
-    Assert.assertNotEquals("The Rolled-back process should be a different pid",
-        pid, rolledBackPid);
-  }
-
-  /**
-   * Prepare a launch Context for container upgrade and request the
-   * Container Manager to re-initialize a running container using the
-   * new launch context.
-   * @param autoCommit Enable autoCommit.
-   * @param failCmd injects a start script that intentionally fails.
-   * @param failLoc injects a bad file Location that will fail localization.
-   */
-  private void prepareContainerUpgrade(boolean autoCommit, boolean failCmd,
-      boolean failLoc, ContainerId cId, File startFile)
-      throws FileNotFoundException, YarnException, InterruptedException {
-    // Re-write scriptfile and processStartFile
-    File scriptFile = Shell.appendScriptExtension(tmpDir, "scriptFile_new");
-    PrintWriter fileWriter = new PrintWriter(scriptFile);
-
-    writeScriptFile(fileWriter, "Upgrade World!", startFile, cId, failCmd);
-
-    ContainerLaunchContext containerLaunchContext =
-        prepareContainerLaunchContext(scriptFile, "dest_file_new", failLoc, 0);
-
-    containerManager.reInitializeContainer(cId, containerLaunchContext,
-        autoCommit);
-    try {
-      containerManager.reInitializeContainer(cId, containerLaunchContext,
-          autoCommit);
-    } catch (Exception e) {
-      Assert.assertTrue(e.getMessage().contains("Cannot perform RE_INIT"));
-    }
-    int timeoutSecs = 0;
-    int maxTimeToWait = failLoc ? 10 : 20;
-    // Wait for new processStartfile to be created
-    while (!startFile.exists() && timeoutSecs++ < maxTimeToWait) {
-      Thread.sleep(1000);
-      LOG.info("Waiting for New process start-file to be created");
-    }
-  }
-
-  /**
-   * Prepare and start an initial container. This container will be subsequently
-   * re-initialized for upgrade. It also waits for the container to start and
-   * returns the Pid of the running container.
-   */
-  private String prepareInitialContainer(ContainerId cId, File startFile)
-      throws IOException, YarnException, InterruptedException {
-    File scriptFileOld = Shell.appendScriptExtension(tmpDir, "scriptFile");
-    PrintWriter fileWriterOld = new PrintWriter(scriptFileOld);
-
-    writeScriptFile(fileWriterOld, "Hello World!", startFile, cId, false);
-
-    ContainerLaunchContext containerLaunchContext =
-        prepareContainerLaunchContext(scriptFileOld, "dest_file", false, 4);
-
-    StartContainerRequest scRequest =
-        StartContainerRequest.newInstance(containerLaunchContext,
-            createContainerToken(cId,
-                DUMMY_RM_IDENTIFIER, context.getNodeId(), user,
-                context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
-    list.add(scRequest);
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(list);
-    containerManager.startContainers(allRequests);
-
-    int timeoutSecs = 0;
-    while (!startFile.exists() && timeoutSecs++ < 20) {
-      Thread.sleep(1000);
-      LOG.info("Waiting for process start-file to be created");
-    }
-    Assert.assertTrue("ProcessStartFile doesn't exist!",
-        startFile.exists());
-
-    // Now verify the contents of the file
-    BufferedReader reader =
-        new BufferedReader(new FileReader(startFile));
-    Assert.assertEquals("Hello World!", reader.readLine());
-    // Get the pid of the process
-    String pid = reader.readLine().trim();
-    // No more lines
-    Assert.assertEquals(null, reader.readLine());
-
-    // Assert that the process is alive
-    Assert.assertTrue("Process is not alive!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-    // Once more
-    Assert.assertTrue("Process is not alive!",
-        DefaultContainerExecutor.containerIsAlive(pid));
-    return pid;
-  }
-
-  private void writeScriptFile(PrintWriter fileWriter, String startLine,
-      File processStartFile, ContainerId cId, boolean isFailure) {
-    if (Shell.WINDOWS) {
-      fileWriter.println("@echo " + startLine + "> " + processStartFile);
-      fileWriter.println("@echo " + cId + ">> " + processStartFile);
-      fileWriter.println("@ping -n 100 127.0.0.1 >nul");
-    } else {
-      fileWriter.write("\numask 0"); // So that start file is readable by test
-      if (isFailure) {
-        // Echo PID and throw some error code
-        fileWriter.write("\necho $$ >> " + processStartFile);
-        fileWriter.write("\nexit 111");
-      } else {
-        fileWriter.write("\necho " + startLine + " > " + processStartFile);
-        fileWriter.write("\necho $$ >> " + processStartFile);
-        fileWriter.write("\nexec sleep 100");
-      }
-    }
-    fileWriter.close();
-  }
-
-  private ContainerLaunchContext prepareContainerLaunchContext(File scriptFile,
-      String destFName, boolean putBadFile, int numRetries) {
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    URL resourceAlpha = null;
-    if (putBadFile) {
-      File fileToDelete = new File(tmpDir, "fileToDelete")
-          .getAbsoluteFile();
-      resourceAlpha =
-          URL.fromPath(localFS
-              .makeQualified(new Path(fileToDelete.getAbsolutePath())));
-      fileToDelete.delete();
-    } else {
-      resourceAlpha =
-          URL.fromPath(localFS
-              .makeQualified(new Path(scriptFile.getAbsolutePath())));
-    }
-    LocalResource rsrcAlpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrcAlpha.setResource(resourceAlpha);
-    rsrcAlpha.setSize(-1);
-    rsrcAlpha.setVisibility(LocalResourceVisibility.APPLICATION);
-    rsrcAlpha.setType(LocalResourceType.FILE);
-    rsrcAlpha.setTimestamp(scriptFile.lastModified());
-    Map<String, LocalResource> localResources = new HashMap<>();
-    localResources.put(destFName, rsrcAlpha);
-    containerLaunchContext.setLocalResources(localResources);
-
-    ContainerRetryContext containerRetryContext = ContainerRetryContext
-        .newInstance(
-            ContainerRetryPolicy.RETRY_ON_SPECIFIC_ERROR_CODES,
-            new HashSet<>(Arrays.asList(Integer.valueOf(111))), numRetries, 0);
-    containerLaunchContext.setContainerRetryContext(containerRetryContext);
-    List<String> commands = Arrays.asList(
-        Shell.getRunScriptCommand(scriptFile));
-    containerLaunchContext.setCommands(commands);
-    return containerLaunchContext;
-  }
-
-  protected void testContainerLaunchAndExit(int exitCode) throws IOException,
+  private void testContainerLaunchAndExit(int exitCode) throws IOException,
       InterruptedException, YarnException {
 
 	  File scriptFile = Shell.appendScriptExtension(tmpDir, "scriptFile");
@@ -823,7 +390,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
 			  recordFactory.newRecordInstance(ContainerLaunchContext.class);
 
 	  URL resource_alpha =
-			  URL.fromPath(localFS
+			  ConverterUtils.getYarnUrlFromPath(localFS
 					  .makeQualified(new Path(scriptFile.getAbsolutePath())));
 	  LocalResource rsrc_alpha =
 			  recordFactory.newRecordInstance(LocalResource.class);
@@ -845,7 +412,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
           containerLaunchContext,
           createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
             user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
+    List<StartContainerRequest> list = new ArrayList<StartContainerRequest>();
     list.add(scRequest);
     StartContainersRequest allRequests =
         StartContainersRequest.newInstance(list);
@@ -854,12 +421,12 @@ public class TestContainerManager extends BaseContainerManagerTest {
 	  BaseContainerManagerTest.waitForContainerState(containerManager, cId,
 			  ContainerState.COMPLETE);
 
-    List<ContainerId> containerIds = new ArrayList<>();
+    List<ContainerId> containerIds = new ArrayList<ContainerId>();
     containerIds.add(cId);
     GetContainerStatusesRequest gcsRequest =
         GetContainerStatusesRequest.newInstance(containerIds);
-    ContainerStatus containerStatus = containerManager.
-        getContainerStatuses(gcsRequest).getContainerStatuses().get(0);
+	  ContainerStatus containerStatus = 
+			  containerManager.getContainerStatuses(gcsRequest).getContainerStatuses().get(0);
 
 	  // Verify exit status matches exit state of script
 	  Assert.assertEquals(exitCode,
@@ -887,138 +454,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
 	  // and verify exit code returned 
 	  testContainerLaunchAndExit(exitCode);	  
   }
-
-  private Map<String, LocalResource> setupLocalResources(String fileName,
-      String symLink) throws Exception {
-    // ////// Create the resources for the container
-    File dir = new File(tmpDir, "dir");
-    dir.mkdirs();
-    File file = new File(dir, fileName);
-    PrintWriter fileWriter = new PrintWriter(file);
-    fileWriter.write("Hello World!");
-    fileWriter.close();
-
-    URL resourceURL = URL.fromPath(FileContext.getLocalFSFileContext()
-        .makeQualified(new Path(file.getAbsolutePath())));
-    LocalResource resource =
-        recordFactory.newRecordInstance(LocalResource.class);
-    resource.setResource(resourceURL);
-    resource.setSize(-1);
-    resource.setVisibility(LocalResourceVisibility.APPLICATION);
-    resource.setType(LocalResourceType.FILE);
-    resource.setTimestamp(file.lastModified());
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put(symLink, resource);
-    return localResources;
-  }
-
-  // Start the container
-  // While the container is running, localize new resources.
-  // Verify the symlink is created properly
-  @Test
-  public void testLocalingResourceWhileContainerRunning() throws Exception {
-    // Real del service
-    delSrvc = new DeletionService(exec);
-    delSrvc.init(conf);
-
-    ((NodeManager.NMContext)context).setContainerExecutor(exec);
-    containerManager = createContainerManager(delSrvc);
-    containerManager.init(conf);
-    containerManager.start();
-    // set up local resources
-    Map<String, LocalResource> localResource =
-        setupLocalResources("file", "symLink1");
-    ContainerLaunchContext context =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    context.setLocalResources(localResource);
-
-    // a long running container - sleep
-    context.setCommands(Arrays.asList("sleep 6"));
-    ContainerId cId = createContainerId(0);
-
-    // start the container
-    StartContainerRequest scRequest = StartContainerRequest.newInstance(context,
-        createContainerToken(cId, DUMMY_RM_IDENTIFIER, this.context.getNodeId(),
-            user, this.context.getContainerTokenSecretManager()));
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(Arrays.asList(scRequest));
-    containerManager.startContainers(allRequests);
-    BaseContainerManagerTest
-        .waitForContainerState(containerManager, cId, ContainerState.RUNNING);
-
-    BaseContainerManagerTest.waitForApplicationState(containerManager,
-        cId.getApplicationAttemptId().getApplicationId(),
-        ApplicationState.RUNNING);
-    checkResourceLocalized(cId, "symLink1");
-
-    // Localize new local resources while container is running
-    Map<String, LocalResource> localResource2 =
-        setupLocalResources("file2", "symLink2");
-
-    ResourceLocalizationRequest request =
-        ResourceLocalizationRequest.newInstance(cId, localResource2);
-    containerManager.localize(request);
-
-    // Verify resource is localized and symlink is created.
-    GenericTestUtils.waitFor(new Supplier<Boolean>() {
-      public Boolean get() {
-        try {
-          checkResourceLocalized(cId, "symLink2");
-          return true;
-        } catch (Throwable e) {
-          return false;
-        }
-      }
-    }, 500, 20000);
-
-    BaseContainerManagerTest
-        .waitForContainerState(containerManager, cId, ContainerState.COMPLETE);
-    // Verify container cannot localize resources while at non-running state.
-    try{
-      containerManager.localize(request);
-      Assert.fail();
-    } catch (YarnException e) {
-      Assert.assertTrue(
-          e.getMessage().contains("Cannot perform LOCALIZE"));
-    }
-  }
-
-  private void checkResourceLocalized(ContainerId containerId, String symLink) {
-    String appId =
-        containerId.getApplicationAttemptId().getApplicationId().toString();
-    File userCacheDir = new File(localDir, ContainerLocalizer.USERCACHE);
-    File userDir = new File(userCacheDir, user);
-    File appCache = new File(userDir, ContainerLocalizer.APPCACHE);
-    // localDir/usercache/nobody/appcache/application_0_0000
-    File appDir = new File(appCache, appId);
-    // localDir/usercache/nobody/appcache/application_0_0000/container_0_0000_01_000000
-    File containerDir = new File(appDir, containerId.toString());
-    // localDir/usercache/nobody/appcache/application_0_0000/container_0_0000_01_000000/symLink1
-    File targetFile = new File(containerDir, symLink);
-
-    File sysDir =
-        new File(localDir, ResourceLocalizationService.NM_PRIVATE_DIR);
-    // localDir/nmPrivate/application_0_0000
-    File appSysDir = new File(sysDir, appId);
-    // localDir/nmPrivate/application_0_0000/container_0_0000_01_000000
-    File containerSysDir = new File(appSysDir, containerId.toString());
-
-    Assert.assertTrue("AppDir " + appDir.getAbsolutePath() + " doesn't exist!!",
-        appDir.exists());
-    Assert.assertTrue(
-        "AppSysDir " + appSysDir.getAbsolutePath() + " doesn't exist!!",
-        appSysDir.exists());
-    Assert.assertTrue(
-        "containerDir " + containerDir.getAbsolutePath() + " doesn't exist !",
-        containerDir.exists());
-    Assert.assertTrue("containerSysDir " + containerSysDir.getAbsolutePath()
-        + " doesn't exist !", containerDir.exists());
-    Assert.assertTrue(
-        "targetFile " + targetFile.getAbsolutePath() + " doesn't exist !!",
-        targetFile.exists());
-  }
-
+  
   @Test
   public void testLocalFilesCleanup() throws InterruptedException,
       IOException, YarnException {
@@ -1047,7 +483,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
 //    containerLaunchContext.resources =
 //        new HashMap<CharSequence, LocalResource>();
     URL resource_alpha =
-        URL.fromPath(FileContext.getLocalFSFileContext()
+        ConverterUtils.getYarnUrlFromPath(FileContext.getLocalFSFileContext()
             .makeQualified(new Path(file.getAbsolutePath())));
     LocalResource rsrc_alpha = recordFactory.newRecordInstance(LocalResource.class);
     rsrc_alpha.setResource(resource_alpha);
@@ -1066,7 +502,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
           containerLaunchContext,
           createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
             user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
+    List<StartContainerRequest> list = new ArrayList<StartContainerRequest>();
     list.add(scRequest);
     StartContainersRequest allRequests =
         StartContainersRequest.newInstance(list);
@@ -1080,8 +516,8 @@ public class TestContainerManager extends BaseContainerManagerTest {
         ApplicationState.RUNNING);
 
     // Now ascertain that the resources are localised correctly.
-    String appIDStr = appId.toString();
-    String containerIDStr = cId.toString();
+    String appIDStr = ConverterUtils.toString(appId);
+    String containerIDStr = ConverterUtils.toString(cId);
     File userCacheDir = new File(localDir, ContainerLocalizer.USERCACHE);
     File userDir = new File(userCacheDir, user);
     File appCache = new File(userDir, ContainerLocalizer.APPCACHE);
@@ -1151,7 +587,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
           createContainerToken(cId1,
             ResourceManagerConstants.RM_INVALID_IDENTIFIER, context.getNodeId(),
             user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
+    List<StartContainerRequest> list = new ArrayList<StartContainerRequest>();
     list.add(startRequest1);
     StartContainersRequest allRequests =
         StartContainersRequest.newInstance(list);
@@ -1181,7 +617,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
           createContainerToken(cId2,
             DUMMY_RM_IDENTIFIER, context.getNodeId(), user,
             context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list2 = new ArrayList<>();
+    List<StartContainerRequest> list2 = new ArrayList<StartContainerRequest>();
     list.add(startRequest2);
     StartContainersRequest allRequests2 =
         StartContainersRequest.newInstance(list2);
@@ -1201,7 +637,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
   public void testMultipleContainersLaunch() throws Exception {
     containerManager.start();
 
-    List<StartContainerRequest> list = new ArrayList<>();
+    List<StartContainerRequest> list = new ArrayList<StartContainerRequest>();
     ContainerLaunchContext containerLaunchContext =
         recordFactory.newRecordInstance(ContainerLaunchContext.class);
     for (int i = 0; i < 10; i++) {
@@ -1225,7 +661,6 @@ public class TestContainerManager extends BaseContainerManagerTest {
 
     StartContainersResponse response =
         containerManager.startContainers(requestList);
-    Thread.sleep(5000);
 
     Assert.assertEquals(5, response.getSuccessfullyStartedContainers().size());
     for (ContainerId id : response.getSuccessfullyStartedContainers()) {
@@ -1246,18 +681,20 @@ public class TestContainerManager extends BaseContainerManagerTest {
   @Test
   public void testMultipleContainersStopAndGetStatus() throws Exception {
     containerManager.start();
-    List<StartContainerRequest> startRequest = new ArrayList<>();
+    List<StartContainerRequest> startRequest =
+        new ArrayList<StartContainerRequest>();
     ContainerLaunchContext containerLaunchContext =
         recordFactory.newRecordInstance(ContainerLaunchContext.class);
 
-    List<ContainerId> containerIds = new ArrayList<>();
+    List<ContainerId> containerIds = new ArrayList<ContainerId>();
     for (int i = 0; i < 10; i++) {
-      ContainerId cId;
+      ContainerId cId = createContainerId(i);
+      String user = null;
       if ((i & 1) == 0) {
-        // Containers with even id belong to an unauthorized app
-        cId = createContainerId(i, 1);
+        // container with even id fail
+        user = "Fail";
       } else {
-        cId = createContainerId(i, 0);
+        user = "Pass";
       }
       Token containerToken =
           createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
@@ -1272,7 +709,6 @@ public class TestContainerManager extends BaseContainerManagerTest {
     StartContainersRequest requestList =
         StartContainersRequest.newInstance(startRequest);
     containerManager.startContainers(requestList);
-    Thread.sleep(5000);
 
     // Get container statuses
     GetContainerStatusesRequest statusRequest =
@@ -1290,7 +726,7 @@ public class TestContainerManager extends BaseContainerManagerTest {
       // Containers with even id should fail.
       Assert.assertEquals(0, entry.getKey().getContainerId() & 1);
       Assert.assertTrue(entry.getValue().getMessage()
-          .contains("attempted to get status for non-application container"));
+        .contains("Reject this container"));
     }
 
     // stop containers
@@ -1310,68 +746,8 @@ public class TestContainerManager extends BaseContainerManagerTest {
       // Containers with even id should fail.
       Assert.assertEquals(0, entry.getKey().getContainerId() & 1);
       Assert.assertTrue(entry.getValue().getMessage()
-          .contains("attempted to stop non-application container"));
+        .contains("Reject this container"));
     }
-  }
-
-  @Test
-  public void testUnauthorizedRequests() throws IOException, YarnException {
-    containerManager.start();
-
-    // Create a containerId that belongs to an unauthorized appId
-    ContainerId cId = createContainerId(0, 1);
-
-    // startContainers()
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    StartContainerRequest scRequest =
-        StartContainerRequest.newInstance(containerLaunchContext,
-            createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
-                user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
-    list.add(scRequest);
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(list);
-    StartContainersResponse startResponse =
-        containerManager.startContainers(allRequests);
-
-    Assert.assertFalse("Should not be authorized to start container",
-        startResponse.getSuccessfullyStartedContainers().contains(cId));
-    Assert.assertTrue("Start container request should fail",
-        startResponse.getFailedRequests().containsKey(cId));
-
-    // Insert the containerId into context, make it as if it is running
-    ContainerTokenIdentifier containerTokenIdentifier =
-        BuilderUtils.newContainerTokenIdentifier(scRequest.getContainerToken());
-    Container container = new ContainerImpl(conf, null, containerLaunchContext,
-        null, metrics, containerTokenIdentifier, context);
-    context.getContainers().put(cId, container);
-
-    // stopContainers()
-    List<ContainerId> containerIds = new ArrayList<>();
-    containerIds.add(cId);
-    StopContainersRequest stopRequest =
-        StopContainersRequest.newInstance(containerIds);
-    StopContainersResponse stopResponse =
-        containerManager.stopContainers(stopRequest);
-
-    Assert.assertFalse("Should not be authorized to stop container",
-        stopResponse.getSuccessfullyStoppedContainers().contains(cId));
-    Assert.assertTrue("Stop container request should fail",
-        stopResponse.getFailedRequests().containsKey(cId));
-
-    // getContainerStatuses()
-    containerIds = new ArrayList<>();
-    containerIds.add(cId);
-    GetContainerStatusesRequest request =
-        GetContainerStatusesRequest.newInstance(containerIds);
-    GetContainerStatusesResponse response =
-        containerManager.getContainerStatuses(request);
-
-    Assert.assertEquals("Should not be authorized to get container status",
-        response.getContainerStatuses().size(), 0);
-    Assert.assertTrue("Get status request should fail",
-        response.getFailedRequests().containsKey(cId));
   }
 
   @Test
@@ -1383,7 +759,8 @@ public class TestContainerManager extends BaseContainerManagerTest {
         ServiceA.class, Service.class);
     containerManager.start();
 
-    List<StartContainerRequest> startRequest = new ArrayList<>();
+    List<StartContainerRequest> startRequest =
+        new ArrayList<StartContainerRequest>();
 
     ContainerLaunchContext containerLaunchContext =
         recordFactory.newRecordInstance(ContainerLaunchContext.class);
@@ -1408,583 +785,36 @@ public class TestContainerManager extends BaseContainerManagerTest {
 
     StartContainersResponse response =
         containerManager.startContainers(requestList);
-    Assert.assertEquals(1, response.getFailedRequests().size());
-    Assert.assertEquals(0, response.getSuccessfullyStartedContainers().size());
+    Assert.assertTrue(response.getFailedRequests().size() == 1);
+    Assert.assertTrue(response.getSuccessfullyStartedContainers().size() == 0);
     Assert.assertTrue(response.getFailedRequests().containsKey(cId));
     Assert.assertTrue(response.getFailedRequests().get(cId).getMessage()
         .contains("The auxService:" + serviceName + " does not exist"));
   }
 
-  /* Test added to verify fix in YARN-644 */
-  @Test
-  public void testNullTokens() throws Exception {
-    ContainerManagerImpl cMgrImpl =
-        new ContainerManagerImpl(context, exec, delSrvc, nodeStatusUpdater,
-        metrics, dirsHandler);
-    String strExceptionMsg = "";
-    try {
-      cMgrImpl.authorizeStartAndResourceIncreaseRequest(
-          null, new ContainerTokenIdentifier(), true);
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_NMTOKEN_MSG);
-
-    strExceptionMsg = "";
-    try {
-      cMgrImpl.authorizeStartAndResourceIncreaseRequest(
-          new NMTokenIdentifier(), null, true);
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_CONTAINERTOKEN_MSG);
-
-    strExceptionMsg = "";
-    try {
-      cMgrImpl.authorizeGetAndStopContainerRequest(null, null, true, null);
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_NMTOKEN_MSG);
-
-    strExceptionMsg = "";
-    try {
-      cMgrImpl.authorizeUser(null, null);
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_NMTOKEN_MSG);
-
-    ContainerManagerImpl spyContainerMgr = Mockito.spy(cMgrImpl);
-    UserGroupInformation ugInfo = UserGroupInformation.createRemoteUser("a");
-    Mockito.when(spyContainerMgr.getRemoteUgi()).thenReturn(ugInfo);
-    Mockito.when(spyContainerMgr.
-        selectNMTokenIdentifier(ugInfo)).thenReturn(null);
-
-    strExceptionMsg = "";
-    try {
-      spyContainerMgr.stopContainers(new StopContainersRequestPBImpl());
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_NMTOKEN_MSG);
-
-    strExceptionMsg = "";
-    try {
-      spyContainerMgr.getContainerStatuses(
-          new GetContainerStatusesRequestPBImpl());
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_NMTOKEN_MSG);
-
-    Mockito.doNothing().when(spyContainerMgr).authorizeUser(ugInfo, null);
-    List<StartContainerRequest> reqList = new ArrayList<>();
-    reqList.add(StartContainerRequest.newInstance(null, null));
-    StartContainersRequest reqs = new StartContainersRequestPBImpl();
-    reqs.setStartContainerRequests(reqList);
-    strExceptionMsg = "";
-    try {
-      spyContainerMgr.startContainers(reqs);
-    } catch(YarnException ye) {
-      strExceptionMsg = ye.getCause().getMessage();
-    }
-    Assert.assertEquals(strExceptionMsg,
-        ContainerManagerImpl.INVALID_CONTAINERTOKEN_MSG);
+  public static Token createContainerToken(ContainerId cId, long rmIdentifier,
+      NodeId nodeId, String user,
+      NMContainerTokenSecretManager containerTokenSecretManager)
+      throws IOException {
+    return createContainerToken(cId, rmIdentifier, nodeId, user,
+      containerTokenSecretManager, null);
   }
 
-  @Test
-  public void testIncreaseContainerResourceWithInvalidRequests() throws Exception {
-    containerManager.start();
-    // Start 4 containers 0..4 with default resource (1024, 1)
-    List<StartContainerRequest> list = new ArrayList<>();
-    ContainerLaunchContext containerLaunchContext = recordFactory
-        .newRecordInstance(ContainerLaunchContext.class);
-    for (int i = 0; i < 4; i++) {
-      ContainerId cId = createContainerId(i);
-      long identifier = DUMMY_RM_IDENTIFIER;
-      Token containerToken = createContainerToken(cId, identifier,
-          context.getNodeId(), user, context.getContainerTokenSecretManager());
-      StartContainerRequest request = StartContainerRequest.newInstance(
-          containerLaunchContext, containerToken);
-      list.add(request);
-    }
-    StartContainersRequest requestList = StartContainersRequest
-        .newInstance(list);
-    StartContainersResponse response = containerManager
-        .startContainers(requestList);
-
-    Assert.assertEquals(4, response.getSuccessfullyStartedContainers().size());
-    int i = 0;
-    for (ContainerId id : response.getSuccessfullyStartedContainers()) {
-      Assert.assertEquals(i, id.getContainerId());
-      i++;
-    }
-
-    Thread.sleep(2000);
-    // Construct container resource increase request,
-    List<Token> increaseTokens = new ArrayList<>();
-    // Add increase request for container-0, the request will fail as the
-    // container will have exited, and won't be in RUNNING state
-    ContainerId cId0 = createContainerId(0);
+  public static Token createContainerToken(ContainerId cId, long rmIdentifier,
+      NodeId nodeId, String user,
+      NMContainerTokenSecretManager containerTokenSecretManager,
+      LogAggregationContext logAggregationContext)
+      throws IOException {
+    Resource r = BuilderUtils.newResource(1024, 1);
+    ContainerTokenIdentifier containerTokenIdentifier =
+        new ContainerTokenIdentifier(cId, nodeId.toString(), user, r,
+          System.currentTimeMillis() + 100000L, 123, rmIdentifier,
+          Priority.newInstance(0), 0, logAggregationContext);
     Token containerToken =
-        createContainerToken(cId0, DUMMY_RM_IDENTIFIER,
-            context.getNodeId(), user,
-                Resource.newInstance(1234, 3),
-                    context.getContainerTokenSecretManager(), null);
-    increaseTokens.add(containerToken);
-    // Add increase request for container-7, the request will fail as the
-    // container does not exist
-    ContainerId cId7 = createContainerId(7);
-    containerToken =
-        createContainerToken(cId7, DUMMY_RM_IDENTIFIER,
-            context.getNodeId(), user,
-            Resource.newInstance(1234, 3),
-            context.getContainerTokenSecretManager(), null);
-    increaseTokens.add(containerToken);
-
-    ContainerUpdateRequest updateRequest =
-        ContainerUpdateRequest.newInstance(increaseTokens);
-    ContainerUpdateResponse updateResponse =
-        containerManager.updateContainer(updateRequest);
-    // Check response
-    Assert.assertEquals(
-        0, updateResponse.getSuccessfullyUpdatedContainers().size());
-    Assert.assertEquals(2, updateResponse.getFailedRequests().size());
-    for (Map.Entry<ContainerId, SerializedException> entry : updateResponse
-        .getFailedRequests().entrySet()) {
-      Assert.assertNotNull("Failed message", entry.getValue().getMessage());
-      if (cId0.equals(entry.getKey())) {
-        Assert.assertTrue(entry.getValue().getMessage()
-          .contains("Resource can only be changed when a "
-              + "container is in RUNNING state"));
-      } else if (cId7.equals(entry.getKey())) {
-        Assert.assertTrue(entry.getValue().getMessage()
-            .contains("Container " + cId7.toString()
-                + " is not handled by this NodeManager"));
-      } else {
-        throw new YarnException("Received failed request from wrong"
-            + " container: " + entry.getKey().toString());
-      }
-    }
-  }
-
-  @Test
-  public void testIncreaseContainerResourceWithInvalidResource() throws Exception {
-    containerManager.start();
-    File scriptFile = Shell.appendScriptExtension(tmpDir, "scriptFile");
-    PrintWriter fileWriter = new PrintWriter(scriptFile);
-    // Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    if (Shell.WINDOWS) {
-      fileWriter.println("@ping -n 100 127.0.0.1 >nul");
-    } else {
-      fileWriter.write("\numask 0");
-      fileWriter.write("\nexec sleep 100");
-    }
-    fileWriter.close();
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    URL resource_alpha =
-        URL.fromPath(localFS
-            .makeQualified(new Path(scriptFile.getAbsolutePath())));
-    LocalResource rsrc_alpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrc_alpha.setResource(resource_alpha);
-    rsrc_alpha.setSize(-1);
-    rsrc_alpha.setVisibility(LocalResourceVisibility.APPLICATION);
-    rsrc_alpha.setType(LocalResourceType.FILE);
-    rsrc_alpha.setTimestamp(scriptFile.lastModified());
-    String destinationFile = "dest_file";
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put(destinationFile, rsrc_alpha);
-    containerLaunchContext.setLocalResources(localResources);
-    List<String> commands =
-        Arrays.asList(Shell.getRunScriptCommand(scriptFile));
-    containerLaunchContext.setCommands(commands);
-
-    StartContainerRequest scRequest =
-        StartContainerRequest.newInstance(
-            containerLaunchContext,
-            createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
-            user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
-    list.add(scRequest);
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(list);
-    containerManager.startContainers(allRequests);
-    // Make sure the container reaches RUNNING state
-    BaseContainerManagerTest.waitForNMContainerState(containerManager, cId,
-        org.apache.hadoop.yarn.server.nodemanager.
-            containermanager.container.ContainerState.RUNNING);
-    // Construct container resource increase request,
-    List<Token> increaseTokens = new ArrayList<>();
-    // Add increase request. The increase request should fail
-    // as the current resource does not fit in the target resource
-    Token containerToken =
-        createContainerToken(cId, DUMMY_RM_IDENTIFIER,
-            context.getNodeId(), user,
-            Resource.newInstance(512, 1),
-            context.getContainerTokenSecretManager(), null);
-    increaseTokens.add(containerToken);
-    ContainerUpdateRequest updateRequest =
-        ContainerUpdateRequest.newInstance(increaseTokens);
-    ContainerUpdateResponse updateResponse =
-        containerManager.updateContainer(updateRequest);
-    // Check response
-    Assert.assertEquals(
-        0, updateResponse.getSuccessfullyUpdatedContainers().size());
-    Assert.assertEquals(1, updateResponse.getFailedRequests().size());
-    for (Map.Entry<ContainerId, SerializedException> entry : updateResponse
-        .getFailedRequests().entrySet()) {
-      if (cId.equals(entry.getKey())) {
-        Assert.assertNotNull("Failed message", entry.getValue().getMessage());
-        Assert.assertTrue(entry.getValue().getMessage()
-            .contains("The target resource "
-                + Resource.newInstance(512, 1).toString()
-                + " is smaller than the current resource "
-                + Resource.newInstance(1024, 1)));
-      } else {
-        throw new YarnException("Received failed request from wrong"
-            + " container: " + entry.getKey().toString());
-      }
-    }
-  }
-
-  @Test
-  public void testChangeContainerResource() throws Exception {
-    containerManager.start();
-    File scriptFile = Shell.appendScriptExtension(tmpDir, "scriptFile");
-    PrintWriter fileWriter = new PrintWriter(scriptFile);
-    // Construct the Container-id
-    ContainerId cId = createContainerId(0);
-    if (Shell.WINDOWS) {
-      fileWriter.println("@ping -n 100 127.0.0.1 >nul");
-    } else {
-      fileWriter.write("\numask 0");
-      fileWriter.write("\nexec sleep 100");
-    }
-    fileWriter.close();
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    URL resource_alpha =
-        URL.fromPath(localFS
-            .makeQualified(new Path(scriptFile.getAbsolutePath())));
-    LocalResource rsrc_alpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrc_alpha.setResource(resource_alpha);
-    rsrc_alpha.setSize(-1);
-    rsrc_alpha.setVisibility(LocalResourceVisibility.APPLICATION);
-    rsrc_alpha.setType(LocalResourceType.FILE);
-    rsrc_alpha.setTimestamp(scriptFile.lastModified());
-    String destinationFile = "dest_file";
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put(destinationFile, rsrc_alpha);
-    containerLaunchContext.setLocalResources(localResources);
-    List<String> commands =
-        Arrays.asList(Shell.getRunScriptCommand(scriptFile));
-    containerLaunchContext.setCommands(commands);
-    StartContainerRequest scRequest =
-        StartContainerRequest.newInstance(
-            containerLaunchContext,
-                createContainerToken(cId, DUMMY_RM_IDENTIFIER,
-                    context.getNodeId(), user,
-                        context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
-    list.add(scRequest);
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(list);
-    containerManager.startContainers(allRequests);
-    // Make sure the container reaches RUNNING state
-    BaseContainerManagerTest.waitForNMContainerState(containerManager, cId,
-        org.apache.hadoop.yarn.server.nodemanager.
-            containermanager.container.ContainerState.RUNNING);
-    // Construct container resource increase request,
-    List<Token> increaseTokens = new ArrayList<>();
-    // Add increase request.
-    Resource targetResource = Resource.newInstance(4096, 2);
-    Token containerToken = createContainerToken(cId, DUMMY_RM_IDENTIFIER,
-        context.getNodeId(), user, targetResource,
-            context.getContainerTokenSecretManager(), null);
-    increaseTokens.add(containerToken);
-    ContainerUpdateRequest updateRequest =
-        ContainerUpdateRequest.newInstance(increaseTokens);
-    ContainerUpdateResponse updateResponse =
-        containerManager.updateContainer(updateRequest);
-    Assert.assertEquals(
-        1, updateResponse.getSuccessfullyUpdatedContainers().size());
-    Assert.assertTrue(updateResponse.getFailedRequests().isEmpty());
-    // Check status
-    List<ContainerId> containerIds = new ArrayList<>();
-    containerIds.add(cId);
-    GetContainerStatusesRequest gcsRequest =
-        GetContainerStatusesRequest.newInstance(containerIds);
-    ContainerStatus containerStatus = containerManager
-        .getContainerStatuses(gcsRequest).getContainerStatuses().get(0);
-    // Check status immediately as resource increase is blocking
-    assertEquals(targetResource, containerStatus.getCapability());
-    // Simulate a decrease request
-    List<org.apache.hadoop.yarn.api.records.Container> containersToDecrease
-        = new ArrayList<>();
-    targetResource = Resource.newInstance(2048, 2);
-    org.apache.hadoop.yarn.api.records.Container decreasedContainer =
-        org.apache.hadoop.yarn.api.records.Container
-            .newInstance(cId, null, null, targetResource, null, null);
-    containersToDecrease.add(decreasedContainer);
-    containerManager.handle(
-        new CMgrDecreaseContainersResourceEvent(containersToDecrease));
-    // Check status with retry
-    containerStatus = containerManager
-        .getContainerStatuses(gcsRequest).getContainerStatuses().get(0);
-    int retry = 0;
-    while (!targetResource.equals(containerStatus.getCapability()) &&
-        (retry++ < 5)) {
-      Thread.sleep(200);
-      containerStatus = containerManager.getContainerStatuses(gcsRequest)
-          .getContainerStatuses().get(0);
-    }
-    assertEquals(targetResource, containerStatus.getCapability());
-  }
-
-  @Test
-  public void testOutputThreadDumpSignal() throws IOException,
-      InterruptedException, YarnException {
-    testContainerLaunchAndSignal(SignalContainerCommand.OUTPUT_THREAD_DUMP);
-  }
-
-  @Test
-  public void testGracefulShutdownSignal() throws IOException,
-      InterruptedException, YarnException {
-    testContainerLaunchAndSignal(SignalContainerCommand.GRACEFUL_SHUTDOWN);
-  }
-
-  @Test
-  public void testForcefulShutdownSignal() throws IOException,
-      InterruptedException, YarnException {
-    testContainerLaunchAndSignal(SignalContainerCommand.FORCEFUL_SHUTDOWN);
-  }
-
-  // Verify signal container request can be delivered from
-  // NodeStatusUpdaterImpl to ContainerExecutor.
-  private void testContainerLaunchAndSignal(SignalContainerCommand command)
-      throws IOException, InterruptedException, YarnException {
-
-    Signal signal = ContainerLaunch.translateCommandToSignal(command);
-    containerManager.start();
-
-    File scriptFile = new File(tmpDir, "scriptFile.sh");
-    PrintWriter fileWriter = new PrintWriter(scriptFile);
-    File processStartFile =
-        new File(tmpDir, "start_file.txt").getAbsoluteFile();
-    fileWriter.write("\numask 0"); // So that start file is readable by the test
-    fileWriter.write("\necho Hello World! > " + processStartFile);
-    fileWriter.write("\necho $$ >> " + processStartFile);
-    fileWriter.write("\nexec sleep 1000s");
-    fileWriter.close();
-
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-
-    // ////// Construct the Container-id
-    ContainerId cId = createContainerId(0);
-
-    URL resource_alpha =
-        URL.fromPath(localFS
-            .makeQualified(new Path(scriptFile.getAbsolutePath())));
-    LocalResource rsrc_alpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrc_alpha.setResource(resource_alpha);
-    rsrc_alpha.setSize(-1);
-    rsrc_alpha.setVisibility(LocalResourceVisibility.APPLICATION);
-    rsrc_alpha.setType(LocalResourceType.FILE);
-    rsrc_alpha.setTimestamp(scriptFile.lastModified());
-    String destinationFile = "dest_file";
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put(destinationFile, rsrc_alpha);
-    containerLaunchContext.setLocalResources(localResources);
-    List<String> commands = new ArrayList<>();
-    commands.add("/bin/bash");
-    commands.add(scriptFile.getAbsolutePath());
-    containerLaunchContext.setCommands(commands);
-    StartContainerRequest scRequest =
-        StartContainerRequest.newInstance(
-            containerLaunchContext,
-            createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
-            user, context.getContainerTokenSecretManager()));
-    List<StartContainerRequest> list = new ArrayList<>();
-    list.add(scRequest);
-    StartContainersRequest allRequests =
-        StartContainersRequest.newInstance(list);
-    containerManager.startContainers(allRequests);
-
-    int timeoutSecs = 0;
-    while (!processStartFile.exists() && timeoutSecs++ < 20) {
-      Thread.sleep(1000);
-      LOG.info("Waiting for process start-file to be created");
-    }
-    Assert.assertTrue("ProcessStartFile doesn't exist!",
-        processStartFile.exists());
-
-    // Simulate NodeStatusUpdaterImpl sending CMgrSignalContainersEvent
-    SignalContainerRequest signalReq =
-        SignalContainerRequest.newInstance(cId, command);
-    List<SignalContainerRequest> reqs = new ArrayList<>();
-    reqs.add(signalReq);
-    containerManager.handle(new CMgrSignalContainersEvent(reqs));
-
-    final ArgumentCaptor<ContainerSignalContext> signalContextCaptor =
-        ArgumentCaptor.forClass(ContainerSignalContext.class);
-    if (signal.equals(Signal.NULL)) {
-      verify(exec, never()).signalContainer(signalContextCaptor.capture());
-    } else {
-      verify(exec, timeout(10000).atLeastOnce()).signalContainer(signalContextCaptor.capture());
-      ContainerSignalContext signalContext = signalContextCaptor.getAllValues().get(0);
-      Assert.assertEquals(cId, signalContext.getContainer().getContainerId());
-      Assert.assertEquals(signal, signalContext.getSignal());
-    }
-  }
-
-  @Test
-  public void testStartContainerFailureWithInvalidLocalResource()
-      throws Exception {
-    containerManager.start();
-    LocalResource rsrc_alpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrc_alpha.setResource(null);
-    rsrc_alpha.setSize(-1);
-    rsrc_alpha.setVisibility(LocalResourceVisibility.APPLICATION);
-    rsrc_alpha.setType(LocalResourceType.FILE);
-    rsrc_alpha.setTimestamp(System.currentTimeMillis());
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put("invalid_resource", rsrc_alpha);
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    ContainerLaunchContext spyContainerLaunchContext =
-        Mockito.spy(containerLaunchContext);
-    Mockito.when(spyContainerLaunchContext.getLocalResources())
-        .thenReturn(localResources);
-
-    ContainerId cId = createContainerId(0);
-    String user = "start_container_fail";
-    Token containerToken =
-        createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
-            user, context.getContainerTokenSecretManager());
-    StartContainerRequest request = StartContainerRequest
-        .newInstance(spyContainerLaunchContext, containerToken);
-
-    // start containers
-    List<StartContainerRequest> startRequest =
-        new ArrayList<StartContainerRequest>();
-    startRequest.add(request);
-    StartContainersRequest requestList =
-        StartContainersRequest.newInstance(startRequest);
-
-    StartContainersResponse response =
-        containerManager.startContainers(requestList);
-    Assert.assertTrue(response.getFailedRequests().size() == 1);
-    Assert.assertTrue(response.getSuccessfullyStartedContainers().size() == 0);
-    Assert.assertTrue(response.getFailedRequests().containsKey(cId));
-    Assert.assertTrue(response.getFailedRequests().get(cId).getMessage()
-        .contains("Null resource URL for local resource"));
-  }
-
-  @Test
-  public void testStartContainerFailureWithNullTypeLocalResource()
-      throws Exception {
-    containerManager.start();
-    LocalResource rsrc_alpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrc_alpha.setResource(URL.fromPath(new Path("./")));
-    rsrc_alpha.setSize(-1);
-    rsrc_alpha.setVisibility(LocalResourceVisibility.APPLICATION);
-    rsrc_alpha.setType(null);
-    rsrc_alpha.setTimestamp(System.currentTimeMillis());
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put("null_type_resource", rsrc_alpha);
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    ContainerLaunchContext spyContainerLaunchContext =
-        Mockito.spy(containerLaunchContext);
-    Mockito.when(spyContainerLaunchContext.getLocalResources())
-        .thenReturn(localResources);
-
-    ContainerId cId = createContainerId(0);
-    String user = "start_container_fail";
-    Token containerToken =
-        createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
-            user, context.getContainerTokenSecretManager());
-    StartContainerRequest request = StartContainerRequest
-        .newInstance(spyContainerLaunchContext, containerToken);
-
-    // start containers
-    List<StartContainerRequest> startRequest =
-        new ArrayList<StartContainerRequest>();
-    startRequest.add(request);
-    StartContainersRequest requestList =
-        StartContainersRequest.newInstance(startRequest);
-
-    StartContainersResponse response =
-        containerManager.startContainers(requestList);
-    Assert.assertTrue(response.getFailedRequests().size() == 1);
-    Assert.assertTrue(response.getSuccessfullyStartedContainers().size() == 0);
-    Assert.assertTrue(response.getFailedRequests().containsKey(cId));
-    Assert.assertTrue(response.getFailedRequests().get(cId).getMessage()
-        .contains("Null resource type for local resource"));
-  }
-
-  @Test
-  public void testStartContainerFailureWithNullVisibilityLocalResource()
-      throws Exception {
-    containerManager.start();
-    LocalResource rsrc_alpha =
-        recordFactory.newRecordInstance(LocalResource.class);
-    rsrc_alpha.setResource(URL.fromPath(new Path("./")));
-    rsrc_alpha.setSize(-1);
-    rsrc_alpha.setVisibility(null);
-    rsrc_alpha.setType(LocalResourceType.FILE);
-    rsrc_alpha.setTimestamp(System.currentTimeMillis());
-    Map<String, LocalResource> localResources =
-        new HashMap<String, LocalResource>();
-    localResources.put("null_visibility_resource", rsrc_alpha);
-    ContainerLaunchContext containerLaunchContext =
-        recordFactory.newRecordInstance(ContainerLaunchContext.class);
-    ContainerLaunchContext spyContainerLaunchContext =
-        Mockito.spy(containerLaunchContext);
-    Mockito.when(spyContainerLaunchContext.getLocalResources())
-        .thenReturn(localResources);
-
-    ContainerId cId = createContainerId(0);
-    String user = "start_container_fail";
-    Token containerToken =
-        createContainerToken(cId, DUMMY_RM_IDENTIFIER, context.getNodeId(),
-            user, context.getContainerTokenSecretManager());
-    StartContainerRequest request = StartContainerRequest
-        .newInstance(spyContainerLaunchContext, containerToken);
-
-    // start containers
-    List<StartContainerRequest> startRequest =
-        new ArrayList<StartContainerRequest>();
-    startRequest.add(request);
-    StartContainersRequest requestList =
-        StartContainersRequest.newInstance(startRequest);
-
-    StartContainersResponse response =
-        containerManager.startContainers(requestList);
-    Assert.assertTrue(response.getFailedRequests().size() == 1);
-    Assert.assertTrue(response.getSuccessfullyStartedContainers().size() == 0);
-    Assert.assertTrue(response.getFailedRequests().containsKey(cId));
-    Assert.assertTrue(response.getFailedRequests().get(cId).getMessage()
-        .contains("Null resource visibility for local resource"));
+        BuilderUtils
+          .newContainerToken(nodeId, containerTokenSecretManager
+            .retrievePassword(containerTokenIdentifier),
+            containerTokenIdentifier);
+    return containerToken;
   }
 }

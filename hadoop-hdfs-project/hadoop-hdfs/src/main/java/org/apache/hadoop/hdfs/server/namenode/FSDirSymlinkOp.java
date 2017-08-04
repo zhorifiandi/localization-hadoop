@@ -17,23 +17,23 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.InvalidPathException;
 import org.apache.hadoop.fs.UnresolvedLinkException;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.DFSUtil;
+import org.apache.hadoop.hdfs.protocol.HdfsFileStatus;
 import org.apache.hadoop.hdfs.protocol.QuotaExceededException;
-import org.apache.hadoop.hdfs.server.namenode.FSDirectory.DirOp;
 
 import java.io.IOException;
+import java.util.Map;
 
 import static org.apache.hadoop.util.Time.now;
 
 class FSDirSymlinkOp {
 
-  static FileStatus createSymlinkInt(
+  static HdfsFileStatus createSymlinkInt(
       FSNamesystem fsn, String target, final String linkArg,
       PermissionStatus dirPerms, boolean createParent, boolean logRetryCache)
       throws IOException {
@@ -42,8 +42,7 @@ class FSDirSymlinkOp {
     if (!DFSUtil.isValidName(link)) {
       throw new InvalidPathException("Invalid link name: " + link);
     }
-    if (FSDirectory.isReservedName(target) || target.isEmpty()
-        || FSDirectory.isExactReservedName(target)) {
+    if (FSDirectory.isReservedName(target) || target.isEmpty()) {
       throw new InvalidPathException("Invalid target name: " + target);
     }
 
@@ -53,13 +52,14 @@ class FSDirSymlinkOp {
     }
 
     FSPermissionChecker pc = fsn.getPermissionChecker();
+    byte[][] pathComponents = FSDirectory.getPathComponentsForReservedPath(link);
     INodesInPath iip;
     fsd.writeLock();
     try {
-      iip = fsd.resolvePath(pc, link, DirOp.WRITE_LINK);
-      link = iip.getPath();
+      link = fsd.resolvePath(pc, link, pathComponents);
+      iip = fsd.getINodesInPath4Write(link, false);
       if (!createParent) {
-        fsd.verifyParentDir(iip);
+        fsd.verifyParentDir(iip, link);
       }
       if (!fsd.isValidToCreate(link, iip)) {
         throw new IOException(
@@ -89,8 +89,7 @@ class FSDirSymlinkOp {
     final INodeSymlink symlink = new INodeSymlink(id, null, perm, mtime, atime,
         target);
     symlink.setLocalName(localName);
-    return fsd.addINode(iip, symlink, perm.getPermission()) != null ?
-        symlink : null;
+    return fsd.addINode(iip, symlink) != null ? symlink : null;
   }
 
   /**
@@ -100,21 +99,21 @@ class FSDirSymlinkOp {
       INodesInPath iip, String target, PermissionStatus dirPerms,
       boolean createParent, boolean logRetryCache) throws IOException {
     final long mtime = now();
-    final INodesInPath parent;
+    final byte[] localName = iip.getLastLocalName();
     if (createParent) {
-      parent = FSDirMkdirOp.createAncestorDirectories(fsd, iip, dirPerms);
-      if (parent == null) {
+      Map.Entry<INodesInPath, String> e = FSDirMkdirOp
+          .createAncestorDirectories(fsd, iip, dirPerms);
+      if (e == null) {
         return null;
       }
-    } else {
-      parent = iip.getParentINodesInPath();
+      iip = INodesInPath.append(e.getKey(), null, localName);
     }
     final String userName = dirPerms.getUserName();
     long id = fsd.allocateNewInodeId();
     PermissionStatus perm = new PermissionStatus(
         userName, null, FsPermission.getDefault());
-    INodeSymlink newNode = unprotectedAddSymlink(fsd, parent,
-        iip.getLastLocalName(), id, target, mtime, mtime, perm);
+    INodeSymlink newNode = unprotectedAddSymlink(fsd, iip.getExistingINodes(),
+        localName, id, target, mtime, mtime, perm);
     if (newNode == null) {
       NameNode.stateChangeLog.info("addSymlink: failed to add " + path);
       return null;

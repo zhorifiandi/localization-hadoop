@@ -23,7 +23,6 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.ha.HAServiceProtocol.HAServiceState;
-import org.apache.hadoop.yarn.ams.ApplicationMasterServiceContext;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.conf.ConfigurationProvider;
@@ -31,30 +30,24 @@ import org.apache.hadoop.yarn.event.Dispatcher;
 import org.apache.hadoop.yarn.server.resourcemanager.ahs.RMApplicationHistoryWriter;
 import org.apache.hadoop.yarn.server.resourcemanager.metrics.SystemMetricsPublisher;
 import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMNodeLabelsManager;
-import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMDelegatedNodeLabelsUpdater;
-import org.apache.hadoop.yarn.server.resourcemanager.placement.PlacementManager;
 import org.apache.hadoop.yarn.server.resourcemanager.recovery.RMStateStore;
 import org.apache.hadoop.yarn.server.resourcemanager.reservation.ReservationSystem;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.AMLivelinessMonitor;
-import org.apache.hadoop.yarn.server.resourcemanager.rmapp.monitor.RMAppLifetimeMonitor;
 import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.ContainerAllocationExpirer;
 import org.apache.hadoop.yarn.server.resourcemanager.rmnode.RMNode;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceScheduler;
-
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.distributed.QueueLimitCalculator;
 import org.apache.hadoop.yarn.server.resourcemanager.security.AMRMTokenSecretManager;
 import org.apache.hadoop.yarn.server.resourcemanager.security.ClientToAMTokenSecretManagerInRM;
 import org.apache.hadoop.yarn.server.resourcemanager.security.DelegationTokenRenewer;
 import org.apache.hadoop.yarn.server.resourcemanager.security.NMTokenSecretManagerInRM;
 import org.apache.hadoop.yarn.server.resourcemanager.security.RMContainerTokenSecretManager;
 import org.apache.hadoop.yarn.server.resourcemanager.security.RMDelegationTokenSecretManager;
-import org.apache.hadoop.yarn.server.resourcemanager.timelineservice.RMTimelineCollectorManager;
 
 /**
  * Context of the ResourceManager.
  */
-public interface RMContext extends ApplicationMasterServiceContext {
+public interface RMContext {
 
   Dispatcher getDispatcher();
 
@@ -68,7 +61,7 @@ public interface RMContext extends ApplicationMasterServiceContext {
   
   ConcurrentMap<ApplicationId, ByteBuffer> getSystemCredentialsForApps();
 
-  ConcurrentMap<NodeId, RMNode> getInactiveRMNodes();
+  ConcurrentMap<String, RMNode> getInactiveRMNodes();
 
   ConcurrentMap<NodeId, RMNode> getRMNodes();
 
@@ -116,11 +109,6 @@ public interface RMContext extends ApplicationMasterServiceContext {
 
   SystemMetricsPublisher getSystemMetricsPublisher();
 
-  void setRMTimelineCollectorManager(
-      RMTimelineCollectorManager timelineCollectorManager);
-
-  RMTimelineCollectorManager getRMTimelineCollectorManager();
-
   ConfigurationProvider getConfigurationProvider();
 
   boolean isWorkPreservingRecoveryEnabled();
@@ -129,11 +117,6 @@ public interface RMContext extends ApplicationMasterServiceContext {
   
   public void setNodeLabelManager(RMNodeLabelsManager mgr);
 
-  RMDelegatedNodeLabelsUpdater getRMDelegatedNodeLabelsUpdater();
-
-  void setRMDelegatedNodeLabelsUpdater(
-      RMDelegatedNodeLabelsUpdater nodeLabelsUpdater);
-
   long getEpoch();
 
   ReservationSystem getReservationSystem();
@@ -141,22 +124,4 @@ public interface RMContext extends ApplicationMasterServiceContext {
   boolean isSchedulerReadyForAllocatingContainers();
   
   Configuration getYarnConfiguration();
-  
-  PlacementManager getQueuePlacementManager();
-  
-  void setQueuePlacementManager(PlacementManager placementMgr);
-
-  void setLeaderElectorService(EmbeddedElector elector);
-
-  EmbeddedElector getLeaderElectorService();
-
-  QueueLimitCalculator getNodeManagerQueueLimitCalculator();
-
-  void setRMAppLifetimeMonitor(RMAppLifetimeMonitor rmAppLifetimeMonitor);
-
-  RMAppLifetimeMonitor getRMAppLifetimeMonitor();
-
-  String getHAZookeeperConnectionState();
-
-  ResourceManager getResourceManager();
 }

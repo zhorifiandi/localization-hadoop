@@ -234,6 +234,6 @@ public class BloomFilter extends Filter {
   
   /* @return number of bytes needed to hold bit vector */
   private int getNBytes() {
-    return (int)(((long)vectorSize + 7) / 8);
+    return (vectorSize + 7) / 8;
   }
 }//end class

@@ -18,31 +18,32 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockCollection;
-import org.apache.hadoop.hdfs.server.namenode.ha.HAContext;
+import org.apache.hadoop.hdfs.protocol.Block;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguousUnderConstruction;
+import org.apache.hadoop.hdfs.server.namenode.NameNode.OperationCategory;
 import org.apache.hadoop.hdfs.util.RwLock;
+import org.apache.hadoop.ipc.StandbyException;
+import org.apache.hadoop.security.AccessControlException;
 
 /** Namesystem operations. */
 @InterfaceAudience.Private
 public interface Namesystem extends RwLock, SafeMode {
   /** Is this name system running? */
-  boolean isRunning();
+  public boolean isRunning();
 
-  BlockCollection getBlockCollection(long id);
+  /** Check if the user has superuser privilege. */
+  public void checkSuperuserPrivilege() throws AccessControlException;
 
-  FSDirectory getFSDirectory();
+  /** @return the block pool ID */
+  public String getBlockPoolId();
 
-  void startSecretManagerIfNecessary();
+  public boolean isInStandbyState();
 
-  boolean isInSnapshot(long blockCollectionID);
+  public boolean isGenStampInFuture(Block block);
 
-  CacheManager getCacheManager();
+  public void adjustSafeModeBlockTotals(int deltaSafe, int deltaTotal);
 
-  HAContext getHAContext();
+  public void checkOperation(OperationCategory read) throws StandbyException;
 
-  /**
-   * @return Whether the namenode is transitioning to active state and is in the
-   *         middle of the starting active services.
-   */
-  boolean inTransitionToActive();
+  public boolean isInSnapshot(BlockInfoContiguousUnderConstruction blockUC);
 }

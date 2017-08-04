@@ -17,243 +17,139 @@
  */
 package org.apache.hadoop.security;
 
-import static org.apache.hadoop.security.LdapGroupsMapping.CONNECTION_TIMEOUT;
-import static org.apache.hadoop.security.LdapGroupsMapping.READ_TIMEOUT;
-import static org.apache.hadoop.test.GenericTestUtils.assertExceptionContains;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
-import java.net.ServerSocket;
-import java.net.Socket;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.HashSet;
 
 import javax.naming.CommunicationException;
+import javax.naming.NamingEnumeration;
 import javax.naming.NamingException;
+import javax.naming.directory.Attribute;
+import javax.naming.directory.Attributes;
+import javax.naming.directory.BasicAttribute;
+import javax.naming.directory.BasicAttributes;
+import javax.naming.directory.DirContext;
 import javax.naming.directory.SearchControls;
+import javax.naming.directory.SearchResult;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.alias.CredentialProvider;
 import org.apache.hadoop.security.alias.CredentialProviderFactory;
 import org.apache.hadoop.security.alias.JavaKeyStoreProvider;
-import org.apache.hadoop.test.GenericTestUtils;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import org.mockito.Mockito;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 @SuppressWarnings("unchecked")
-public class TestLdapGroupsMapping extends TestLdapGroupsMappingBase {
-
-  private static final Logger LOG = LoggerFactory.getLogger(
-      TestLdapGroupsMapping.class);
-
-  /**
-   * To construct a LDAP InitialDirContext object, it will firstly initiate a
-   * protocol session to server for authentication. After a session is
-   * established, a method of authentication is negotiated between the server
-   * and the client. When the client is authenticated, the LDAP server will send
-   * a bind response, whose message contents are bytes as the
-   * {@link #AUTHENTICATE_SUCCESS_MSG}. After receiving this bind response
-   * message, the LDAP context is considered connected to the server and thus
-   * can issue query requests for determining group membership.
-   */
-  private static final byte[] AUTHENTICATE_SUCCESS_MSG =
-      {48, 12, 2, 1, 1, 97, 7, 10, 1, 0, 4, 0, 4, 0};
-
-  private final String userDN = "CN=some_user,DC=test,DC=com";
-
+public class TestLdapGroupsMapping {
+  private DirContext mockContext;
+  
+  private LdapGroupsMapping mappingSpy = spy(new LdapGroupsMapping());
+  private NamingEnumeration mockUserNamingEnum = mock(NamingEnumeration.class);
+  private NamingEnumeration mockGroupNamingEnum = mock(NamingEnumeration.class);
+  private String[] testGroups = new String[] {"group1", "group2"};
+  
   @Before
   public void setupMocks() throws NamingException {
-    when(getUserSearchResult().getNameInNamespace()).
-        thenReturn(userDN);
+    mockContext = mock(DirContext.class);
+    doReturn(mockContext).when(mappingSpy).getDirContext();
+            
+    SearchResult mockUserResult = mock(SearchResult.class);
+    // We only ever call hasMoreElements once for the user NamingEnum, so 
+    // we can just have one return value
+    when(mockUserNamingEnum.hasMoreElements()).thenReturn(true);
+    when(mockUserNamingEnum.nextElement()).thenReturn(mockUserResult);
+    when(mockUserResult.getNameInNamespace()).thenReturn("CN=some_user,DC=test,DC=com");
+    
+    SearchResult mockGroupResult = mock(SearchResult.class);
+    // We're going to have to define the loop here. We want two iterations,
+    // to get both the groups
+    when(mockGroupNamingEnum.hasMoreElements()).thenReturn(true, true, false);
+    when(mockGroupNamingEnum.nextElement()).thenReturn(mockGroupResult);
+    
+    // Define the attribute for the name of the first group
+    Attribute group1Attr = new BasicAttribute("cn");
+    group1Attr.add(testGroups[0]);
+    Attributes group1Attrs = new BasicAttributes();
+    group1Attrs.put(group1Attr);
+    
+    // Define the attribute for the name of the second group
+    Attribute group2Attr = new BasicAttribute("cn");
+    group2Attr.add(testGroups[1]);
+    Attributes group2Attrs = new BasicAttributes();
+    group2Attrs.put(group2Attr);
+    
+    // This search result gets reused, so return group1, then group2
+    when(mockGroupResult.getAttributes()).thenReturn(group1Attrs, group2Attrs);
   }
   
   @Test
   public void testGetGroups() throws IOException, NamingException {
     // The search functionality of the mock context is reused, so we will
     // return the user NamingEnumeration first, and then the group
-    when(getContext().search(anyString(), anyString(), any(Object[].class),
+    when(mockContext.search(anyString(), anyString(), any(Object[].class),
         any(SearchControls.class)))
-        .thenReturn(getUserNames(), getGroupNames());
-    doTestGetGroups(Arrays.asList(getTestGroups()), 2);
-  }
-
-  @Test
-  public void testGetGroupsWithDifferentBaseDNs() throws Exception {
-    Configuration conf = new Configuration();
-    // Set this, so we don't throw an exception
-    conf.set(LdapGroupsMapping.LDAP_URL_KEY, "ldap://test");
-    String userBaseDN = "ou=Users,dc=xxx,dc=com ";
-    String groupBaseDN = " ou=Groups,dc=xxx,dc=com";
-    conf.set(LdapGroupsMapping.USER_BASE_DN_KEY, userBaseDN);
-    conf.set(LdapGroupsMapping.GROUP_BASE_DN_KEY, groupBaseDN);
-
-    doTestGetGroupsWithBaseDN(conf, userBaseDN.trim(), groupBaseDN.trim());
-  }
-
-  @Test
-  public void testGetGroupsWithDefaultBaseDN() throws Exception {
-    Configuration conf = new Configuration();
-    // Set this, so we don't throw an exception
-    conf.set(LdapGroupsMapping.LDAP_URL_KEY, "ldap://test");
-    String baseDN = " dc=xxx,dc=com ";
-    conf.set(LdapGroupsMapping.BASE_DN_KEY, baseDN);
-    doTestGetGroupsWithBaseDN(conf, baseDN.trim(), baseDN.trim());
-  }
-
-  /**
-   * Helper method to do the LDAP getGroups operation using given user base DN
-   * and group base DN.
-   * @param conf The created configuration
-   * @param userBaseDN user base DN
-   * @param groupBaseDN group base DN
-   * @throws NamingException if error happens when getting groups
-   */
-  private void doTestGetGroupsWithBaseDN(Configuration conf, String userBaseDN,
-      String groupBaseDN) throws NamingException {
-    final LdapGroupsMapping groupsMapping = getGroupsMapping();
-    groupsMapping.setConf(conf);
-
-    final String userName = "some_user";
-
-    // The search functionality of the mock context is reused, so we will
-    // return the user NamingEnumeration first, and then the group
-    when(getContext().search(anyString(), anyString(), any(Object[].class),
-        any(SearchControls.class)))
-        .thenReturn(getUserNames(), getGroupNames());
-
-    List<String> groups = groupsMapping.getGroups(userName);
-    Assert.assertEquals(Arrays.asList(getTestGroups()), groups);
-
-    // We should have searched for the username and groups with default base dn
-    verify(getContext(), times(1)).search(userBaseDN,
-        LdapGroupsMapping.USER_SEARCH_FILTER_DEFAULT,
-        new Object[]{userName},
-        LdapGroupsMapping.SEARCH_CONTROLS);
-
-    verify(getContext(), times(1)).search(groupBaseDN,
-        "(&" + LdapGroupsMapping.GROUP_SEARCH_FILTER_DEFAULT + "(" +
-            LdapGroupsMapping.GROUP_MEMBERSHIP_ATTR_DEFAULT + "={0}))",
-        new Object[]{userDN},
-        LdapGroupsMapping.SEARCH_CONTROLS);
-  }
-
-  @Test
-  public void testGetGroupsWithHierarchy() throws IOException, NamingException {
-    // The search functionality of the mock context is reused, so we will
-    // return the user NamingEnumeration first, and then the group
-    // The parent search is run once for each level, and is a different search
-    // The parent group is returned once for each group, yet the final list
-    // should be unique
-    when(getContext().search(anyString(), anyString(), any(Object[].class),
-        any(SearchControls.class)))
-        .thenReturn(getUserNames(), getGroupNames());
-    when(getContext().search(anyString(), anyString(),
-        any(SearchControls.class)))
-        .thenReturn(getParentGroupNames());
-    doTestGetGroupsWithParent(Arrays.asList(getTestParentGroups()), 2, 1);
+        .thenReturn(mockUserNamingEnum, mockGroupNamingEnum);
+    
+    doTestGetGroups(Arrays.asList(testGroups), 2);
   }
 
   @Test
   public void testGetGroupsWithConnectionClosed() throws IOException, NamingException {
     // The case mocks connection is closed/gc-ed, so the first search call throws CommunicationException,
     // then after reconnected return the user NamingEnumeration first, and then the group
-    when(getContext().search(anyString(), anyString(), any(Object[].class),
+    when(mockContext.search(anyString(), anyString(), any(Object[].class),
         any(SearchControls.class)))
         .thenThrow(new CommunicationException("Connection is closed"))
-        .thenReturn(getUserNames(), getGroupNames());
+        .thenReturn(mockUserNamingEnum, mockGroupNamingEnum);
     
-    // Although connection is down but after reconnected
-    // it still should retrieve the result groups
-    // 1 is the first failure call
-    doTestGetGroups(Arrays.asList(getTestGroups()), 1 + 2);
+    // Although connection is down but after reconnected it still should retrieve the result groups
+    doTestGetGroups(Arrays.asList(testGroups), 1 + 2); // 1 is the first failure call 
   }
 
   @Test
   public void testGetGroupsWithLdapDown() throws IOException, NamingException {
     // This mocks the case where Ldap server is down, and always throws CommunicationException 
-    when(getContext().search(anyString(), anyString(), any(Object[].class),
+    when(mockContext.search(anyString(), anyString(), any(Object[].class),
         any(SearchControls.class)))
         .thenThrow(new CommunicationException("Connection is closed"));
     
     // Ldap server is down, no groups should be retrieved
     doTestGetGroups(Arrays.asList(new String[] {}), 
-        LdapGroupsMapping.RECONNECT_RETRY_COUNT);
+        1 + LdapGroupsMapping.RECONNECT_RETRY_COUNT); // 1 is the first normal call
   }
   
   private void doTestGetGroups(List<String> expectedGroups, int searchTimes) throws IOException, NamingException {  
     Configuration conf = new Configuration();
     // Set this, so we don't throw an exception
     conf.set(LdapGroupsMapping.LDAP_URL_KEY, "ldap://test");
-
-    LdapGroupsMapping groupsMapping = getGroupsMapping();
-    groupsMapping.setConf(conf);
+    
+    mappingSpy.setConf(conf);
     // Username is arbitrary, since the spy is mocked to respond the same,
     // regardless of input
-    List<String> groups = groupsMapping.getGroups("some_user");
+    List<String> groups = mappingSpy.getGroups("some_user");
     
     Assert.assertEquals(expectedGroups, groups);
     
     // We should have searched for a user, and then two groups
-    verify(getContext(), times(searchTimes)).search(anyString(),
+    verify(mockContext, times(searchTimes)).search(anyString(),
                                          anyString(),
                                          any(Object[].class),
                                          any(SearchControls.class));
   }
-
-  private void doTestGetGroupsWithParent(List<String> expectedGroups,
-      int searchTimesGroup, int searchTimesParentGroup)
-          throws IOException, NamingException {
-    Configuration conf = new Configuration();
-    // Set this, so we don't throw an exception
-    conf.set(LdapGroupsMapping.LDAP_URL_KEY, "ldap://test");
-    // Set the config to get parents 1 level up
-    conf.setInt(LdapGroupsMapping.GROUP_HIERARCHY_LEVELS_KEY, 1);
-
-    LdapGroupsMapping groupsMapping = getGroupsMapping();
-    groupsMapping.setConf(conf);
-    // Username is arbitrary, since the spy is mocked to respond the same,
-    // regardless of input
-    List<String> groups = groupsMapping.getGroups("some_user");
-
-    // compare lists, ignoring the order
-    Assert.assertEquals(new HashSet<String>(expectedGroups),
-        new HashSet<String>(groups));
-
-    // We should have searched for a user, and group
-    verify(getContext(), times(searchTimesGroup)).search(anyString(),
-                                         anyString(),
-                                         any(Object[].class),
-                                         any(SearchControls.class));
-    // One groups search for the parent group should have been done
-    verify(getContext(), times(searchTimesParentGroup)).search(anyString(),
-                                         anyString(),
-                                         any(SearchControls.class));
-  }
-
+  
   @Test
   public void testExtractPassword() throws IOException {
-    File testDir = GenericTestUtils.getTestDir();
+    File testDir = new File(System.getProperty("test.build.data", 
+                                               "target/test-dir"));
     testDir.mkdirs();
     File secretFile = new File(testDir, "secret.txt");
     Writer writer = new FileWriter(secretFile);
@@ -267,7 +163,8 @@ public class TestLdapGroupsMapping extends TestLdapGroupsMappingBase {
 
   @Test
   public void testConfGetPassword() throws Exception {
-    File testDir = GenericTestUtils.getTestDir();
+    File testDir = new File(System.getProperty("test.build.data",
+                                               "target/test-dir"));
     Configuration conf = new Configuration();
     final Path jksPath = new Path(testDir.toString(), "test.jks");
     final String ourUrl =
@@ -317,134 +214,4 @@ public class TestLdapGroupsMapping extends TestLdapGroupsMappingBase {
     // extract password
     Assert.assertEquals("", mapping.getPassword(conf,"invalid-alias", ""));
   }
-
-  /**
-   * Test that if the {@link LdapGroupsMapping#CONNECTION_TIMEOUT} is set in the
-   * configuration, the LdapGroupsMapping connection will timeout by this value
-   * if it does not get a LDAP response from the server.
-   * @throws IOException
-   * @throws InterruptedException
-   */
-  @Test (timeout = 30000)
-  public void testLdapConnectionTimeout()
-      throws IOException, InterruptedException {
-    final int connectionTimeoutMs = 3 * 1000; // 3s
-    try (ServerSocket serverSock = new ServerSocket(0)) {
-      final CountDownLatch finLatch = new CountDownLatch(1);
-
-      // Below we create a LDAP server which will accept a client request;
-      // but it will never reply to the bind (connect) request.
-      // Client of this LDAP server is expected to get a connection timeout.
-      final Thread ldapServer = new Thread(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            try (Socket ignored = serverSock.accept()) {
-              finLatch.await();
-            }
-          } catch (Exception e) {
-            e.printStackTrace();
-          }
-        }
-      });
-      ldapServer.start();
-
-      final LdapGroupsMapping mapping = new LdapGroupsMapping();
-      final Configuration conf = new Configuration();
-      conf.set(LdapGroupsMapping.LDAP_URL_KEY,
-          "ldap://localhost:" + serverSock.getLocalPort());
-      conf.setInt(CONNECTION_TIMEOUT, connectionTimeoutMs);
-      mapping.setConf(conf);
-
-      try {
-        mapping.doGetGroups("hadoop", 1);
-        fail("The LDAP query should have timed out!");
-      } catch (NamingException ne) {
-        LOG.debug("Got the exception while LDAP querying: ", ne);
-        assertExceptionContains("LDAP response read timed out, timeout used:" +
-            connectionTimeoutMs + "ms", ne);
-        assertFalse(ne.getMessage().contains("remaining name"));
-      } finally {
-        finLatch.countDown();
-      }
-      ldapServer.join();
-    }
-  }
-
-  /**
-   * Test that if the {@link LdapGroupsMapping#READ_TIMEOUT} is set in the
-   * configuration, the LdapGroupsMapping query will timeout by this value if
-   * it does not get a LDAP response from the server.
-   *
-   * @throws IOException
-   * @throws InterruptedException
-   */
-  @Test(timeout = 30000)
-  public void testLdapReadTimeout() throws IOException, InterruptedException {
-    final int readTimeoutMs = 4 * 1000; // 4s
-    try (ServerSocket serverSock = new ServerSocket(0)) {
-      final CountDownLatch finLatch = new CountDownLatch(1);
-
-      // Below we create a LDAP server which will accept a client request,
-      // authenticate it successfully; but it will never reply to the following
-      // query request.
-      // Client of this LDAP server is expected to get a read timeout.
-      final Thread ldapServer = new Thread(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            try (Socket clientSock = serverSock.accept()) {
-              IOUtils.skipFully(clientSock.getInputStream(), 1);
-              clientSock.getOutputStream().write(AUTHENTICATE_SUCCESS_MSG);
-              finLatch.await();
-            }
-          } catch (Exception e) {
-            e.printStackTrace();
-          }
-        }
-      });
-      ldapServer.start();
-
-      final LdapGroupsMapping mapping = new LdapGroupsMapping();
-      final Configuration conf = new Configuration();
-      conf.set(LdapGroupsMapping.LDAP_URL_KEY,
-          "ldap://localhost:" + serverSock.getLocalPort());
-      conf.setInt(READ_TIMEOUT, readTimeoutMs);
-      mapping.setConf(conf);
-
-      try {
-        mapping.doGetGroups("hadoop", 1);
-        fail("The LDAP query should have timed out!");
-      } catch (NamingException ne) {
-        LOG.debug("Got the exception while LDAP querying: ", ne);
-        assertExceptionContains("LDAP response read timed out, timeout used:" +
-            readTimeoutMs + "ms", ne);
-        assertExceptionContains("remaining name", ne);
-      } finally {
-        finLatch.countDown();
-      }
-      ldapServer.join();
-    }
-  }
-
-  /**
-   * Make sure that when
-   * {@link Configuration#getPassword(String)} throws an IOException,
-   * {@link LdapGroupsMapping#setConf(Configuration)} does not throw an NPE.
-   *
-   * @throws Exception
-   */
-  @Test(timeout = 10000)
-  public void testSetConf() throws Exception {
-    Configuration conf = new Configuration();
-    Configuration mockConf = Mockito.spy(conf);
-    when(mockConf.getPassword(anyString()))
-        .thenThrow(new IOException("injected IOException"));
-    // Set a dummy LDAP server URL.
-    mockConf.set(LdapGroupsMapping.LDAP_URL_KEY, "ldap://test");
-
-    LdapGroupsMapping groupsMapping = getGroupsMapping();
-    groupsMapping.setConf(mockConf);
-  }
-
 }

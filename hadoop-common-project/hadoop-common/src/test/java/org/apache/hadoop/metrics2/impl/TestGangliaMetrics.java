@@ -25,12 +25,13 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.SocketException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.metrics2.AbstractMetric;
 import org.apache.hadoop.metrics2.MetricsRecord;
 import org.apache.hadoop.metrics2.MetricsTag;
@@ -45,34 +46,26 @@ import org.apache.hadoop.metrics2.sink.ganglia.GangliaSink30;
 import org.apache.hadoop.metrics2.sink.ganglia.GangliaSink31;
 import org.apache.hadoop.metrics2.sink.ganglia.GangliaMetricsTestHelper;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TestGangliaMetrics {
-  public static final Logger LOG =
-      LoggerFactory.getLogger(TestMetricsSystemImpl.class);
-  // This is the prefix to locate the config file for this particular test
-  // This is to avoid using the same config file with other test cases,
-  // which can cause race conditions.
-  private String testNamePrefix = "gangliametrics";
-  private final String[] expectedMetrics = {
-      testNamePrefix + ".s1rec.C1",
-      testNamePrefix + ".s1rec.G1",
-      testNamePrefix + ".s1rec.Xxx",
-      testNamePrefix + ".s1rec.Yyy",
-      testNamePrefix + ".s1rec.S1NumOps",
-      testNamePrefix + ".s1rec.S1AvgTime"
-  };
+  public static final Log LOG = LogFactory.getLog(TestMetricsSystemImpl.class);
+  private final String[] expectedMetrics =
+    { "test.s1rec.C1",
+      "test.s1rec.G1",
+      "test.s1rec.Xxx",
+      "test.s1rec.Yyy",
+      "test.s1rec.S1NumOps",
+      "test.s1rec.S1AvgTime" };
 
   @Test
   public void testTagsForPrefix() throws Exception {
     ConfigBuilder cb = new ConfigBuilder()
-        .add(testNamePrefix + ".sink.ganglia.tagsForPrefix.all", "*")
-        .add(testNamePrefix + ".sink.ganglia.tagsForPrefix.some",
-          "NumActiveSinks, " + "NumActiveSources")
-        .add(testNamePrefix + ".sink.ganglia.tagsForPrefix.none", "");
+      .add("test.sink.ganglia.tagsForPrefix.all", "*")
+      .add("test.sink.ganglia.tagsForPrefix.some", "NumActiveSinks, " +
+              "NumActiveSources")
+      .add("test.sink.ganglia.tagsForPrefix.none", "");
     GangliaSink30 sink = new GangliaSink30();
-    sink.init(cb.subset(testNamePrefix + ".sink.ganglia"));
+    sink.init(cb.subset("test.sink.ganglia"));
 
     List<MetricsTag> tags = new ArrayList<MetricsTag>();
     tags.add(new MetricsTag(MsInfo.Context, "all"));
@@ -104,17 +97,12 @@ public class TestGangliaMetrics {
   }
   
   @Test public void testGangliaMetrics2() throws Exception {
-    // Setting long interval to avoid periodic publishing.
-    // We manually publish metrics by MeticsSystem#publishMetricsNow here.
-    ConfigBuilder cb = new ConfigBuilder().add("*.period", 120)
-        .add(testNamePrefix
-            + ".sink.gsink30.context", testNamePrefix) // filter out only "test"
-        .add(testNamePrefix
-            + ".sink.gsink31.context", testNamePrefix) // filter out only "test"
-        .save(TestMetricsConfig.getTestFilename("hadoop-metrics2-"
-            + testNamePrefix));
+    ConfigBuilder cb = new ConfigBuilder().add("default.period", 10)
+        .add("test.sink.gsink30.context", "test") // filter out only "test"
+        .add("test.sink.gsink31.context", "test") // filter out only "test"
+        .save(TestMetricsConfig.getTestFilename("hadoop-metrics2-test"));
 
-    MetricsSystemImpl ms = new MetricsSystemImpl(testNamePrefix);
+    MetricsSystemImpl ms = new MetricsSystemImpl("Test");
     ms.start();
     TestSource s1 = ms.register("s1", "s1 desc", new TestSource("s1rec"));
     s1.c1.incr();
@@ -128,13 +116,13 @@ public class TestGangliaMetrics {
 
     // Setup test for GangliaSink30
     AbstractGangliaSink gsink30 = new GangliaSink30();
-    gsink30.init(cb.subset(testNamePrefix));
+    gsink30.init(cb.subset("test"));
     MockDatagramSocket mockds30 = new MockDatagramSocket();
     GangliaMetricsTestHelper.setDatagramSocket(gsink30, mockds30);
 
     // Setup test for GangliaSink31
     AbstractGangliaSink gsink31 = new GangliaSink31();
-    gsink31.init(cb.subset(testNamePrefix));
+    gsink31.init(cb.subset("test"));
     MockDatagramSocket mockds31 = new MockDatagramSocket();
     GangliaMetricsTestHelper.setDatagramSocket(gsink31, mockds31);
 
@@ -157,7 +145,7 @@ public class TestGangliaMetrics {
   private void checkMetrics(List<byte[]> bytearrlist, int expectedCount) {
     boolean[] foundMetrics = new boolean[expectedMetrics.length];
     for (byte[] bytes : bytearrlist) {
-      String binaryStr = new String(bytes, StandardCharsets.UTF_8);
+      String binaryStr = new String(bytes);
       for (int index = 0; index < expectedMetrics.length; index++) {
         if (binaryStr.indexOf(expectedMetrics[index]) >= 0) {
           foundMetrics[index] = true;
@@ -177,7 +165,7 @@ public class TestGangliaMetrics {
   }
 
   @SuppressWarnings("unused")
-  @Metrics(context="gangliametrics")
+  @Metrics(context="test")
   private static class TestSource {
     @Metric("C1 desc") MutableCounterLong c1;
     @Metric("XXX desc") MutableCounterLong xxx;
@@ -200,20 +188,20 @@ public class TestGangliaMetrics {
    * hence all the captured byte arrays were pointing to one instance.
    */
   private class MockDatagramSocket extends DatagramSocket {
-    private List<byte[]> capture;
+    private ArrayList<byte[]> capture;
 
     /**
      * @throws SocketException
      */
     public MockDatagramSocket() throws SocketException {
-      capture = new ArrayList<byte[]>();
+      capture = new  ArrayList<byte[]>();
     }
 
     /* (non-Javadoc)
      * @see java.net.DatagramSocket#send(java.net.DatagramPacket)
      */
     @Override
-    public synchronized void send(DatagramPacket p) throws IOException {
+    public void send(DatagramPacket p) throws IOException {
       // capture the byte arrays
       byte[] bytes = new byte[p.getLength()];
       System.arraycopy(p.getData(), p.getOffset(), bytes, 0, p.getLength());
@@ -223,7 +211,7 @@ public class TestGangliaMetrics {
     /**
      * @return the captured byte arrays
      */
-    synchronized List<byte[]> getCapturedSend() {
+    ArrayList<byte[]> getCapturedSend() {
       return capture;
     }
   }

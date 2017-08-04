@@ -66,7 +66,7 @@ public class TestActiveStandbyElector {
     }
 
     @Override
-    public ZooKeeper connectToZooKeeper() {
+    public ZooKeeper getNewZooKeeper() {
       ++count;
       return mockZK;
     }
@@ -452,10 +452,6 @@ public class TestActiveStandbyElector {
         Event.KeeperState.SyncConnected);
     elector.processWatchEvent(mockZK, mockEvent);
     verifyExistCall(1);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-    elector.processResult(Code.SESSIONEXPIRED.intValue(), ZK_LOCK_NAME,
-        mockZK, new Stat());
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     // session expired should enter safe mode and initiate re-election
     // re-election checked via checking re-creation of new zookeeper and
@@ -499,13 +495,6 @@ public class TestActiveStandbyElector {
         ZK_LOCK_NAME);
     Mockito.verify(mockApp, Mockito.times(1)).becomeStandby();
     verifyExistCall(1);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-
-    Stat stat = new Stat();
-    stat.setEphemeralOwner(0L);
-    Mockito.when(mockZK.getSessionId()).thenReturn(1L);
-    elector.processResult(Code.OK.intValue(), ZK_LOCK_NAME, mockZK, stat);
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     WatchedEvent mockEvent = Mockito.mock(WatchedEvent.class);
     Mockito.when(mockEvent.getPath()).thenReturn(ZK_LOCK_NAME);
@@ -515,18 +504,12 @@ public class TestActiveStandbyElector {
         Event.EventType.NodeDataChanged);
     elector.processWatchEvent(mockZK, mockEvent);
     verifyExistCall(2);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-    elector.processResult(Code.OK.intValue(), ZK_LOCK_NAME, mockZK, stat);
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     // monitoring should be setup again after event is received
     Mockito.when(mockEvent.getType()).thenReturn(
         Event.EventType.NodeChildrenChanged);
     elector.processWatchEvent(mockZK, mockEvent);
     verifyExistCall(3);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-    elector.processResult(Code.OK.intValue(), ZK_LOCK_NAME, mockZK, stat);
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     // lock node deletion when in standby mode should create znode again
     // successful znode creation enters active state and sets monitor
@@ -541,10 +524,6 @@ public class TestActiveStandbyElector {
         ZK_LOCK_NAME);
     Mockito.verify(mockApp, Mockito.times(1)).becomeActive();
     verifyExistCall(4);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-    stat.setEphemeralOwner(1L);
-    elector.processResult(Code.OK.intValue(), ZK_LOCK_NAME, mockZK, stat);
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     // lock node deletion in active mode should enter neutral mode and create
     // znode again successful znode creation enters active state and sets
@@ -559,9 +538,6 @@ public class TestActiveStandbyElector {
         ZK_LOCK_NAME);
     Mockito.verify(mockApp, Mockito.times(2)).becomeActive();
     verifyExistCall(5);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-    elector.processResult(Code.OK.intValue(), ZK_LOCK_NAME, mockZK, stat);
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     // bad path name results in fatal error
     Mockito.when(mockEvent.getPath()).thenReturn(null);
@@ -594,13 +570,6 @@ public class TestActiveStandbyElector {
         ZK_LOCK_NAME);
     Mockito.verify(mockApp, Mockito.times(1)).becomeStandby();
     verifyExistCall(1);
-    Assert.assertTrue(elector.isMonitorLockNodePending());
-
-    Stat stat = new Stat();
-    stat.setEphemeralOwner(0L);
-    Mockito.when(mockZK.getSessionId()).thenReturn(1L);
-    elector.processResult(Code.OK.intValue(), ZK_LOCK_NAME, mockZK, stat);
-    Assert.assertFalse(elector.isMonitorLockNodePending());
 
     WatchedEvent mockEvent = Mockito.mock(WatchedEvent.class);
     Mockito.when(mockEvent.getPath()).thenReturn(ZK_LOCK_NAME);
@@ -715,37 +684,6 @@ public class TestActiveStandbyElector {
       }
     }
   }
-
-  /**
-   * Test that ACLs are set on parent zNode even if the node already exists.
-   */
-  @Test
-  public void testParentZNodeACLs() throws Exception {
-    KeeperException ke = new KeeperException(Code.NODEEXISTS) {
-      @Override
-      public Code code() {
-        return super.code();
-      }
-    };
-
-    Mockito.when(mockZK.create(Mockito.anyString(), Mockito.eq(new byte[]{}),
-        Mockito.anyListOf(ACL.class),
-        Mockito.eq(CreateMode.PERSISTENT))).thenThrow(ke);
-
-    elector.ensureParentZNode();
-
-    StringBuilder prefix = new StringBuilder();
-    for (String part : ZK_PARENT_NAME.split("/")) {
-      if (part.isEmpty()) continue;
-      prefix.append("/").append(part);
-      if (!"/".equals(prefix.toString())) {
-        Mockito.verify(mockZK).getACL(Mockito.eq(prefix.toString()),
-            Mockito.eq(new Stat()));
-        Mockito.verify(mockZK).setACL(Mockito.eq(prefix.toString()),
-            Mockito.eq(Ids.OPEN_ACL_UNSAFE), Mockito.anyInt());
-      }
-    }
-  }
   
   /**
    * Test for a bug encountered during development of HADOOP-8163:
@@ -780,15 +718,7 @@ public class TestActiveStandbyElector {
     try {
       new ActiveStandbyElector("127.0.0.1", 2000, ZK_PARENT_NAME,
           Ids.OPEN_ACL_UNSAFE, Collections.<ZKAuthInfo> emptyList(), mockApp,
-          CommonConfigurationKeys.HA_FC_ELECTOR_ZK_OP_RETRIES_DEFAULT) {
-
-          @Override
-          protected ZooKeeper createZooKeeper() throws IOException {
-            return Mockito.mock(ZooKeeper.class);
-          }
-      };
-
-
+          CommonConfigurationKeys.HA_FC_ELECTOR_ZK_OP_RETRIES_DEFAULT);
       Assert.fail("Did not throw zookeeper connection loss exceptions!");
     } catch (KeeperException ke) {
       GenericTestUtils.assertExceptionContains( "ConnectionLoss", ke);

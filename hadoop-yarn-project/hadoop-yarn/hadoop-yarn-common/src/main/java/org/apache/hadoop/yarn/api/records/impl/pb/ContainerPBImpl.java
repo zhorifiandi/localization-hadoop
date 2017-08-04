@@ -23,7 +23,6 @@ import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.security.proto.SecurityProtos.TokenProto;
 import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
-import org.apache.hadoop.yarn.api.records.ExecutionType;
 import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
@@ -34,7 +33,6 @@ import org.apache.hadoop.yarn.proto.YarnProtos.ContainerProtoOrBuilder;
 import org.apache.hadoop.yarn.proto.YarnProtos.NodeIdProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.PriorityProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ResourceProto;
-import org.apache.hadoop.yarn.proto.YarnProtos.ExecutionTypeProto;
 
 @Private
 @Unstable
@@ -49,7 +47,7 @@ public class ContainerPBImpl extends Container {
   private Resource resource = null;
   private Priority priority = null;
   private Token containerToken = null;
-
+  
   public ContainerPBImpl() {
     builder = ContainerProto.newBuilder();
   }
@@ -93,7 +91,9 @@ public class ContainerPBImpl extends Container {
             builder.getNodeId())) {
       builder.setNodeId(convertToProtoFormat(this.nodeId));
     }
-    if (this.resource != null) {
+    if (this.resource != null
+        && !((ResourcePBImpl) this.resource).getProto().equals(
+            builder.getResource())) {
       builder.setResource(convertToProtoFormat(this.resource));
     }
     if (this.priority != null && 
@@ -248,42 +248,6 @@ public class ContainerPBImpl extends Container {
     this.containerToken = containerToken;
   }
 
-  @Override
-  public ExecutionType getExecutionType() {
-    ContainerProtoOrBuilder p = viaProto ? proto : builder;
-    return convertFromProtoFormat(p.getExecutionType());
-  }
-
-  @Override
-  public void setExecutionType(ExecutionType executionType) {
-    maybeInitBuilder();
-    builder.setExecutionType(convertToProtoFormat(executionType));
-  }
-
-  @Override
-  public long getAllocationRequestId() {
-    ContainerProtoOrBuilder p = viaProto ? proto : builder;
-    return (p.getAllocationRequestId());
-  }
-
-  @Override
-  public void setAllocationRequestId(long allocationRequestID) {
-    maybeInitBuilder();
-    builder.setAllocationRequestId(allocationRequestID);
-  }
-
-  @Override
-  public int getVersion() {
-    ContainerProtoOrBuilder p = viaProto ? proto : builder;
-    return p.getVersion();
-  }
-
-  @Override
-  public void setVersion(int version) {
-    maybeInitBuilder();
-    builder.setVersion(version);
-  }
-
   private ContainerIdPBImpl convertFromProtoFormat(ContainerIdProto p) {
     return new ContainerIdPBImpl(p);
   }
@@ -305,7 +269,7 @@ public class ContainerPBImpl extends Container {
   }
 
   private ResourceProto convertToProtoFormat(Resource t) {
-    return ProtoUtils.convertToProtoFormat(t);
+    return ((ResourcePBImpl)t).getProto();
   }
 
   private PriorityPBImpl convertFromProtoFormat(PriorityProto p) {
@@ -324,28 +288,15 @@ public class ContainerPBImpl extends Container {
     return ((TokenPBImpl)t).getProto();
   }
 
-  private ExecutionType convertFromProtoFormat(
-      ExecutionTypeProto e) {
-    return ProtoUtils.convertFromProtoFormat(e);
-  }
-
-  private ExecutionTypeProto convertToProtoFormat(ExecutionType e) {
-    return ProtoUtils.convertToProtoFormat(e);
-  }
-
   public String toString() {
     StringBuilder sb = new StringBuilder();
     sb.append("Container: [");
     sb.append("ContainerId: ").append(getId()).append(", ");
-    sb.append("AllocationRequestId: ").append(getAllocationRequestId())
-        .append(", ");
-    sb.append("Version: ").append(getVersion()).append(", ");
     sb.append("NodeId: ").append(getNodeId()).append(", ");
     sb.append("NodeHttpAddress: ").append(getNodeHttpAddress()).append(", ");
     sb.append("Resource: ").append(getResource()).append(", ");
     sb.append("Priority: ").append(getPriority()).append(", ");
     sb.append("Token: ").append(getContainerToken()).append(", ");
-    sb.append("ExecutionType: ").append(getExecutionType()).append(", ");
     sb.append("]");
     return sb.toString();
   }

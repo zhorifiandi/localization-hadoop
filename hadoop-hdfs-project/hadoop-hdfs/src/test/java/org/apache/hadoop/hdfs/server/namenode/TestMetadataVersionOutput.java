@@ -22,9 +22,7 @@ import static org.junit.Assert.assertTrue;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
-import org.apache.hadoop.util.ExitUtil;
+import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 
 import org.junit.After;
 import org.junit.Test;
@@ -47,7 +45,6 @@ public class TestMetadataVersionOutput {
   public void tearDown() throws Exception {
     if (dfsCluster != null) {
       dfsCluster.shutdown();
-      dfsCluster = null;
     }
     Thread.sleep(2000);
   }
@@ -75,21 +72,18 @@ public class TestMetadataVersionOutput {
     final PrintStream origOut = System.out;
     final ByteArrayOutputStream baos = new ByteArrayOutputStream();
     final PrintStream stdOut = new PrintStream(baos);
+    System.setOut(stdOut);
     try {
-      System.setOut(stdOut);
-      try {
-        NameNode.createNameNode(new String[] { "-metadataVersion" }, conf);
-      } catch (Exception e) {
-        assertExceptionContains(ExitUtil.EXIT_EXCEPTION_MESSAGE, e);
-      }
-    /* Check if meta data version is printed correctly. */
-      final String verNumStr = HdfsServerConstants.NAMENODE_LAYOUT_VERSION + "";
-      assertTrue(baos.toString("UTF-8").
-          contains("HDFS Image Version: " + verNumStr));
-      assertTrue(baos.toString("UTF-8").
-          contains("Software format version: " + verNumStr));
-    } finally {
-      System.setOut(origOut);
+      NameNode.createNameNode(new String[] { "-metadataVersion" }, conf);
+    } catch (Exception e) {
+      assertExceptionContains("ExitException", e);
     }
+    /* Check if meta data version is printed correctly. */
+    final String verNumStr = HdfsConstants.NAMENODE_LAYOUT_VERSION + "";
+    assertTrue(baos.toString("UTF-8").
+      contains("HDFS Image Version: " + verNumStr));
+    assertTrue(baos.toString("UTF-8").
+      contains("Software format version: " + verNumStr));
+    System.setOut(origOut);
   }
 }

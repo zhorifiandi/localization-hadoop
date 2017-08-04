@@ -20,16 +20,15 @@ package org.apache.hadoop.yarn.server.resourcemanager.webapp;
 
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.DATATABLES_ID;
 
-import org.apache.hadoop.yarn.api.records.NodeLabel;
-import org.apache.hadoop.yarn.nodelabels.RMNodeLabel;
+import org.apache.hadoop.yarn.nodelabels.NodeLabel;
 import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
 import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMNodeLabelsManager;
 import org.apache.hadoop.yarn.webapp.SubView;
 import org.apache.hadoop.yarn.webapp.YarnWebParams;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TR;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TR;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -50,38 +49,34 @@ public class NodeLabelsPage extends RmView {
           thead().
           tr().
           th(".name", "Label Name").
-          th(".type", "Label Type").
           th(".numOfActiveNMs", "Num Of Active NMs").
           th(".totalResource", "Total Resource").
-          __().__().
+          _()._().
           tbody();
   
       RMNodeLabelsManager nlm = rm.getRMContext().getNodeLabelManager();
-      for (RMNodeLabel info : nlm.pullRMNodeLabelsInfo()) {
+      for (NodeLabel info : nlm.pullRMNodeLabelsInfo()) {
         TR<TBODY<TABLE<Hamlet>>> row =
-            tbody.tr().td(info.getLabelName().isEmpty()
-                ? NodeLabel.DEFAULT_NODE_LABEL_PARTITION : info.getLabelName());
-        String type =
-            (info.getIsExclusive()) ? "Exclusive Partition"
-                : "Non Exclusive Partition";
-        row = row.td(type);
+            tbody.tr().td(
+                info.getLabelName().isEmpty() ? "<NO_LABEL>" : info
+                    .getLabelName());
         int nActiveNMs = info.getNumActiveNMs();
         if (nActiveNMs > 0) {
           row = row.td()
           .a(url("nodes",
               "?" + YarnWebParams.NODE_LABEL + "=" + info.getLabelName()),
               String.valueOf(nActiveNMs))
-           .__();
+           ._();
         } else {
           row = row.td(String.valueOf(nActiveNMs));
         }
-        row.td(info.getResource().toString()).__();
+        row.td(info.getResource().toString())._();
       }
-      tbody.__().__();
+      tbody._()._();
     }
   }
 
-  @Override protected void preHead(Page.HTML<__> html) {
+  @Override protected void preHead(Page.HTML<_> html) {
     commonPreHead(html);
     String title = "Node labels of the cluster";
     setTitle(title);

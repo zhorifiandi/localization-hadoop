@@ -32,10 +32,7 @@ import org.apache.hadoop.mapreduce.v2.proto.MRProtos.JobReportProto;
 import org.apache.hadoop.mapreduce.v2.proto.MRProtos.JobReportProtoOrBuilder;
 import org.apache.hadoop.mapreduce.v2.proto.MRProtos.JobStateProto;
 import org.apache.hadoop.mapreduce.v2.util.MRProtoUtils;
-import org.apache.hadoop.yarn.api.records.Priority;
-import org.apache.hadoop.yarn.api.records.impl.pb.PriorityPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.ProtoBase;
-import org.apache.hadoop.yarn.proto.YarnProtos.PriorityProto;
 
 
     
@@ -44,11 +41,11 @@ public class JobReportPBImpl extends ProtoBase<JobReportProto> implements
   JobReportProto proto = JobReportProto.getDefaultInstance();
   JobReportProto.Builder builder = null;
   boolean viaProto = false;
-
+  
   private JobId jobId = null;
   private List<AMInfo> amInfos = null;
-  private Priority jobPriority = null;
-
+  
+  
   public JobReportPBImpl() {
     builder = JobReportProto.newBuilder();
   }
@@ -71,9 +68,6 @@ public class JobReportPBImpl extends ProtoBase<JobReportProto> implements
     }
     if (this.amInfos != null) {
       addAMInfosToProto();
-    }
-    if (this.jobPriority != null) {
-      builder.setJobPriority(convertToProtoFormat(this.jobPriority));
     }
   }
 
@@ -339,14 +333,6 @@ public class JobReportPBImpl extends ProtoBase<JobReportProto> implements
     return MRProtoUtils.convertFromProtoFormat(e);
   }
 
-  private PriorityPBImpl convertFromProtoFormat(PriorityProto p) {
-    return new PriorityPBImpl(p);
-  }
-
-  private PriorityProto convertToProtoFormat(Priority t) {
-    return ((PriorityPBImpl)t).getProto();
-  }
-
   @Override
   public synchronized boolean isUber() {
     JobReportProtoOrBuilder p = viaProto ? proto : builder;
@@ -358,38 +344,4 @@ public class JobReportPBImpl extends ProtoBase<JobReportProto> implements
     maybeInitBuilder();
     builder.setIsUber(isUber);
   }
-
-  @Override
-  public synchronized Priority getJobPriority() {
-    JobReportProtoOrBuilder p = viaProto ? proto : builder;
-    if (this.jobPriority != null) {
-      return this.jobPriority;
-    }
-    if (!p.hasJobPriority()) {
-      return null;
-    }
-    this.jobPriority = convertFromProtoFormat(p.getJobPriority());
-    return this.jobPriority;
-  }
-
-  @Override
-  public synchronized void setJobPriority(Priority priority) {
-    maybeInitBuilder();
-    if (priority == null) {
-      builder.clearJobPriority();
-    }
-    this.jobPriority = priority;
-  }
-
-  @Override
-  public synchronized String getHistoryFile() {
-    JobReportProtoOrBuilder p = viaProto ? proto : builder;
-    return p.getHistoryFile();
-  }
-
-  @Override
-  public synchronized void setHistoryFile(String historyFile) {
-    maybeInitBuilder();
-    builder.setHistoryFile(historyFile);
-  }
-}
+}  

@@ -23,13 +23,13 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 
-import org.apache.hadoop.conf.Configuration;
+import java.util.ArrayList;
+
 import org.apache.hadoop.hdfs.protocol.SnapshotException;
 import org.apache.hadoop.hdfs.server.namenode.FSDirectory;
 import org.apache.hadoop.hdfs.server.namenode.INode;
 import org.apache.hadoop.hdfs.server.namenode.INodeDirectory;
 import org.apache.hadoop.hdfs.server.namenode.INodesInPath;
-import org.apache.hadoop.hdfs.server.namenode.LeaseManager;
 import org.apache.hadoop.util.StringUtils;
 import org.junit.Assert;
 import org.junit.Test;
@@ -48,26 +48,25 @@ public class TestSnapshotManager {
   public void testSnapshotLimits() throws Exception {
     // Setup mock objects for SnapshotManager.createSnapshot.
     //
-    LeaseManager leaseManager = mock(LeaseManager.class);
     INodeDirectory ids = mock(INodeDirectory.class);
     FSDirectory fsdir = mock(FSDirectory.class);
     INodesInPath iip = mock(INodesInPath.class);
 
-    SnapshotManager sm = spy(new SnapshotManager(new Configuration(), fsdir));
+    SnapshotManager sm = spy(new SnapshotManager(fsdir));
     doReturn(ids).when(sm).getSnapshottableRoot((INodesInPath) anyObject());
     doReturn(testMaxSnapshotLimit).when(sm).getMaxSnapshotID();
 
     // Create testMaxSnapshotLimit snapshots. These should all succeed.
     //
     for (Integer i = 0; i < testMaxSnapshotLimit; ++i) {
-      sm.createSnapshot(leaseManager, iip, "dummy", i.toString());
+      sm.createSnapshot(iip, "dummy", i.toString());
     }
 
     // Attempt to create one more snapshot. This should fail due to snapshot
     // ID rollover.
     //
     try {
-      sm.createSnapshot(leaseManager, iip, "dummy", "shouldFailSnapshot");
+      sm.createSnapshot(iip, "dummy", "shouldFailSnapshot");
       Assert.fail("Expected SnapshotException not thrown");
     } catch (SnapshotException se) {
       Assert.assertTrue(
@@ -76,13 +75,14 @@ public class TestSnapshotManager {
 
     // Delete a snapshot to free up a slot.
     //
-    sm.deleteSnapshot(iip, "", mock(INode.ReclaimContext.class));
+    sm.deleteSnapshot(iip, "", mock(INode.BlocksMapUpdateInfo.class),
+        new ArrayList<INode>());
 
     // Attempt to create a snapshot again. It should still fail due
     // to snapshot ID rollover.
     //
     try {
-      sm.createSnapshot(leaseManager, iip, "dummy", "shouldFailSnapshot2");
+      sm.createSnapshot(iip, "dummy", "shouldFailSnapshot2");
       Assert.fail("Expected SnapshotException not thrown");
     } catch (SnapshotException se) {
       Assert.assertTrue(

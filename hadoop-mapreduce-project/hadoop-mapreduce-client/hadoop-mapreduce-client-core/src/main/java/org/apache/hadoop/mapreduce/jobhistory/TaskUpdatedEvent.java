@@ -18,15 +18,13 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.util.Set;
+import java.io.IOException;
 
-import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.mapreduce.TaskID;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
+
+import org.apache.avro.util.Utf8;
 
 /**
  * Event to record updates to a task
@@ -43,8 +41,8 @@ public class TaskUpdatedEvent implements HistoryEvent {
    * @param finishTime Finish time of the task
    */
   public TaskUpdatedEvent(TaskID id, long finishTime) {
-    datum.setTaskid(new Utf8(id.toString()));
-    datum.setFinishTime(finishTime);
+    datum.taskid = new Utf8(id.toString());
+    datum.finishTime = finishTime;
   }
 
   TaskUpdatedEvent() {}
@@ -53,27 +51,12 @@ public class TaskUpdatedEvent implements HistoryEvent {
   public void setDatum(Object datum) { this.datum = (TaskUpdated)datum; }
 
   /** Get the task ID */
-  public TaskID getTaskId() {
-    return TaskID.forName(datum.getTaskid().toString());
-  }
+  public TaskID getTaskId() { return TaskID.forName(datum.taskid.toString()); }
   /** Get the task finish time */
-  public long getFinishTime() { return datum.getFinishTime(); }
+  public long getFinishTime() { return datum.finishTime; }
   /** Get the event type */
   public EventType getEventType() {
     return EventType.TASK_UPDATED;
-  }
-
-  @Override
-  public TimelineEvent toTimelineEvent() {
-    TimelineEvent tEvent = new TimelineEvent();
-    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
-    tEvent.addInfo("FINISH_TIME", getFinishTime());
-    return tEvent;
-  }
-
-  @Override
-  public Set<TimelineMetric> getTimelineMetrics() {
-    return null;
   }
 
 }

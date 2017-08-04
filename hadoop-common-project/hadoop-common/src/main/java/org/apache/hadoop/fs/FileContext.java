@@ -24,7 +24,6 @@ import java.io.OutputStream;
 import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -35,6 +34,8 @@ import java.util.Stack;
 import java.util.TreeSet;
 import java.util.Map.Entry;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.HadoopIllegalArgumentException;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -44,11 +45,9 @@ import org.apache.hadoop.fs.Options.CreateOpts;
 import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.FsAction;
-import org.apache.hadoop.fs.permission.FsCreateModes;
 import org.apache.hadoop.fs.permission.FsPermission;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_DEFAULT;
-
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.ipc.RpcClientException;
 import org.apache.hadoop.ipc.RpcServerException;
@@ -59,66 +58,71 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.ShutdownHookManager;
 
-import com.google.common.base.Preconditions;
-import org.apache.htrace.core.Tracer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
- * The FileContext class provides an interface for users of the Hadoop
- * file system. It exposes a number of file system operations, e.g. create,
- * open, list.
+ * The FileContext class provides an interface to the application writer for
+ * using the Hadoop file system.
+ * It provides a set of methods for the usual operation: create, open, 
+ * list, etc 
  * 
- * <h2>Path Names</h2>
- * 
- * The Hadoop file system supports a URI namespace and URI names. This enables
- * multiple types of file systems to be referenced using fully-qualified URIs.
- * Two common Hadoop file system implementations are
- * <ul>
- * <li>the local file system: file:///path
- * <li>the HDFS file system: hdfs://nnAddress:nnPort/path
- * </ul>
- * 
- * The Hadoop file system also supports additional naming schemes besides URIs.
- * Hadoop has the concept of a <i>default file system</i>, which implies a
- * default URI scheme and authority. This enables <i>slash-relative names</i>
- * relative to the default FS, which are more convenient for users and
- * application writers. The default FS is typically set by the user's
- * environment, though it can also be manually specified.
+ * <p>
+ * <b> *** Path Names *** </b>
  * <p>
  * 
- * Hadoop also supports <i>working-directory-relative</i> names, which are paths
- * relative to the current working directory (similar to Unix). The working
- * directory can be in a different file system than the default FS.
- * <p>
- * Thus, Hadoop path names can be specified as one of the following:
+ * The Hadoop file system supports a URI name space and URI names.
+ * It offers a forest of file systems that can be referenced using fully
+ * qualified URIs.
+ * Two common Hadoop file systems implementations are
  * <ul>
- * <li>a fully-qualified URI: scheme://authority/path (e.g.
- * hdfs://nnAddress:nnPort/foo/bar)
- * <li>a slash-relative name: path relative to the default file system (e.g.
- * /foo/bar)
- * <li>a working-directory-relative name: path relative to the working dir (e.g.
- * foo/bar)
+ * <li> the local file system: file:///path
+ * <li> the hdfs file system hdfs://nnAddress:nnPort/path
  * </ul>
+ * 
+ * While URI names are very flexible, it requires knowing the name or address
+ * of the server. For convenience one often wants to access the default system
+ * in one's environment without knowing its name/address. This has an
+ * additional benefit that it allows one to change one's default fs
+ *  (e.g. admin moves application from cluster1 to cluster2).
+ * <p>
+ * 
+ * To facilitate this, Hadoop supports a notion of a default file system.
+ * The user can set his default file system, although this is
+ * typically set up for you in your environment via your default config.
+ * A default file system implies a default scheme and authority; slash-relative
+ * names (such as /for/bar) are resolved relative to that default FS.
+ * Similarly a user can also have working-directory-relative names (i.e. names
+ * not starting with a slash). While the working directory is generally in the
+ * same default FS, the wd can be in a different FS.
+ * <p>
+ *  Hence Hadoop path names can be one of:
+ *  <ul>
+ *  <li> fully qualified URI: scheme://authority/path
+ *  <li> slash relative names: /path relative to the default file system
+ *  <li> wd-relative names: path  relative to the working dir
+ *  </ul>   
  *  Relative paths with scheme (scheme:foo/bar) are illegal.
  *  
- * <h2>Role of FileContext and Configuration Defaults</h2>
- *
- * The FileContext is the analogue of per-process file-related state in Unix. It
- * contains two properties:
- * 
- * <ul>
- * <li>the default file system (for resolving slash-relative names)
- * <li>the umask (for file permissions)
- * </ul>
- * In general, these properties are obtained from the default configuration file
- * in the user's environment (see {@link Configuration}).
- * 
- * Further file system properties are specified on the server-side. File system
- * operations default to using these server-side defaults unless otherwise
- * specified.
- * <p>
- * The file system related server-side defaults are:
+ *  <p>
+ *  <b>****The Role of the FileContext and configuration defaults****</b>
+ *  <p>
+ *  The FileContext provides file namespace context for resolving file names;
+ *  it also contains the umask for permissions, In that sense it is like the
+ *  per-process file-related state in Unix system.
+ *  These two properties
+ *  <ul> 
+ *  <li> default file system i.e your slash)
+ *  <li> umask
+ *  </ul>
+ *  in general, are obtained from the default configuration file
+ *  in your environment,  (@see {@link Configuration}).
+ *  
+ *  No other configuration parameters are obtained from the default config as 
+ *  far as the file context layer is concerned. All file system instances
+ *  (i.e. deployments of file systems) have default properties; we call these
+ *  server side (SS) defaults. Operation like create allow one to select many 
+ *  properties: either pass them in as explicit parameters or use
+ *  the SS properties.
+ *  <p>
+ *  The file system related SS defaults are
  *  <ul>
  *  <li> the home directory (default is "/user/userName")
  *  <li> the initial wd (only for local fs)
@@ -129,34 +133,34 @@ import org.slf4j.LoggerFactory;
  *  <li> checksum option. (checksumType and  bytesPerChecksum)
  *  </ul>
  *
- * <h2>Example Usage</h2>
- *
+ * <p>
+ * <b> *** Usage Model for the FileContext class *** </b>
+ * <p>
  * Example 1: use the default config read from the $HADOOP_CONFIG/core.xml.
  *   Unspecified values come from core-defaults.xml in the release jar.
  *  <ul>  
  *  <li> myFContext = FileContext.getFileContext(); // uses the default config
  *                                                // which has your default FS 
  *  <li>  myFContext.create(path, ...);
- *  <li>  myFContext.setWorkingDir(path);
+ *  <li>  myFContext.setWorkingDir(path)
  *  <li>  myFContext.open (path, ...);  
- *  <li>...
  *  </ul>  
  * Example 2: Get a FileContext with a specific URI as the default FS
  *  <ul>  
- *  <li> myFContext = FileContext.getFileContext(URI);
+ *  <li> myFContext = FileContext.getFileContext(URI)
  *  <li> myFContext.create(path, ...);
- *  <li>...
- * </ul>
+ *   ...
+ * </ul> 
  * Example 3: FileContext with local file system as the default
  *  <ul> 
- *  <li> myFContext = FileContext.getLocalFSFileContext();
+ *  <li> myFContext = FileContext.getLocalFSFileContext()
  *  <li> myFContext.create(path, ...);
  *  <li> ...
  *  </ul> 
  * Example 4: Use a specific config, ignoring $HADOOP_CONFIG
  *  Generally you should not need use a config unless you are doing
  *   <ul> 
- *   <li> configX = someConfigSomeOnePassedToYou;
+ *   <li> configX = someConfigSomeOnePassedToYou.
  *   <li> myFContext = getFileContext(configX); // configX is not changed,
  *                                              // is passed down 
  *   <li> myFContext.create(path, ...);
@@ -166,10 +170,10 @@ import org.slf4j.LoggerFactory;
  */
 
 @InterfaceAudience.Public
-@InterfaceStability.Stable
+@InterfaceStability.Evolving /*Evolving for a release,to be changed to Stable */
 public class FileContext {
   
-  public static final Logger LOG = LoggerFactory.getLogger(FileContext.class);
+  public static final Log LOG = LogFactory.getLog(FileContext.class);
   /**
    * Default permission for directory and symlink
    * In previous versions, this default permission was also used to
@@ -216,20 +220,20 @@ public class FileContext {
    * The FileContext is defined by.
    *  1) defaultFS (slash)
    *  2) wd
-   *  3) umask (Obtained by FsPermission.getUMask(conf))
+   *  3) umask
    */   
   private final AbstractFileSystem defaultFS; //default FS for this FileContext.
   private Path workingDir;          // Fully qualified
+  private FsPermission umask;
   private final Configuration conf;
   private final UserGroupInformation ugi;
   final boolean resolveSymlinks;
-  private final Tracer tracer;
 
   private FileContext(final AbstractFileSystem defFs,
-                      final Configuration aConf) {
+    final FsPermission theUmask, final Configuration aConf) {
     defaultFS = defFs;
+    umask = FsPermission.getUMask(aConf);
     conf = aConf;
-    tracer = FsTracer.get(aConf);
     try {
       ugi = UserGroupInformation.getCurrentUser();
     } catch (IOException e) {
@@ -267,7 +271,6 @@ public class FileContext {
    * has been deliberately declared private.
    */
   Path fixRelativePart(Path p) {
-    Preconditions.checkNotNull(p, "path cannot be null");
     if (p.isUriPathAbsolute()) {
       return p;
     } else {
@@ -304,7 +307,7 @@ public class FileContext {
    * 
    * @throws UnsupportedFileSystemException If the file system for
    *           <code>absOrFqPath</code> is not supported.
-   * @throws IOException If the file system for <code>absOrFqPath</code> could
+   * @throws IOExcepton If the file system for <code>absOrFqPath</code> could
    *         not be instantiated.
    */
   protected AbstractFileSystem getFSofPath(final Path absOrFqPath)
@@ -332,7 +335,7 @@ public class FileContext {
         }
       });
     } catch (InterruptedException ex) {
-      LOG.error(ex.toString());
+      LOG.error(ex);
       throw new IOException("Failed to get the AbstractFileSystem for path: "
           + uri, ex);
     }
@@ -349,11 +352,11 @@ public class FileContext {
    * 
    * @param defFS
    * @param aConf
-   * @return new FileContext with specified FS as default.
+   * @return new FileContext with specifed FS as default.
    */
   public static FileContext getFileContext(final AbstractFileSystem defFS,
                     final Configuration aConf) {
-    return new FileContext(defFS, aConf);
+    return new FileContext(defFS, FsPermission.getUMask(aConf), aConf);
   }
   
   /**
@@ -446,7 +449,7 @@ public class FileContext {
     } catch (UnsupportedFileSystemException ex) {
       throw ex;
     } catch (IOException ex) {
-      LOG.error(ex.toString());
+      LOG.error(ex);
       throw new RuntimeException(ex);
     }
     return getFileContext(defaultAfs, aConf);
@@ -563,7 +566,7 @@ public class FileContext {
    * @return the umask of this FileContext
    */
   public FsPermission getUMask() {
-    return FsPermission.getUMask(conf);
+    return umask;
   }
   
   /**
@@ -571,7 +574,7 @@ public class FileContext {
    * @param newUmask  the new umask
    */
   public void setUMask(final FsPermission newUmask) {
-    FsPermission.setUMask(conf, newUmask);
+    umask = newUmask;
   }
   
   
@@ -619,7 +622,7 @@ public class FileContext {
    * @param opts file creation options; see {@link Options.CreateOpts}.
    *          <ul>
    *          <li>Progress - to report progress on the operation - default null
-   *          <li>Permission - umask is applied against permission: default is
+   *          <li>Permission - umask is applied against permisssion: default is
    *          FsPermissions:getDefault()
    * 
    *          <li>CreateParent - create missing parent path; default is to not
@@ -672,7 +675,7 @@ public class FileContext {
     CreateOpts.Perms permOpt = CreateOpts.getOpt(CreateOpts.Perms.class, opts);
     FsPermission permission = (permOpt != null) ? permOpt.getValue() :
                                       FILE_DEFAULT_PERM;
-    permission = FsCreateModes.applyUMask(permission, getUMask());
+    permission = permission.applyUMask(umask);
 
     final CreateOpts[] updatedOpts = 
                       CreateOpts.setOpt(CreateOpts.perms(permission), opts);
@@ -718,9 +721,8 @@ public class FileContext {
       ParentNotDirectoryException, UnsupportedFileSystemException, 
       IOException {
     final Path absDir = fixRelativePart(dir);
-    final FsPermission absFerms = FsCreateModes.applyUMask(
-        permission == null ?
-            FsPermission.getDirDefault() : permission, getUMask());
+    final FsPermission absFerms = (permission == null ? 
+          FsPermission.getDirDefault() : permission).applyUMask(umask);
     new FSLinkResolver<Void>() {
       @Override
       public Void next(final AbstractFileSystem fs, final Path p) 
@@ -761,7 +763,7 @@ public class FileContext {
       @Override
       public Boolean next(final AbstractFileSystem fs, final Path p) 
         throws IOException, UnresolvedLinkException {
-        return fs.delete(p, recursive);
+        return Boolean.valueOf(fs.delete(p, recursive));
       }
     }.resolve(this, absF);
   }
@@ -895,7 +897,7 @@ public class FileContext {
       @Override
       public Boolean next(final AbstractFileSystem fs, final Path p) 
         throws IOException, UnresolvedLinkException {
-        return fs.setReplication(p, replication);
+        return Boolean.valueOf(fs.setReplication(p, replication));
       }
     }.resolve(this, absF);
   }
@@ -2571,178 +2573,5 @@ public class FileContext {
         return fs.listXAttrs(p);
       }
     }.resolve(this, absF);
-  }
-
-  /**
-   * Create a snapshot with a default name.
-   *
-   * @param path The directory where snapshots will be taken.
-   * @return the snapshot path.
-   *
-   * @throws IOException If an I/O error occurred
-   *
-   * <p>Exceptions applicable to file systems accessed over RPC:
-   * @throws RpcClientException If an exception occurred in the RPC client
-   * @throws RpcServerException If an exception occurred in the RPC server
-   * @throws UnexpectedServerException If server implementation throws
-   *           undeclared exception to RPC server
-   */
-  public final Path createSnapshot(Path path) throws IOException {
-    return createSnapshot(path, null);
-  }
-
-  /**
-   * Create a snapshot.
-   *
-   * @param path The directory where snapshots will be taken.
-   * @param snapshotName The name of the snapshot
-   * @return the snapshot path.
-   *
-   * @throws IOException If an I/O error occurred
-   *
-   * <p>Exceptions applicable to file systems accessed over RPC:
-   * @throws RpcClientException If an exception occurred in the RPC client
-   * @throws RpcServerException If an exception occurred in the RPC server
-   * @throws UnexpectedServerException If server implementation throws
-   *           undeclared exception to RPC server
-   */
-  public Path createSnapshot(final Path path, final String snapshotName)
-      throws IOException {
-    final Path absF = fixRelativePart(path);
-    return new FSLinkResolver<Path>() {
-
-      @Override
-      public Path next(final AbstractFileSystem fs, final Path p)
-          throws IOException {
-        return fs.createSnapshot(p, snapshotName);
-      }
-    }.resolve(this, absF);
-  }
-
-  /**
-   * Rename a snapshot.
-   *
-   * @param path The directory path where the snapshot was taken
-   * @param snapshotOldName Old name of the snapshot
-   * @param snapshotNewName New name of the snapshot
-   *
-   * @throws IOException If an I/O error occurred
-   *
-   * <p>Exceptions applicable to file systems accessed over RPC:
-   * @throws RpcClientException If an exception occurred in the RPC client
-   * @throws RpcServerException If an exception occurred in the RPC server
-   * @throws UnexpectedServerException If server implementation throws
-   *           undeclared exception to RPC server
-   */
-  public void renameSnapshot(final Path path, final String snapshotOldName,
-      final String snapshotNewName) throws IOException {
-    final Path absF = fixRelativePart(path);
-    new FSLinkResolver<Void>() {
-      @Override
-      public Void next(final AbstractFileSystem fs, final Path p)
-          throws IOException {
-        fs.renameSnapshot(p, snapshotOldName, snapshotNewName);
-        return null;
-      }
-    }.resolve(this, absF);
-  }
-
-  /**
-   * Delete a snapshot of a directory.
-   *
-   * @param path The directory that the to-be-deleted snapshot belongs to
-   * @param snapshotName The name of the snapshot
-   *
-   * @throws IOException If an I/O error occurred
-   *
-   * <p>Exceptions applicable to file systems accessed over RPC:
-   * @throws RpcClientException If an exception occurred in the RPC client
-   * @throws RpcServerException If an exception occurred in the RPC server
-   * @throws UnexpectedServerException If server implementation throws
-   *           undeclared exception to RPC server
-   */
-  public void deleteSnapshot(final Path path, final String snapshotName)
-      throws IOException {
-    final Path absF = fixRelativePart(path);
-    new FSLinkResolver<Void>() {
-      @Override
-      public Void next(final AbstractFileSystem fs, final Path p)
-          throws IOException {
-        fs.deleteSnapshot(p, snapshotName);
-        return null;
-      }
-    }.resolve(this, absF);
-  }
-
-  /**
-   * Set the storage policy for a given file or directory.
-   *
-   * @param path file or directory path.
-   * @param policyName the name of the target storage policy. The list
-   *                   of supported Storage policies can be retrieved
-   *                   via {@link #getAllStoragePolicies}.
-   */
-  public void setStoragePolicy(final Path path, final String policyName)
-      throws IOException {
-    final Path absF = fixRelativePart(path);
-    new FSLinkResolver<Void>() {
-      @Override
-      public Void next(final AbstractFileSystem fs, final Path p)
-          throws IOException {
-        fs.setStoragePolicy(path, policyName);
-        return null;
-      }
-    }.resolve(this, absF);
-  }
-
-  /**
-   * Unset the storage policy set for a given file or directory.
-   * @param src file or directory path.
-   * @throws IOException
-   */
-  public void unsetStoragePolicy(final Path src) throws IOException {
-    final Path absF = fixRelativePart(src);
-    new FSLinkResolver<Void>() {
-      @Override
-      public Void next(final AbstractFileSystem fs, final Path p)
-          throws IOException {
-        fs.unsetStoragePolicy(src);
-        return null;
-      }
-    }.resolve(this, absF);
-  }
-
-  /**
-   * Query the effective storage policy ID for the given file or directory.
-   *
-   * @param path file or directory path.
-   * @return storage policy for give file.
-   * @throws IOException
-   */
-  public BlockStoragePolicySpi getStoragePolicy(Path path) throws IOException {
-    final Path absF = fixRelativePart(path);
-    return new FSLinkResolver<BlockStoragePolicySpi>() {
-      @Override
-      public BlockStoragePolicySpi next(final AbstractFileSystem fs,
-          final Path p)
-          throws IOException {
-        return fs.getStoragePolicy(p);
-      }
-    }.resolve(this, absF);
-  }
-
-  /**
-   * Retrieve all the storage policies supported by this file system.
-   *
-   * @return all storage policies supported by this filesystem.
-   * @throws IOException
-   */
-  public Collection<? extends BlockStoragePolicySpi> getAllStoragePolicies()
-      throws IOException {
-    return defaultFS.getAllStoragePolicies();
-  }
-
-  Tracer getTracer() {
-    return tracer;
   }
 }

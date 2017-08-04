@@ -24,17 +24,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.service.AbstractService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Class which sets up a simple thread which runs in a loop sleeping
@@ -44,21 +43,21 @@ import org.slf4j.LoggerFactory;
  * detected, the thread logs a message.
  */
 @InterfaceAudience.Private
-public class JvmPauseMonitor extends AbstractService {
-  private static final Logger LOG = LoggerFactory.getLogger(
+public class JvmPauseMonitor {
+  private static final Log LOG = LogFactory.getLog(
       JvmPauseMonitor.class);
 
   /** The target sleep time */
   private static final long SLEEP_INTERVAL_MS = 500;
-
+  
   /** log WARN if we detect a pause longer than this threshold */
-  private long warnThresholdMs;
+  private final long warnThresholdMs;
   private static final String WARN_THRESHOLD_KEY =
       "jvm.pause.warn-threshold.ms";
   private static final long WARN_THRESHOLD_DEFAULT = 10000;
-
+  
   /** log INFO if we detect a pause longer than this threshold */
-  private long infoThresholdMs;
+  private final long infoThresholdMs;
   private static final String INFO_THRESHOLD_KEY =
       "jvm.pause.info-threshold.ms";
   private static final long INFO_THRESHOLD_DEFAULT = 1000;
@@ -66,47 +65,37 @@ public class JvmPauseMonitor extends AbstractService {
   private long numGcWarnThresholdExceeded = 0;
   private long numGcInfoThresholdExceeded = 0;
   private long totalGcExtraSleepTime = 0;
-
+   
   private Thread monitorThread;
   private volatile boolean shouldRun = true;
 
-  public JvmPauseMonitor() {
-    super(JvmPauseMonitor.class.getName());
-  }
-
-  @Override
-  protected void serviceInit(Configuration conf) throws Exception {
+  public JvmPauseMonitor(Configuration conf) {
     this.warnThresholdMs = conf.getLong(WARN_THRESHOLD_KEY, WARN_THRESHOLD_DEFAULT);
     this.infoThresholdMs = conf.getLong(INFO_THRESHOLD_KEY, INFO_THRESHOLD_DEFAULT);
-    super.serviceInit(conf);
   }
-
-  @Override
-  protected void serviceStart() throws Exception {
+  
+  public void start() {
+    Preconditions.checkState(monitorThread == null,
+        "Already started");
     monitorThread = new Daemon(new Monitor());
     monitorThread.start();
-    super.serviceStart();
   }
-
-  @Override
-  protected void serviceStop() throws Exception {
+  
+  public void stop() {
     shouldRun = false;
-    if (monitorThread != null) {
-      monitorThread.interrupt();
-      try {
-        monitorThread.join();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-      }
+    monitorThread.interrupt();
+    try {
+      monitorThread.join();
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     }
-    super.serviceStop();
   }
 
   public boolean isStarted() {
     return monitorThread != null;
   }
-
-  public long getNumGcWarnThresholdExceeded() {
+  
+  public long getNumGcWarnThreadholdExceeded() {
     return numGcWarnThresholdExceeded;
   }
   
@@ -185,7 +174,6 @@ public class JvmPauseMonitor extends AbstractService {
     public void run() {
       StopWatch sw = new StopWatch();
       Map<String, GcTimes> gcTimesBeforeSleep = getGcTimes();
-      LOG.info("Starting JVM pause monitor");
       while (shouldRun) {
         sw.reset().start();
         try {
@@ -218,11 +206,8 @@ public class JvmPauseMonitor extends AbstractService {
    * with a 1GB heap will very quickly go into "GC hell" and result in
    * log messages about the GC pauses.
    */
-  @SuppressWarnings("resource")
   public static void main(String []args) throws Exception {
-    JvmPauseMonitor monitor = new JvmPauseMonitor();
-    monitor.init(new Configuration());
-    monitor.start();
+    new JvmPauseMonitor(new Configuration()).start();
     List<String> list = Lists.newArrayList();
     int i = 0;
     while (true) {

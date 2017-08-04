@@ -389,9 +389,10 @@ public class TestRMApplicationHistoryWriter {
     YarnConfiguration conf = new YarnConfiguration();
     if (isFS) {
       conf.setBoolean(FairSchedulerConfiguration.ASSIGN_MULTIPLE, true);
-      conf.set(YarnConfiguration.RM_SCHEDULER, FairScheduler.class.getName());
+      conf.set("yarn.resourcemanager.scheduler.class",
+          FairScheduler.class.getName());
     } else {
-      conf.set(YarnConfiguration.RM_SCHEDULER,
+      conf.set("yarn.resourcemanager.scheduler.class",
           CapacityScheduler.class.getName());
     }
     // don't process history events
@@ -445,9 +446,6 @@ public class TestRMApplicationHistoryWriter {
     MockNM nm = rm.registerNode("127.0.0.1:1234", 1024 * 10100);
 
     RMApp app = rm.submitApp(1024);
-    //Wait to make sure the attempt has the right state
-    //TODO explore a better way than sleeping for a while (YARN-4929)
-    Thread.sleep(1000);
     nm.nodeHeartbeat(true);
     RMAppAttempt attempt = app.getCurrentAppAttempt();
     MockAM am = rm.sendAMLaunched(attempt.getAppAttemptId());
@@ -472,9 +470,9 @@ public class TestRMApplicationHistoryWriter {
     Assert.assertEquals(request, allocatedSize);
 
     am.unregisterAppAttempt();
-    rm.waitForState(am.getApplicationAttemptId(), RMAppAttemptState.FINISHING);
+    am.waitForState(RMAppAttemptState.FINISHING);
     nm.nodeHeartbeat(am.getApplicationAttemptId(), 1, ContainerState.COMPLETE);
-    rm.waitForState(am.getApplicationAttemptId(), RMAppAttemptState.FINISHED);
+    am.waitForState(RMAppAttemptState.FINISHED);
 
     NodeHeartbeatResponse resp = nm.nodeHeartbeat(true);
     List<ContainerId> cleaned = resp.getContainersToCleanup();

@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.util.EnumSet;
 import java.util.Random;
 
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -35,7 +36,6 @@ import org.apache.hadoop.fs.Options;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
 import org.junit.After;
 import org.junit.AfterClass;
@@ -47,7 +47,7 @@ import org.junit.Test;
  */
 public class TestListFilesInFileContext {
   {
-    GenericTestUtils.setLogLevel(FileSystem.LOG, Level.ALL);
+    ((Log4JLogger)FileSystem.LOG).getLogger().setLevel(Level.ALL);
   }
 
   static final long seed = 0xDEADBEEFL;
@@ -83,9 +83,7 @@ public class TestListFilesInFileContext {
   
   @AfterClass
   public static void testShutdown() throws Exception {
-    if (cluster != null) {
-      cluster.shutdown();
-    }
+    cluster.shutdown();
   }
 
   /** Test when input path is a file */

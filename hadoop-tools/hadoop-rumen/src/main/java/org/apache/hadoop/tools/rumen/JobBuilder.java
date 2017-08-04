@@ -473,12 +473,9 @@ public class JobBuilder {
     task.setTaskStatus(getPre21Value(event.getTaskStatus()));
     TaskFailed t = (TaskFailed)(event.getDatum());
     task.putDiagnosticInfo(t.error.toString());
-    // killed task wouldn't have failed attempt.
-    if (t.getFailedDueToAttempt() != null) {
-      task.putFailedDueToAttemptId(t.getFailedDueToAttempt().toString());
-    }
+    task.putFailedDueToAttemptId(t.failedDueToAttempt.toString());
     org.apache.hadoop.mapreduce.jobhistory.JhCounters counters =
-        ((TaskFailed) event.getDatum()).getCounters();
+        ((TaskFailed) event.getDatum()).counters;
     task.incorporateCounters(
         counters == null ? EMPTY_COUNTERS : counters);
   }
@@ -503,7 +500,7 @@ public class JobBuilder {
 
     attempt.setFinishTime(event.getFinishTime());
     org.apache.hadoop.mapreduce.jobhistory.JhCounters counters =
-        ((TaskAttemptUnsuccessfulCompletion) event.getDatum()).getCounters();
+        ((TaskAttemptUnsuccessfulCompletion) event.getDatum()).counters;
     attempt.incorporateCounters(
         counters == null ? EMPTY_COUNTERS : counters);
     attempt.arraySetClockSplits(event.getClockSplits());
@@ -512,7 +509,7 @@ public class JobBuilder {
     attempt.arraySetPhysMemKbytes(event.getPhysMemKbytes());
     TaskAttemptUnsuccessfulCompletion t =
         (TaskAttemptUnsuccessfulCompletion) (event.getDatum());
-    attempt.putDiagnosticInfo(t.getError().toString());
+    attempt.putDiagnosticInfo(t.error.toString());
   }
 
   private void processTaskAttemptStartedEvent(TaskAttemptStartedEvent event) {

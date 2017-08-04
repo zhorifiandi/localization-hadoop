@@ -18,7 +18,7 @@
 
 package org.apache.hadoop.fs.swift.exceptions;
 
-import org.apache.http.HttpResponse;
+import org.apache.commons.httpclient.HttpMethod;
 
 import java.net.URI;
 
@@ -31,8 +31,8 @@ public class SwiftBadRequestException extends SwiftInvalidResponseException {
   public SwiftBadRequestException(String message,
                                   String operation,
                                   URI uri,
-                                  HttpResponse resp) {
-    super(message, operation, uri, resp);
+                                  HttpMethod method) {
+    super(message, operation, uri, method);
   }
 
   public SwiftBadRequestException(String message,

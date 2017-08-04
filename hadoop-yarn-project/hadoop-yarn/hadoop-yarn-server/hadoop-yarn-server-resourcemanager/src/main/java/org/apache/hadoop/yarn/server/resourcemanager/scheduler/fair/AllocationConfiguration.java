@@ -17,42 +17,31 @@
 */
 package org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.AccessControlList;
 import org.apache.hadoop.yarn.api.records.QueueACL;
-import org.apache.hadoop.yarn.api.records.ReservationACL;
 import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.security.AccessType;
 import org.apache.hadoop.yarn.server.resourcemanager.reservation.ReservationSchedulerConfiguration;
 import org.apache.hadoop.yarn.server.resourcemanager.resource.ResourceWeights;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.SchedulerUtils;
-import org.apache.hadoop.yarn.util.resource.DefaultResourceCalculator;
-import org.apache.hadoop.yarn.util.resource.ResourceCalculator;
 import org.apache.hadoop.yarn.util.resource.Resources;
 
 import com.google.common.annotations.VisibleForTesting;
 
 public class AllocationConfiguration extends ReservationSchedulerConfiguration {
-  private static final Log LOG = LogFactory.getLog(FSQueue.class.getName());
   private static final AccessControlList EVERYBODY_ACL = new AccessControlList("*");
   private static final AccessControlList NOBODY_ACL = new AccessControlList(" ");
-  private static final ResourceCalculator RESOURCE_CALCULATOR =
-      new DefaultResourceCalculator();
+  
   // Minimum resource allocation for each queue
   private final Map<String, Resource> minQueueResources;
   // Maximum amount of resources per queue
   @VisibleForTesting
   final Map<String, Resource> maxQueueResources;
-  // Maximum amount of resources for each queue's ad hoc children
-  private final Map<String, Resource> maxChildQueueResources;
   // Sharing weights for each queue
   private final Map<String, ResourceWeights> queueWeights;
   
@@ -64,18 +53,13 @@ public class AllocationConfiguration extends ReservationSchedulerConfiguration {
   final Map<String, Integer> userMaxApps;
   private final int userMaxAppsDefault;
   private final int queueMaxAppsDefault;
-  private final Resource queueMaxResourcesDefault;
 
   // Maximum resource share for each leaf queue that can be used to run AMs
   final Map<String, Float> queueMaxAMShares;
   private final float queueMaxAMShareDefault;
 
   // ACL's for each queue. Only specifies non-default ACL's from configuration.
-  private final Map<String, Map<AccessType, AccessControlList>> queueAcls;
-
-  // Reservation ACL's for each queue. Only specifies non-default ACL's from
-  // configuration.
-  private final Map<String, Map<ReservationACL, AccessControlList>> resAcls;
+  private final Map<String, Map<QueueACL, AccessControlList>> queueAcls;
 
   // Min share preemption timeout for each queue in seconds. If a job in the queue
   // waits this long without receiving its guaranteed share, it is allowed to
@@ -110,37 +94,29 @@ public class AllocationConfiguration extends ReservationSchedulerConfiguration {
   // Reservation system configuration
   private ReservationQueueConfiguration globalReservationQueueConfig;
 
-  private final Set<String> nonPreemptableQueues;
-
   public AllocationConfiguration(Map<String, Resource> minQueueResources,
       Map<String, Resource> maxQueueResources,
-      Map<String, Resource> maxChildQueueResources,
       Map<String, Integer> queueMaxApps, Map<String, Integer> userMaxApps,
       Map<String, ResourceWeights> queueWeights,
       Map<String, Float> queueMaxAMShares, int userMaxAppsDefault,
-      int queueMaxAppsDefault, Resource queueMaxResourcesDefault,
-      float queueMaxAMShareDefault,
+      int queueMaxAppsDefault, float queueMaxAMShareDefault,
       Map<String, SchedulingPolicy> schedulingPolicies,
       SchedulingPolicy defaultSchedulingPolicy,
       Map<String, Long> minSharePreemptionTimeouts,
       Map<String, Long> fairSharePreemptionTimeouts,
       Map<String, Float> fairSharePreemptionThresholds,
-      Map<String, Map<AccessType, AccessControlList>> queueAcls,
-      Map<String, Map<ReservationACL, AccessControlList>> resAcls,
+      Map<String, Map<QueueACL, AccessControlList>> queueAcls,
       QueuePlacementPolicy placementPolicy,
       Map<FSQueueType, Set<String>> configuredQueues,
       ReservationQueueConfiguration globalReservationQueueConfig,
-      Set<String> reservableQueues,
-      Set<String> nonPreemptableQueues) {
+      Set<String> reservableQueues) {
     this.minQueueResources = minQueueResources;
     this.maxQueueResources = maxQueueResources;
-    this.maxChildQueueResources = maxChildQueueResources;
     this.queueMaxApps = queueMaxApps;
     this.userMaxApps = userMaxApps;
     this.queueMaxAMShares = queueMaxAMShares;
     this.queueWeights = queueWeights;
     this.userMaxAppsDefault = userMaxAppsDefault;
-    this.queueMaxResourcesDefault = queueMaxResourcesDefault;
     this.queueMaxAppsDefault = queueMaxAppsDefault;
     this.queueMaxAMShareDefault = queueMaxAMShareDefault;
     this.defaultSchedulingPolicy = defaultSchedulingPolicy;
@@ -149,41 +125,35 @@ public class AllocationConfiguration extends ReservationSchedulerConfiguration {
     this.fairSharePreemptionTimeouts = fairSharePreemptionTimeouts;
     this.fairSharePreemptionThresholds = fairSharePreemptionThresholds;
     this.queueAcls = queueAcls;
-    this.resAcls = resAcls;
     this.reservableQueues = reservableQueues;
     this.globalReservationQueueConfig = globalReservationQueueConfig;
     this.placementPolicy = placementPolicy;
     this.configuredQueues = configuredQueues;
-    this.nonPreemptableQueues = nonPreemptableQueues;
   }
   
   public AllocationConfiguration(Configuration conf) {
-    minQueueResources = new HashMap<>();
-    maxChildQueueResources = new HashMap<>();
-    maxQueueResources = new HashMap<>();
-    queueWeights = new HashMap<>();
-    queueMaxApps = new HashMap<>();
-    userMaxApps = new HashMap<>();
-    queueMaxAMShares = new HashMap<>();
+    minQueueResources = new HashMap<String, Resource>();
+    maxQueueResources = new HashMap<String, Resource>();
+    queueWeights = new HashMap<String, ResourceWeights>();
+    queueMaxApps = new HashMap<String, Integer>();
+    userMaxApps = new HashMap<String, Integer>();
+    queueMaxAMShares = new HashMap<String, Float>();
     userMaxAppsDefault = Integer.MAX_VALUE;
     queueMaxAppsDefault = Integer.MAX_VALUE;
-    queueMaxResourcesDefault = Resources.unbounded();
     queueMaxAMShareDefault = 0.5f;
-    queueAcls = new HashMap<>();
-    resAcls = new HashMap<>();
-    minSharePreemptionTimeouts = new HashMap<>();
-    fairSharePreemptionTimeouts = new HashMap<>();
-    fairSharePreemptionThresholds = new HashMap<>();
-    schedulingPolicies = new HashMap<>();
+    queueAcls = new HashMap<String, Map<QueueACL, AccessControlList>>();
+    minSharePreemptionTimeouts = new HashMap<String, Long>();
+    fairSharePreemptionTimeouts = new HashMap<String, Long>();
+    fairSharePreemptionThresholds = new HashMap<String, Float>();
+    schedulingPolicies = new HashMap<String, SchedulingPolicy>();
     defaultSchedulingPolicy = SchedulingPolicy.DEFAULT_POLICY;
     reservableQueues = new HashSet<>();
-    configuredQueues = new HashMap<>();
+    configuredQueues = new HashMap<FSQueueType, Set<String>>();
     for (FSQueueType queueType : FSQueueType.values()) {
-      configuredQueues.put(queueType, new HashSet<>());
+      configuredQueues.put(queueType, new HashSet<String>());
     }
-    placementPolicy =
-        QueuePlacementPolicy.fromConfiguration(conf, configuredQueues);
-    nonPreemptableQueues = new HashSet<>();
+    placementPolicy = QueuePlacementPolicy.fromConfiguration(conf,
+        configuredQueues);
   }
   
   /**
@@ -193,35 +163,16 @@ public class AllocationConfiguration extends ReservationSchedulerConfiguration {
    * nobody ("")
    */
   public AccessControlList getQueueAcl(String queue, QueueACL operation) {
-    Map<AccessType, AccessControlList> acls = this.queueAcls.get(queue);
-    if (acls != null) {
-      AccessControlList operationAcl =
-          acls.get(SchedulerUtils.toAccessType(operation));
+    Map<QueueACL, AccessControlList> queueAcls = this.queueAcls.get(queue);
+    if (queueAcls != null) {
+      AccessControlList operationAcl = queueAcls.get(operation);
       if (operationAcl != null) {
         return operationAcl;
       }
     }
     return (queue.equals("root")) ? EVERYBODY_ACL : NOBODY_ACL;
   }
-
-  /**
-   * Get the map of ACLs of all queues.
-   * @return the map of ACLs of all queues
-   */
-  public Map<String, Map<AccessType, AccessControlList>> getQueueAcls() {
-    return Collections.unmodifiableMap(this.queueAcls);
-  }
-
-  @Override
-  /**
-   * Get the map of reservation ACLs to {@link AccessControlList} for the
-   * specified queue.
-   */
-  public Map<ReservationACL, AccessControlList> getReservationAcls(String
-        queue) {
-    return this.resAcls.get(queue);
-  }
-
+  
   /**
    * Get a queue's min share preemption timeout configured in the allocation
    * file, in milliseconds. Return -1 if not set.
@@ -252,82 +203,65 @@ public class AllocationConfiguration extends ReservationSchedulerConfiguration {
         -1f : fairSharePreemptionThreshold;
   }
 
-  public boolean isPreemptable(String queueName) {
-    return !nonPreemptableQueues.contains(queueName);
-  }
-
-  private ResourceWeights getQueueWeight(String queue) {
+  public ResourceWeights getQueueWeight(String queue) {
     ResourceWeights weight = queueWeights.get(queue);
     return (weight == null) ? ResourceWeights.NEUTRAL : weight;
   }
 
+  public void setQueueWeight(String queue, ResourceWeights weight) {
+    queueWeights.put(queue, weight);
+  }
+  
   public int getUserMaxApps(String user) {
     Integer maxApps = userMaxApps.get(user);
     return (maxApps == null) ? userMaxAppsDefault : maxApps;
   }
 
-  @VisibleForTesting
-  int getQueueMaxApps(String queue) {
+  public int getQueueMaxApps(String queue) {
     Integer maxApps = queueMaxApps.get(queue);
     return (maxApps == null) ? queueMaxAppsDefault : maxApps;
   }
-
-  @VisibleForTesting
-  float getQueueMaxAMShare(String queue) {
+  
+  public float getQueueMaxAMShare(String queue) {
     Float maxAMShare = queueMaxAMShares.get(queue);
     return (maxAMShare == null) ? queueMaxAMShareDefault : maxAMShare;
   }
 
   /**
    * Get the minimum resource allocation for the given queue.
-   *
-   * @param queue the target queue's name
-   * @return the min allocation on this queue or {@link Resources#none}
-   * if not set
+   * @return the cap set on this queue, or 0 if not set.
    */
-  @VisibleForTesting
-  Resource getMinResources(String queue) {
+  public Resource getMinResources(String queue) {
     Resource minQueueResource = minQueueResources.get(queue);
     return (minQueueResource == null) ? Resources.none() : minQueueResource;
   }
 
   /**
-   * Get the maximum resource allocation for the given queue. If the max in not
-   * set, return the larger of the min and the default max.
-   *
-   * @param queue the target queue's name
-   * @return the max allocation on this queue
+   * Get the maximum resource allocation for the given queue.
+   * @return the cap set on this queue, or Integer.MAX_VALUE if not set.
    */
-  @VisibleForTesting
-  Resource getMaxResources(String queue) {
-    Resource maxQueueResource = maxQueueResources.get(queue);
-    if (maxQueueResource == null) {
-      Resource minQueueResource = minQueueResources.get(queue);
-      if (minQueueResource != null &&
-          Resources.greaterThan(RESOURCE_CALCULATOR, Resources.unbounded(),
-          minQueueResource, queueMaxResourcesDefault)) {
-        return minQueueResource;
-      } else {
-        return queueMaxResourcesDefault;
-      }
-    } else {
-      return maxQueueResource;
-    }
+
+  public Resource getMaxResources(String queueName) {
+    Resource maxQueueResource = maxQueueResources.get(queueName);
+    return (maxQueueResource == null) ? Resources.unbounded() : maxQueueResource;
   }
   
-  /**
-   * Get the maximum resource allocation for children of the given queue.
-   *
-   * @param queue the target queue's name
-   * @return the max allocation on this queue or null if not set
-   */
-  @VisibleForTesting
-  Resource getMaxChildResources(String queue) {
-    return maxChildQueueResources.get(queue);
-  }
+  public boolean hasAccess(String queueName, QueueACL acl,
+      UserGroupInformation user) {
+    int lastPeriodIndex = queueName.length();
+    while (lastPeriodIndex != -1) {
+      String queue = queueName.substring(0, lastPeriodIndex);
+      if (getQueueAcl(queue, acl).isUserAllowed(user)) {
+        return true;
+      }
 
-  @VisibleForTesting
-  SchedulingPolicy getSchedulingPolicy(String queueName) {
+      lastPeriodIndex = queueName.lastIndexOf('.', lastPeriodIndex - 1);
+    }
+    
+    return false;
+  }
+  
+  public SchedulingPolicy getSchedulingPolicy(String queueName) {
     SchedulingPolicy policy = schedulingPolicies.get(queueName);
     return (policy == null) ? defaultSchedulingPolicy : policy;
   }
@@ -402,27 +336,5 @@ public class AllocationConfiguration extends ReservationSchedulerConfiguration {
   @VisibleForTesting
   public void setAverageCapacity(int avgCapacity) {
     globalReservationQueueConfig.setAverageCapacity(avgCapacity);
-  }
-
-  /**
-   * Initialize a {@link FSQueue} with queue-specific properties and its
-   * metrics.
-   * @param queue the FSQueue needed to be initialized
-   */
-  public void initFSQueue(FSQueue queue){
-    // Set queue-specific properties.
-    String name = queue.getName();
-    queue.setWeights(getQueueWeight(name));
-    queue.setMinShare(getMinResources(name));
-    queue.setMaxShare(getMaxResources(name));
-    queue.setMaxRunningApps(getQueueMaxApps(name));
-    queue.setMaxAMShare(getQueueMaxAMShare(name));
-    queue.setMaxChildQueueResource(getMaxChildResources(name));
-
-    // Set queue metrics.
-    queue.getMetrics().setMinShare(getMinResources(name));
-    queue.getMetrics().setMaxShare(getMaxResources(name));
-    queue.getMetrics().setMaxApps(getQueueMaxApps(name));
-    queue.getMetrics().setSchedulingPolicy(getSchedulingPolicy(name).getName());
   }
 }

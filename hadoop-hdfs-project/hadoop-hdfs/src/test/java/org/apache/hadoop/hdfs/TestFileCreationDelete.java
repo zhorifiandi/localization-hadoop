@@ -46,6 +46,7 @@ public class TestFileCreationDelete {
     try {
       cluster.waitActive();
       fs = cluster.getFileSystem();
+      final int nnport = cluster.getNameNodePort();
 
       // create file1.
       Path dir = new Path("/foo");
@@ -67,18 +68,22 @@ public class TestFileCreationDelete {
       // rm dir
       fs.delete(dir, true);
 
-      // restart cluster.
+      // restart cluster with the same namenode port as before.
       // This ensures that leases are persisted in fsimage.
       cluster.shutdown();
       try {Thread.sleep(2*MAX_IDLE_TIME);} catch (InterruptedException e) {}
-      cluster = new MiniDFSCluster.Builder(conf).format(false).build();
+      cluster = new MiniDFSCluster.Builder(conf).nameNodePort(nnport)
+                                                .format(false)
+                                                .build();
       cluster.waitActive();
 
       // restart cluster yet again. This triggers the code to read in
       // persistent leases from fsimage.
       cluster.shutdown();
       try {Thread.sleep(5000);} catch (InterruptedException e) {}
-      cluster = new MiniDFSCluster.Builder(conf).format(false).build();
+      cluster = new MiniDFSCluster.Builder(conf).nameNodePort(nnport)
+                                                .format(false)
+                                                .build();
       cluster.waitActive();
       fs = cluster.getFileSystem();
 

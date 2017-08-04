@@ -23,6 +23,7 @@ import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.server.resourcemanager.resource.ResourceWeights;
+import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.RMContainer;
 
 /**
  * A Schedulable represents an entity that can be scheduled such as an
@@ -54,52 +55,50 @@ public interface Schedulable {
    * Name of job/queue, used for debugging as well as for breaking ties in
    * scheduling order deterministically.
    */
-  String getName();
+  public String getName();
 
   /**
    * Maximum number of resources required by this Schedulable. This is defined as
    * number of currently utilized resources + number of unlaunched resources (that
    * are either not yet launched or need to be speculated).
    */
-  Resource getDemand();
+  public Resource getDemand();
 
   /** Get the aggregate amount of resources consumed by the schedulable. */
-  Resource getResourceUsage();
+  public Resource getResourceUsage();
 
   /** Minimum Resource share assigned to the schedulable. */
-  Resource getMinShare();
+  public Resource getMinShare();
 
   /** Maximum Resource share assigned to the schedulable. */
-  Resource getMaxShare();
+  public Resource getMaxShare();
 
   /** Job/queue weight in fair sharing. */
-  ResourceWeights getWeights();
+  public ResourceWeights getWeights();
 
   /** Start time for jobs in FIFO queues; meaningless for QueueSchedulables.*/
-  long getStartTime();
+  public long getStartTime();
 
  /** Job priority for jobs in FIFO queues; meaningless for QueueSchedulables. */
-  Priority getPriority();
+  public Priority getPriority();
 
   /** Refresh the Schedulable's demand and those of its children if any. */
-  void updateDemand();
+  public void updateDemand();
 
   /**
    * Assign a container on this node if possible, and return the amount of
    * resources assigned.
    */
-  Resource assignContainer(FSSchedulerNode node);
-
-  /** Get the fair share assigned to this Schedulable. */
-  Resource getFairShare();
-
-  /** Assign a fair share to this Schedulable. */
-  void setFairShare(Resource fairShare);
+  public Resource assignContainer(FSSchedulerNode node);
 
   /**
-   * Check whether the schedulable is preemptable.
-   * @return <code>true</code> if the schedulable is preemptable;
-   *         <code>false</code> otherwise
+   * Preempt a container from this Schedulable if possible.
    */
-  boolean isPreemptable();
+  public RMContainer preemptContainer();
+
+  /** Get the fair share assigned to this Schedulable. */
+  public Resource getFairShare();
+
+  /** Assign a fair share to this Schedulable. */
+  public void setFairShare(Resource fairShare);
 }

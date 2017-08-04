@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.mapreduce.v2.hs.webapp;
 
-import static org.apache.hadoop.mapreduce.v2.app.webapp.AMParams.TASK_ID;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.ACCORDION;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.ACCORDION_ID;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.DATATABLES;
@@ -39,7 +38,7 @@ public class HsView extends TwoColumnLayout {
    * (non-Javadoc)
    * @see org.apache.hadoop.yarn.webapp.view.TwoColumnLayout#preHead(org.apache.hadoop.yarn.webapp.hamlet.Hamlet.HTML)
    */
-  @Override protected void preHead(Page.HTML<__> html) {
+  @Override protected void preHead(Page.HTML<_> html) {
     commonPreHead(html);
     set(DATATABLES_ID, "jobs");
     set(initID(DATATABLES, "jobs"), jobsTableInit());
@@ -51,21 +50,9 @@ public class HsView extends TwoColumnLayout {
    * The prehead that should be common to all subclasses.
    * @param html used to render.
    */
-  protected void commonPreHead(Page.HTML<__> html) {
+  protected void commonPreHead(Page.HTML<_> html) {
     set(ACCORDION_ID, "nav");
     set(initID(ACCORDION, "nav"), "{autoHeight:false, active:0}");
-  }
-
-  /**
-   * Determine which navigation column is active.
-   */
-  protected void setActiveNavColumnForTask() {
-    String tid = $(TASK_ID);
-    String activeNav = "2";
-    if((tid == null || tid.isEmpty())) {
-      activeNav = "1";
-    }
-    set(initID(ACCORDION, "nav"), "{autoHeight:false, active:"+activeNav+"}");
   }
 
   /*
@@ -100,11 +87,10 @@ public class HsView extends TwoColumnLayout {
         append(", bProcessing: true").
 
         // Sort by id upon page load
-        append(", aaSorting: [[3, 'desc']]").
+        append(", aaSorting: [[2, 'desc']]").
         append(", aoColumnDefs:[").
         // Maps Total, Maps Completed, Reduces Total and Reduces Completed
-        append("{'sType':'numeric', 'bSearchable': false" +
-            ", 'aTargets': [ 8, 9, 10, 11 ] }").
+        append("{'sType':'numeric', 'bSearchable': false, 'aTargets': [ 7, 8, 9, 10 ] }").
         append("]}").
         toString();
   }

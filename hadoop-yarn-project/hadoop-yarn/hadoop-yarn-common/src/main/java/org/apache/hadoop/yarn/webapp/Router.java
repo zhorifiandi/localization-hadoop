@@ -74,32 +74,17 @@ class Router {
 
   final TreeMap<String, Dest> routes = Maps.newTreeMap(); // path->dest
 
-  synchronized Dest add(WebApp.HTTP httpMethod, String path,
-                        Class<? extends Controller> cls,
-                        String action, List<String> names){
-    return addWithOptionalDefaultView(
-        httpMethod, path, cls, action, names, true);
-  }
-
-  synchronized Dest addWithoutDefaultView(WebApp.HTTP httpMethod,
-      String path, Class<? extends Controller> cls, String action,
-      List<String> names){
-    return addWithOptionalDefaultView(httpMethod, path, cls, action,
-        names, false);
-  }
   /**
    * Add a route to the router.
    * e.g., add(GET, "/foo/show", FooController.class, "show", [name...]);
    * The name list is from /foo/show/:name/...
    */
-  synchronized Dest addWithOptionalDefaultView(WebApp.HTTP httpMethod,
-      String path, Class<? extends Controller> cls,
-      String action, List<String> names, boolean defaultViewNeeded) {
+  synchronized Dest add(WebApp.HTTP httpMethod, String path,
+                        Class<? extends Controller> cls,
+                        String action, List<String> names) {
     LOG.debug("adding {}({})->{}#{}", new Object[]{path, names, cls, action});
     Dest dest = addController(httpMethod, path, cls, action, names);
-    if (defaultViewNeeded) {
-      addDefaultView(dest);
-    }
+    addDefaultView(dest);
     return dest;
   }
 
@@ -112,7 +97,7 @@ class Router {
       // Note: this does not distinguish methods with the same signature
       // but different return types.
       // TODO: We may want to deal with methods that take parameters in the future
-      Method method = cls.getMethod(action);
+      Method method = cls.getMethod(action, null);
       Dest dest = routes.get(path);
       if (dest == null) {
         method.setAccessible(true); // avoid any runtime checks

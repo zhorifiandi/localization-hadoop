@@ -33,11 +33,7 @@ class NativeCrc32 {
    * Return true if the JNI-based native CRC extensions are available.
    */
   public static boolean isAvailable() {
-    if (System.getProperty("os.arch").toLowerCase().startsWith("sparc")) {
-      return false;
-    } else {
-      return NativeCodeLoader.isNativeCodeLoaded();
-    }
+    return NativeCodeLoader.isNativeCodeLoaded();
   }
 
   /**

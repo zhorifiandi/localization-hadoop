@@ -30,9 +30,4 @@ public class BPServiceActorActionException extends IOException {
   public BPServiceActorActionException(String message) {
     super(message);
   }
-
-  public BPServiceActorActionException(String message, Throwable cause) {
-    super(message, cause);
-  }
-
 }

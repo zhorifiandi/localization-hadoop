@@ -203,7 +203,7 @@ public class TestDomainSocket {
         } catch (IOException e) {
           throw new RuntimeException("unexpected IOException", e);
         } finally {
-          IOUtils.cleanupWithLogger(DomainSocket.LOG, serverConn);
+          IOUtils.cleanup(DomainSocket.LOG, serverConn);
         }
         return null;
       }
@@ -712,8 +712,9 @@ public class TestDomainSocket {
       try {
         testValidateSocketPath(prefix + "/foo/bar/baz", prefix);
       } catch (IOException e) {
-        GenericTestUtils.assertExceptionContains("world-writable" ,e);
-        GenericTestUtils.assertExceptionContains("/foo'" ,e);
+        GenericTestUtils.assertExceptionContains("/foo' is world-writable.  " +
+            "Its permissions are 0707.  Please fix this or select a " +
+            "different socket path.", e);
       }
       try {
         testValidateSocketPath(prefix + "/nope", prefix);
@@ -722,7 +723,7 @@ public class TestDomainSocket {
             "component: ", e);
       }
       // Root should be secure
-      DomainSocket.validateSocketPathSecurity0("/foo", 0);
+      DomainSocket.validateSocketPathSecurity0("/foo", 1);
     } finally {
       tmp.close();
     }

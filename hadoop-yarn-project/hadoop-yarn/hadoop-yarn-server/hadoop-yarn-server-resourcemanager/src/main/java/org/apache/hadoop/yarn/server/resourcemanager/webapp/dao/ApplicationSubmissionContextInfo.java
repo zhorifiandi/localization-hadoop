@@ -78,15 +78,6 @@ public class ApplicationSubmissionContextInfo {
   @XmlElement(name = "am-container-node-label-expression")
   String amContainerNodeLabelExpression;
 
-  @XmlElement(name = "log-aggregation-context")
-  LogAggregationContextInfo logAggregationContextInfo;
-
-  @XmlElement(name = "attempt-failures-validity-interval")
-  long attemptFailuresValidityInterval;
-
-  @XmlElement(name = "reservation-id")
-  String reservationId;
-
   public ApplicationSubmissionContextInfo() {
     applicationId = "";
     applicationName = "";
@@ -100,9 +91,6 @@ public class ApplicationSubmissionContextInfo {
     tags = new HashSet<String>();
     appNodeLabelExpression = "";
     amContainerNodeLabelExpression = "";
-    logAggregationContextInfo = null;
-    attemptFailuresValidityInterval = -1;
-    reservationId = "";
   }
 
   public String getApplicationId() {
@@ -161,18 +149,6 @@ public class ApplicationSubmissionContextInfo {
     return amContainerNodeLabelExpression;
   }
 
-  public LogAggregationContextInfo getLogAggregationContextInfo() {
-    return logAggregationContextInfo;
-  }
-
-  public long getAttemptFailuresValidityInterval() {
-    return attemptFailuresValidityInterval;
-  }
-
-  public String getReservationId() {
-    return reservationId;
-  }
-
   public void setApplicationId(String applicationId) {
     this.applicationId = applicationId;
   }
@@ -229,19 +205,5 @@ public class ApplicationSubmissionContextInfo {
 
   public void setAMContainerNodeLabelExpression(String nodeLabelExpression) {
     this.amContainerNodeLabelExpression = nodeLabelExpression;
-  }
-
-  public void setLogAggregationContextInfo(
-      LogAggregationContextInfo logAggregationContextInfo) {
-    this.logAggregationContextInfo = logAggregationContextInfo;
-  }
-
-  public void setAttemptFailuresValidityInterval(
-      long attemptFailuresValidityInterval) {
-    this.attemptFailuresValidityInterval = attemptFailuresValidityInterval;
-  }
-
-  public void setReservationId(String reservationId) {
-    this.reservationId = reservationId;
   }
 }

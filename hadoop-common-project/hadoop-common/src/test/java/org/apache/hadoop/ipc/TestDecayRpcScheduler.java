@@ -18,11 +18,12 @@
 
 package org.apache.hadoop.ipc;
 
-import static java.lang.Thread.sleep;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Arrays;
 import org.junit.Test;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -30,9 +31,7 @@ import static org.mockito.Mockito.when;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.conf.Configuration;
 
-import javax.management.MBeanServer;
-import javax.management.ObjectName;
-import java.lang.management.ManagementFactory;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 
 public class TestDecayRpcScheduler {
   private Schedulable mockCall(String id) {
@@ -58,32 +57,30 @@ public class TestDecayRpcScheduler {
   }
 
   @Test
-  @SuppressWarnings("deprecation")
   public void testParsePeriod() {
     // By default
     scheduler = new DecayRpcScheduler(1, "", new Configuration());
-    assertEquals(DecayRpcScheduler.IPC_SCHEDULER_DECAYSCHEDULER_PERIOD_DEFAULT,
+    assertEquals(DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_PERIOD_DEFAULT,
       scheduler.getDecayPeriodMillis());
 
     // Custom
     Configuration conf = new Configuration();
-    conf.setLong("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_PERIOD_KEY,
+    conf.setLong("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_PERIOD_KEY,
       1058);
     scheduler = new DecayRpcScheduler(1, "ns", conf);
     assertEquals(1058L, scheduler.getDecayPeriodMillis());
   }
 
   @Test
-  @SuppressWarnings("deprecation")
   public void testParseFactor() {
     // Default
     scheduler = new DecayRpcScheduler(1, "", new Configuration());
-    assertEquals(DecayRpcScheduler.IPC_SCHEDULER_DECAYSCHEDULER_FACTOR_DEFAULT,
+    assertEquals(DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_FACTOR_DEFAULT,
       scheduler.getDecayFactor(), 0.00001);
 
     // Custom
     Configuration conf = new Configuration();
-    conf.set("prefix." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_FACTOR_KEY,
+    conf.set("prefix." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_FACTOR_KEY,
       "0.125");
     scheduler = new DecayRpcScheduler(1, "prefix", conf);
     assertEquals(0.125, scheduler.getDecayFactor(), 0.00001);
@@ -97,7 +94,6 @@ public class TestDecayRpcScheduler {
   }
 
   @Test
-  @SuppressWarnings("deprecation")
   public void testParseThresholds() {
     // Defaults vary by number of queues
     Configuration conf = new Configuration();
@@ -115,17 +111,16 @@ public class TestDecayRpcScheduler {
 
     // Custom
     conf = new Configuration();
-    conf.set("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_THRESHOLDS_KEY,
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_THRESHOLDS_KEY,
       "1, 10, 20, 50, 85");
     scheduler = new DecayRpcScheduler(6, "ns", conf);
     assertEqualDecimalArrays(new double[]{0.01, 0.1, 0.2, 0.5, 0.85}, scheduler.getThresholds());
   }
 
   @Test
-  @SuppressWarnings("deprecation")
   public void testAccumulate() {
     Configuration conf = new Configuration();
-    conf.set("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_PERIOD_KEY, "99999999"); // Never flush
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_PERIOD_KEY, "99999999"); // Never flush
     scheduler = new DecayRpcScheduler(1, "ns", conf);
 
     assertEquals(0, scheduler.getCallCountSnapshot().size()); // empty first
@@ -143,11 +138,10 @@ public class TestDecayRpcScheduler {
   }
 
   @Test
-  @SuppressWarnings("deprecation")
-  public void testDecay() throws Exception {
+  public void testDecay() {
     Configuration conf = new Configuration();
-    conf.set("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_PERIOD_KEY, "999999999"); // Never
-    conf.set("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_FACTOR_KEY, "0.5");
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_PERIOD_KEY, "999999999"); // Never
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_FACTOR_KEY, "0.5");
     scheduler = new DecayRpcScheduler(1, "ns", conf);
 
     assertEquals(0, scheduler.getTotalCallSnapshot());
@@ -155,8 +149,6 @@ public class TestDecayRpcScheduler {
     for (int i = 0; i < 4; i++) {
       scheduler.getPriorityLevel(mockCall("A"));
     }
-
-    sleep(1000);
 
     for (int i = 0; i < 8; i++) {
       scheduler.getPriorityLevel(mockCall("B"));
@@ -192,15 +184,12 @@ public class TestDecayRpcScheduler {
   }
 
   @Test
-  @SuppressWarnings("deprecation")
-  public void testPriority() throws Exception {
+  public void testPriority() {
     Configuration conf = new Configuration();
-    final String namespace = "ns";
-    conf.set(namespace + "." + DecayRpcScheduler
-        .IPC_FCQ_DECAYSCHEDULER_PERIOD_KEY, "99999999"); // Never flush
-    conf.set(namespace + "." + DecayRpcScheduler
-        .IPC_FCQ_DECAYSCHEDULER_THRESHOLDS_KEY, "25, 50, 75");
-    scheduler = new DecayRpcScheduler(4, namespace, conf);
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_PERIOD_KEY, "99999999"); // Never flush
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_THRESHOLDS_KEY,
+      "25, 50, 75");
+    scheduler = new DecayRpcScheduler(4, "ns", conf);
 
     assertEquals(0, scheduler.getPriorityLevel(mockCall("A")));
     assertEquals(2, scheduler.getPriorityLevel(mockCall("A")));
@@ -212,28 +201,13 @@ public class TestDecayRpcScheduler {
     assertEquals(1, scheduler.getPriorityLevel(mockCall("A")));
     assertEquals(1, scheduler.getPriorityLevel(mockCall("A")));
     assertEquals(2, scheduler.getPriorityLevel(mockCall("A")));
-
-    MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
-    ObjectName mxbeanName = new ObjectName(
-        "Hadoop:service="+ namespace + ",name=DecayRpcScheduler");
-
-    String cvs1 = (String) mbs.getAttribute(mxbeanName, "CallVolumeSummary");
-    assertTrue("Get expected JMX of CallVolumeSummary before decay",
-        cvs1.equals("{\"A\":6,\"B\":2,\"C\":2}"));
-
-    scheduler.forceDecay();
-
-    String cvs2 = (String) mbs.getAttribute(mxbeanName, "CallVolumeSummary");
-    assertTrue("Get expected JMX for CallVolumeSummary after decay",
-        cvs2.equals("{\"A\":3,\"B\":1,\"C\":1}"));
   }
 
   @Test(timeout=2000)
-  @SuppressWarnings("deprecation")
   public void testPeriodic() throws InterruptedException {
     Configuration conf = new Configuration();
-    conf.set("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_PERIOD_KEY, "10");
-    conf.set("ns." + DecayRpcScheduler.IPC_FCQ_DECAYSCHEDULER_FACTOR_KEY, "0.5");
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_PERIOD_KEY, "10");
+    conf.set("ns." + DecayRpcScheduler.IPC_CALLQUEUE_DECAYSCHEDULER_FACTOR_KEY, "0.5");
     scheduler = new DecayRpcScheduler(1, "ns", conf);
 
     assertEquals(10, scheduler.getDecayPeriodMillis());
@@ -245,7 +219,7 @@ public class TestDecayRpcScheduler {
 
     // It should eventually decay to zero
     while (scheduler.getTotalCallSnapshot() > 0) {
-      sleep(10);
+      Thread.sleep(10);
     }
   }
 }

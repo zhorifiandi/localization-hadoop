@@ -23,12 +23,11 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
-import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier.AccessMode;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenSecretManager.AccessMode;
 import org.apache.hadoop.security.token.SecretManager;
 import org.apache.hadoop.security.token.Token;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.apache.hadoop.fs.StorageType;
 
 /**
  * Manages a {@link BlockTokenSecretManager} per block pool. Routes the requests
@@ -50,8 +49,7 @@ public class BlockPoolTokenSecretManager extends
     map.put(bpid, secretMgr);
   }
 
-  @VisibleForTesting
-  public synchronized BlockTokenSecretManager get(String bpid) {
+  synchronized BlockTokenSecretManager get(String bpid) {
     BlockTokenSecretManager secretMgr = map.get(bpid);
     if (secretMgr == null) {
       throw new IllegalArgumentException("Block pool " + bpid
@@ -82,29 +80,21 @@ public class BlockPoolTokenSecretManager extends
   }
 
   /**
-   * See {@link BlockTokenSecretManager#checkAccess(BlockTokenIdentifier,
-   *                String, ExtendedBlock, BlockTokenIdentifier.AccessMode,
-   *                StorageType[], String[])}
+   * See {@link BlockTokenSecretManager#checkAccess(BlockTokenIdentifier, 
+   *                String, ExtendedBlock, AccessMode)}
    */
   public void checkAccess(BlockTokenIdentifier id, String userId,
-      ExtendedBlock block, AccessMode mode,
-      StorageType[] storageTypes, String[] storageIds)
-      throws InvalidToken {
-    get(block.getBlockPoolId()).checkAccess(id, userId, block, mode,
-        storageTypes, storageIds);
+      ExtendedBlock block, AccessMode mode) throws InvalidToken {
+    get(block.getBlockPoolId()).checkAccess(id, userId, block, mode);
   }
 
   /**
-   * See {@link BlockTokenSecretManager#checkAccess(Token, String,
-   *                ExtendedBlock, BlockTokenIdentifier.AccessMode,
-   *                StorageType[], String[])}
+   * See {@link BlockTokenSecretManager#checkAccess(Token, String, 
+   *                ExtendedBlock, AccessMode)}
    */
   public void checkAccess(Token<BlockTokenIdentifier> token,
-      String userId, ExtendedBlock block, AccessMode mode,
-      StorageType[] storageTypes, String[] storageIds)
-      throws InvalidToken {
-    get(block.getBlockPoolId()).checkAccess(token, userId, block, mode,
-        storageTypes, storageIds);
+      String userId, ExtendedBlock block, AccessMode mode) throws InvalidToken {
+    get(block.getBlockPoolId()).checkAccess(token, userId, block, mode);
   }
 
   /**
@@ -116,14 +106,11 @@ public class BlockPoolTokenSecretManager extends
   }
 
   /**
-   * See {@link BlockTokenSecretManager#generateToken(ExtendedBlock, EnumSet,
-   *  StorageType[], String[])}.
+   * See {@link BlockTokenSecretManager#generateToken(ExtendedBlock, EnumSet)}
    */
   public Token<BlockTokenIdentifier> generateToken(ExtendedBlock b,
-      EnumSet<AccessMode> of, StorageType[] storageTypes, String[] storageIds)
-      throws IOException {
-    return get(b.getBlockPoolId()).generateToken(b, of, storageTypes,
-        storageIds);
+      EnumSet<AccessMode> of) throws IOException {
+    return get(b.getBlockPoolId()).generateToken(b, of);
   }
   
   @VisibleForTesting

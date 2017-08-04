@@ -45,9 +45,9 @@ class KeySampler {
   
   public void next(BytesWritable key) {
     key.setSize(Math.max(MIN_KEY_LEN, keyLenRNG.nextInt()));
-    random.nextBytes(key.getBytes());
+    random.nextBytes(key.get());
     int n = random.nextInt(max - min) + min;
-    byte[] b = key.getBytes();
+    byte[] b = key.get();
     b[0] = (byte) (n >> 24);
     b[1] = (byte) (n >> 16);
     b[2] = (byte) (n >> 8);

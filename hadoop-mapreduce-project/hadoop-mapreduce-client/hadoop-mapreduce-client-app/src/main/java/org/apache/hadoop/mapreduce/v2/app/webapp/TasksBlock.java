@@ -21,6 +21,7 @@ package org.apache.hadoop.mapreduce.v2.app.webapp;
 import static org.apache.hadoop.mapreduce.v2.app.webapp.AMParams.TASK_STATE;
 import static org.apache.hadoop.mapreduce.v2.app.webapp.AMParams.TASK_TYPE;
 import static org.apache.hadoop.yarn.util.StringHelper.join;
+import static org.apache.hadoop.yarn.util.StringHelper.percent;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.C_PROGRESSBAR;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.C_PROGRESSBAR_VALUE;
 
@@ -29,10 +30,9 @@ import org.apache.hadoop.mapreduce.v2.api.records.TaskType;
 import org.apache.hadoop.mapreduce.v2.app.job.Task;
 import org.apache.hadoop.mapreduce.v2.app.webapp.dao.TaskInfo;
 import org.apache.hadoop.mapreduce.v2.util.MRApps;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -65,7 +65,7 @@ public class TasksBlock extends HtmlBlock {
             th("State").
             th("Start Time").
             th("Finish Time").
-            th("Elapsed Time").__().__().
+            th("Elapsed Time")._()._().
         tbody();
     StringBuilder tasksTableData = new StringBuilder("[\n");
 
@@ -94,7 +94,7 @@ public class TasksBlock extends HtmlBlock {
 
       TaskInfo info = new TaskInfo(task);
       String tid = info.getId();
-      String pct = StringUtils.format("%.2f", info.getProgress());
+      String pct = percent(info.getProgress() / 100);
       tasksTableData.append("[\"<a href='").append(url("task", tid))
       .append("'>").append(tid).append("</a>\",\"")
       //Progress bar
@@ -117,8 +117,8 @@ public class TasksBlock extends HtmlBlock {
     }
     tasksTableData.append("]");
     html.script().$type("text/javascript").
-        __("var tasksTableData=" + tasksTableData).__();
+    _("var tasksTableData=" + tasksTableData)._();
 
-    tbody.__().__();
+    tbody._()._();
   }
 }

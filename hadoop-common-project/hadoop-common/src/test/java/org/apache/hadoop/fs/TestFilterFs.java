@@ -25,8 +25,6 @@ import java.util.Iterator;
 
 import junit.framework.TestCase;
 import org.apache.commons.logging.Log;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.viewfs.ConfigUtil;
 
 public class TestFilterFs extends TestCase {
 
@@ -67,14 +65,4 @@ public class TestFilterFs extends TestCase {
     }
   }
   
-  // Test that FilterFs will accept an AbstractFileSystem to be filtered which
-  // has an optional authority, such as ViewFs
-  public void testFilteringWithNonrequiredAuthority() throws Exception {
-    Configuration conf = new Configuration();
-    ConfigUtil.addLink(conf, "custom", "/mnt", URI.create("file:///"));
-    FileContext fc =
-        FileContext.getFileContext(URI.create("viewfs://custom/"), conf);
-    new FilterFs(fc.getDefaultFileSystem()) {};
-  }
-
 }

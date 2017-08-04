@@ -23,28 +23,17 @@ import java.net.InetSocketAddress;
 import java.security.PrivilegedAction;
 import java.security.PrivilegedExceptionAction;
 import java.util.Collection;
-import java.util.Collections;
-import java.util.Iterator;
-import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
-import com.google.common.collect.Iterators;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.HAUtil;
+import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.protocolPB.NamenodeProtocolPB;
 import org.apache.hadoop.hdfs.protocolPB.NamenodeProtocolTranslatorPB;
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
 import org.apache.hadoop.hdfs.server.namenode.EditLogInputException;
 import org.apache.hadoop.hdfs.server.namenode.EditLogInputStream;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLog;
@@ -53,8 +42,6 @@ import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.ipc.RPC;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.ipc.StandbyException;
 import org.apache.hadoop.security.SecurityUtil;
 
 import static org.apache.hadoop.util.Time.monotonicNow;
@@ -78,20 +65,20 @@ public class EditLogTailer {
   
   private final Configuration conf;
   private final FSNamesystem namesystem;
-  private final Iterator<RemoteNameNodeInfo> nnLookup;
   private FSEditLog editLog;
 
-  private RemoteNameNodeInfo currentNN;
+  private InetSocketAddress activeAddr;
+  private NamenodeProtocol cachedActiveProxy = null;
 
   /**
    * The last transaction ID at which an edit log roll was initiated.
    */
-  private long lastRollTriggerTxId = HdfsServerConstants.INVALID_TXID;
+  private long lastRollTriggerTxId = HdfsConstants.INVALID_TXID;
   
   /**
    * The highest transaction ID loaded by the Standby.
    */
-  private long lastLoadedTxnId = HdfsServerConstants.INVALID_TXID;
+  private long lastLoadedTxnId = HdfsConstants.INVALID_TXID;
 
   /**
    * The last time we successfully loaded a non-zero number of edits from the
@@ -107,37 +94,11 @@ public class EditLogTailer {
   private final long logRollPeriodMs;
 
   /**
-   * The timeout in milliseconds of calling rollEdits RPC to Active NN.
-   * @see HDFS-4176.
-   */
-  private final long rollEditsTimeoutMs;
-
-  /**
-   * The executor to run roll edit RPC call in a daemon thread.
-   */
-  private final ExecutorService rollEditsRpcExecutor;
-
-  /**
    * How often the Standby should check if there are new finalized segment(s)
    * available to be read from.
    */
   private final long sleepTimeMs;
-
-  private final int nnCount;
-  private NamenodeProtocol cachedActiveProxy = null;
-  // count of the number of NNs we have attempted in the current lookup loop
-  private int nnLoopCount = 0;
-
-  /**
-   * maximum number of retries we should give each of the remote namenodes before giving up
-   */
-  private int maxRetries;
-
-  /**
-   * Whether the tailer should tail the in-progress edit log segments.
-   */
-  private final boolean inProgressOk;
-
+  
   public EditLogTailer(FSNamesystem namesystem, Configuration conf) {
     this.tailerThread = new EditLogTailerThread();
     this.conf = conf;
@@ -146,64 +107,44 @@ public class EditLogTailer {
     
     lastLoadTimeMs = monotonicNow();
 
-    logRollPeriodMs = conf.getTimeDuration(
-        DFSConfigKeys.DFS_HA_LOGROLL_PERIOD_KEY,
-        DFSConfigKeys.DFS_HA_LOGROLL_PERIOD_DEFAULT, TimeUnit.SECONDS) * 1000;
-    List<RemoteNameNodeInfo> nns = Collections.emptyList();
+    logRollPeriodMs = conf.getInt(DFSConfigKeys.DFS_HA_LOGROLL_PERIOD_KEY,
+        DFSConfigKeys.DFS_HA_LOGROLL_PERIOD_DEFAULT) * 1000;
     if (logRollPeriodMs >= 0) {
-      try {
-        nns = RemoteNameNodeInfo.getRemoteNameNodes(conf);
-      } catch (IOException e) {
-        throw new IllegalArgumentException("Remote NameNodes not correctly configured!", e);
-      }
-
-      for (RemoteNameNodeInfo info : nns) {
-        // overwrite the socket address, if we need to
-        InetSocketAddress ipc = NameNode.getServiceAddress(info.getConfiguration(), true);
-        // sanity check the ipc address
-        Preconditions.checkArgument(ipc.getPort() > 0,
-            "Active NameNode must have an IPC port configured. " + "Got address '%s'", ipc);
-        info.setIpcAddress(ipc);
-      }
-
-      LOG.info("Will roll logs on active node every " +
+      this.activeAddr = getActiveNodeAddress();
+      Preconditions.checkArgument(activeAddr.getPort() > 0,
+          "Active NameNode must have an IPC port configured. " +
+          "Got address '%s'", activeAddr);
+      LOG.info("Will roll logs on active node at " + activeAddr + " every " +
           (logRollPeriodMs / 1000) + " seconds.");
     } else {
       LOG.info("Not going to trigger log rolls on active node because " +
           DFSConfigKeys.DFS_HA_LOGROLL_PERIOD_KEY + " is negative.");
     }
     
-    sleepTimeMs = conf.getTimeDuration(
-        DFSConfigKeys.DFS_HA_TAILEDITS_PERIOD_KEY,
-        DFSConfigKeys.DFS_HA_TAILEDITS_PERIOD_DEFAULT, TimeUnit.SECONDS) * 1000;
-
-    rollEditsTimeoutMs = conf.getInt(
-        DFSConfigKeys.DFS_HA_TAILEDITS_ROLLEDITS_TIMEOUT_KEY,
-        DFSConfigKeys.DFS_HA_TAILEDITS_ROLLEDITS_TIMEOUT_DEFAULT) * 1000;
-
-    rollEditsRpcExecutor = Executors.newSingleThreadExecutor(
-        new ThreadFactoryBuilder().setDaemon(true).build());
-
-    maxRetries = conf.getInt(DFSConfigKeys.DFS_HA_TAILEDITS_ALL_NAMESNODES_RETRY_KEY,
-      DFSConfigKeys.DFS_HA_TAILEDITS_ALL_NAMESNODES_RETRY_DEFAULT);
-    if (maxRetries <= 0) {
-      LOG.error("Specified a non-positive number of retries for the number of retries for the " +
-          "namenode connection when manipulating the edit log (" +
-          DFSConfigKeys.DFS_HA_TAILEDITS_ALL_NAMESNODES_RETRY_KEY + "), setting to default: " +
-          DFSConfigKeys.DFS_HA_TAILEDITS_ALL_NAMESNODES_RETRY_DEFAULT);
-      maxRetries = DFSConfigKeys.DFS_HA_TAILEDITS_ALL_NAMESNODES_RETRY_DEFAULT;
-    }
-
-    inProgressOk = conf.getBoolean(
-        DFSConfigKeys.DFS_HA_TAILEDITS_INPROGRESS_KEY,
-        DFSConfigKeys.DFS_HA_TAILEDITS_INPROGRESS_DEFAULT);
-
-    nnCount = nns.size();
-    // setup the iterator to endlessly loop the nns
-    this.nnLookup = Iterators.cycle(nns);
-
+    sleepTimeMs = conf.getInt(DFSConfigKeys.DFS_HA_TAILEDITS_PERIOD_KEY,
+        DFSConfigKeys.DFS_HA_TAILEDITS_PERIOD_DEFAULT) * 1000;
+    
     LOG.debug("logRollPeriodMs=" + logRollPeriodMs +
         " sleepTime=" + sleepTimeMs);
+  }
+  
+  private InetSocketAddress getActiveNodeAddress() {
+    Configuration activeConf = HAUtil.getConfForOtherNode(conf);
+    return NameNode.getServiceAddress(activeConf, true);
+  }
+  
+  private NamenodeProtocol getActiveNodeProxy() throws IOException {
+    if (cachedActiveProxy == null) {
+      int rpcTimeout = conf.getInt(
+          DFSConfigKeys.DFS_HA_LOGROLL_RPC_TIMEOUT_KEY,
+          DFSConfigKeys.DFS_HA_LOGROLL_RPC_TIMEOUT_DEFAULT);
+      NamenodeProtocolPB proxy = RPC.waitForProxy(NamenodeProtocolPB.class,
+          RPC.getProtocolVersion(NamenodeProtocolPB.class), activeAddr, conf,
+          rpcTimeout, Long.MAX_VALUE);
+      cachedActiveProxy = new NamenodeProtocolTranslatorPB(proxy);
+    }
+    assert cachedActiveProxy != null;
+    return cachedActiveProxy;
   }
 
   public void start() {
@@ -211,7 +152,6 @@ public class EditLogTailer {
   }
   
   public void stop() throws IOException {
-    rollEditsRpcExecutor.shutdown();
     tailerThread.setShouldRun(false);
     tailerThread.interrupt();
     try {
@@ -231,7 +171,7 @@ public class EditLogTailer {
   public void setEditLog(FSEditLog editLog) {
     this.editLog = editLog;
   }
-
+  
   public void catchupDuringFailover() throws IOException {
     Preconditions.checkState(tailerThread == null ||
         !tailerThread.isAlive(),
@@ -271,8 +211,7 @@ public class EditLogTailer {
       }
       Collection<EditLogInputStream> streams;
       try {
-        streams = editLog.selectInputStreams(lastTxnId + 1, 0,
-            null, inProgressOk, true);
+        streams = editLog.selectInputStreams(lastTxnId + 1, 0, null, false);
       } catch (IOException ioe) {
         // This is acceptable. If we try to tail edits in the middle of an edits
         // log roll, i.e. the last one has been finalized but the new inprogress
@@ -296,7 +235,7 @@ public class EditLogTailer {
         throw elie;
       } finally {
         if (editsLoaded > 0 || LOG.isDebugEnabled()) {
-          LOG.debug(String.format("Loaded %d edits starting from txid %d ",
+          LOG.info(String.format("Loaded %d edits starting from txid %d ",
               editsLoaded, lastTxnId));
         }
       }
@@ -326,50 +265,15 @@ public class EditLogTailer {
   }
 
   /**
-   * NameNodeProxy factory method.
-   * @return a Callable to roll logs on remote NameNode.
-   */
-  @VisibleForTesting
-  Callable<Void> getNameNodeProxy() {
-    return new MultipleNameNodeProxy<Void>() {
-      @Override
-      protected Void doWork() throws IOException {
-        cachedActiveProxy.rollEditLog();
-        return null;
-      }
-    };
-  }
-
-  /**
    * Trigger the active node to roll its logs.
    */
-  @VisibleForTesting
-  void triggerActiveLogRoll() {
-    LOG.info("Triggering log roll on remote NameNode");
-    Future<Void> future = null;
+  private void triggerActiveLogRoll() {
+    LOG.info("Triggering log roll on remote NameNode " + activeAddr);
     try {
-      future = rollEditsRpcExecutor.submit(getNameNodeProxy());
-      future.get(rollEditsTimeoutMs, TimeUnit.MILLISECONDS);
+      getActiveNodeProxy().rollEditLog();
       lastRollTriggerTxId = lastLoadedTxnId;
-    } catch (ExecutionException e) {
-      Throwable cause = e.getCause();
-      if (cause instanceof RemoteException) {
-        IOException ioe = ((RemoteException) cause).unwrapRemoteException();
-        if (ioe instanceof StandbyException) {
-          LOG.info("Skipping log roll. Remote node is not in Active state: " +
-              ioe.getMessage().split("\n")[0]);
-          return;
-        }
-      }
-      LOG.warn("Unable to trigger a roll of the active NN", e);
-    } catch (TimeoutException e) {
-      if (future != null) {
-        future.cancel(true);
-      }
-      LOG.warn(String.format(
-          "Unable to finish rolling edits in %d ms", rollEditsTimeoutMs));
-    } catch (InterruptedException e) {
-      LOG.warn("Unable to trigger a roll of the active NN", e);
+    } catch (IOException ioe) {
+      LOG.warn("Unable to trigger a roll of the active NN", ioe);
     }
   }
 
@@ -428,8 +332,6 @@ public class EditLogTailer {
           } finally {
             namesystem.cpUnlock();
           }
-          //Update NameDirSize Metric
-          namesystem.getFSImage().getStorage().updateNameDirSize();
         } catch (EditLogInputException elie) {
           LOG.warn("Error while reading edits from disk. Will try again.", elie);
         } catch (InterruptedException ie) {
@@ -449,80 +351,5 @@ public class EditLogTailer {
       }
     }
   }
-  /**
-   * Manage the 'active namenode proxy'. This cannot just be the a single proxy since we could
-   * failover across a number of NameNodes, rather than just between an active and a standby.
-   * <p>
-   * We - lazily - get a proxy to one of the configured namenodes and attempt to make the request
-   * against it. If it doesn't succeed, either because the proxy failed to be created or the request
-   * failed, we try the next NN in the list. We try this up to the configuration maximum number of
-   * retries before throwing up our hands. A working proxy is retained across attempts since we
-   * expect the active NameNode to switch rarely.
-   * <p>
-   * This mechanism is <b>very bad</b> for cases where we care about being <i>fast</i>; it just
-   * blindly goes and tries namenodes.
-   */
-  private abstract class MultipleNameNodeProxy<T> implements Callable<T> {
 
-    /**
-     * Do the actual work to the remote namenode via the {@link #cachedActiveProxy}.
-     * @return the result of the work, if there is one
-     * @throws IOException if the actions done to the proxy throw an exception.
-     */
-    protected abstract T doWork() throws IOException;
-
-    public T call() throws IOException {
-      // reset the loop count on success
-      nnLoopCount = 0;
-      while ((cachedActiveProxy = getActiveNodeProxy()) != null) {
-        try {
-          T ret = doWork();
-          return ret;
-        } catch (RemoteException e) {
-          Throwable cause = e.unwrapRemoteException(StandbyException.class);
-          // if its not a standby exception, then we need to re-throw it, something bad has happened
-          if (cause == e) {
-            throw e;
-          } else {
-            // it is a standby exception, so we try the other NN
-            LOG.warn("Failed to reach remote node: " + currentNN
-                + ", retrying with remaining remote NNs");
-            cachedActiveProxy = null;
-            // this NN isn't responding to requests, try the next one
-            nnLoopCount++;
-          }
-        }
-      }
-      throw new IOException("Cannot find any valid remote NN to service request!");
-    }
-
-    private NamenodeProtocol getActiveNodeProxy() throws IOException {
-      if (cachedActiveProxy == null) {
-        while (true) {
-          // if we have reached the max loop count, quit by returning null
-          if ((nnLoopCount / nnCount) >= maxRetries) {
-            return null;
-          }
-
-          currentNN = nnLookup.next();
-          try {
-            int rpcTimeout = conf.getInt(
-                DFSConfigKeys.DFS_HA_LOGROLL_RPC_TIMEOUT_KEY,
-                DFSConfigKeys.DFS_HA_LOGROLL_RPC_TIMEOUT_DEFAULT);
-            NamenodeProtocolPB proxy = RPC.waitForProxy(NamenodeProtocolPB.class,
-                RPC.getProtocolVersion(NamenodeProtocolPB.class), currentNN.getIpcAddress(), conf,
-                rpcTimeout, Long.MAX_VALUE);
-            cachedActiveProxy = new NamenodeProtocolTranslatorPB(proxy);
-            break;
-          } catch (IOException e) {
-            LOG.info("Failed to reach " + currentNN, e);
-            // couldn't even reach this NN, try the next one
-            nnLoopCount++;
-          }
-        }
-      }
-      assert cachedActiveProxy != null;
-      return cachedActiveProxy;
-    }
-  }
 }

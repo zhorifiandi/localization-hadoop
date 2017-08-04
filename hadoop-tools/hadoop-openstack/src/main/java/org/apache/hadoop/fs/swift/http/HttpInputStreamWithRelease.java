@@ -18,12 +18,11 @@
 
 package org.apache.hadoop.fs.swift.http;
 
+import org.apache.commons.httpclient.HttpMethod;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.swift.exceptions.SwiftConnectionClosedException;
 import org.apache.hadoop.fs.swift.util.SwiftUtils;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.methods.HttpRequestBase;
 
 import java.io.ByteArrayInputStream;
 import java.io.EOFException;
@@ -47,8 +46,7 @@ public class HttpInputStreamWithRelease extends InputStream {
   private static final Log LOG =
     LogFactory.getLog(HttpInputStreamWithRelease.class);
   private final URI uri;
-  private HttpRequestBase req;
-  private HttpResponse resp;
+  private HttpMethod method;
   //flag to say the stream is released -volatile so that read operations
   //pick it up even while unsynchronized.
   private volatile boolean released;
@@ -66,17 +64,16 @@ public class HttpInputStreamWithRelease extends InputStream {
    */
   private String reasonClosed = "unopened";
 
-  public HttpInputStreamWithRelease(URI uri, HttpRequestBase req,
-      HttpResponse resp) throws IOException {
+  public HttpInputStreamWithRelease(URI uri, HttpMethod method) throws
+                                                                IOException {
     this.uri = uri;
-    this.req = req;
-    this.resp = resp;
+    this.method = method;
     constructionStack = LOG.isDebugEnabled() ? new Exception("stack") : null;
-    if (req == null) {
-      throw new IllegalArgumentException("Null 'request' parameter ");
+    if (method == null) {
+      throw new IllegalArgumentException("Null 'method' parameter ");
     }
     try {
-      inStream = resp.getEntity().getContent();
+      inStream = method.getResponseBodyAsStream();
     } catch (IOException e) {
       inStream = new ByteArrayInputStream(new byte[]{});
       throw releaseAndRethrow("getResponseBodyAsStream() in constructor -" + e, e);
@@ -103,11 +100,11 @@ public class HttpInputStreamWithRelease extends InputStream {
         if (LOG.isDebugEnabled()) {
           LOG.debug("Releasing connection to " + uri + ":  " + reason, ex);
         }
-        if (req != null) {
+        if (method != null) {
           if (!dataConsumed) {
-            req.abort();
+            method.abort();
           }
-          req.releaseConnection();
+          method.releaseConnection();
         }
         if (inStream != null) {
           //this guard may seem un-needed, but a stack trace seen
@@ -190,9 +187,6 @@ public class HttpInputStreamWithRelease extends InputStream {
   @Override
   public int read(byte[] b, int off, int len) throws IOException {
     SwiftUtils.validateReadArgs(b, off, len);
-    if (len == 0) {
-      return 0;
-    }
     //if the stream is already closed, then report an exception.
     assumeNotReleased();
     //now read in a buffer, reacting differently to different operations

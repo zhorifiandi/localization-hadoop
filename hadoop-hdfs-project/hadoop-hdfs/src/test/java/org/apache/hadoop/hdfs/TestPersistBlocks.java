@@ -26,6 +26,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Random;
 
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -40,6 +41,7 @@ import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
+import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.test.PathUtils;
@@ -52,8 +54,8 @@ import org.junit.Test;
  */
 public class TestPersistBlocks {
   static {
-    GenericTestUtils.setLogLevel(FSImage.LOG, Level.ALL);
-    GenericTestUtils.setLogLevel(FSNamesystem.LOG, Level.ALL);
+    ((Log4JLogger)FSImage.LOG).getLogger().setLevel(Level.ALL);
+    ((Log4JLogger)FSNamesystem.LOG).getLogger().setLevel(Level.ALL);
   }
   
   private static final int BLOCK_SIZE = 4096;
@@ -72,25 +74,10 @@ public class TestPersistBlocks {
     rand.nextBytes(DATA_BEFORE_RESTART);
     rand.nextBytes(DATA_AFTER_RESTART);
   }
- 
-  /** check if DFS remains in proper condition after a restart 
-   **/
-  @Test  
-  public void TestRestartDfsWithFlush() throws Exception {
-    testRestartDfs(true);
-  }
   
-  
-  /** check if DFS remains in proper condition after a restart 
-   **/
-  public void TestRestartDfsWithSync() throws Exception {
-    testRestartDfs(false);
-  }
-  
-  /** check if DFS remains in proper condition after a restart
-   * @param useFlush - if true then flush is used instead of sync (ie hflush)
-   */
-  void testRestartDfs(boolean useFlush) throws Exception {
+  /** check if DFS remains in proper condition after a restart */
+  @Test
+  public void testRestartDfs() throws Exception {
     final Configuration conf = new HdfsConfiguration();
     // Turn off persistent IPC, so that the DFSClient can survive NN restart
     conf.setInt(
@@ -106,10 +93,7 @@ public class TestPersistBlocks {
       // Creating a file with 4096 blockSize to write multiple blocks
       stream = fs.create(FILE_PATH, true, BLOCK_SIZE, (short) 1, BLOCK_SIZE);
       stream.write(DATA_BEFORE_RESTART);
-      if (useFlush)
-        stream.flush();
-      else 
-        stream.hflush();
+      stream.hflush();
       
       // Wait for at least a few blocks to get through
       while (len <= BLOCK_SIZE) {
@@ -223,7 +207,7 @@ public class TestPersistBlocks {
     try {
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
       FileSystem fs = cluster.getFileSystem();
-      DFSUtilClient.getNNAddress(conf).getPort();
+      NameNode.getAddress(conf).getPort();
       // Creating a file with 4096 blockSize to write multiple blocks
       stream = fs.create(FILE_PATH, true, BLOCK_SIZE, (short) 1, BLOCK_SIZE);
       stream.write(DATA_BEFORE_RESTART);
@@ -272,7 +256,7 @@ public class TestPersistBlocks {
     try {
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
       FileSystem fs = cluster.getFileSystem();
-      DFSUtilClient.getNNAddress(conf).getPort();
+      NameNode.getAddress(conf).getPort();
       // Creating a file with 4096 blockSize to write multiple blocks
       stream = fs.create(FILE_PATH, true, BLOCK_SIZE, (short) 1, BLOCK_SIZE);
       stream.write(DATA_BEFORE_RESTART, 0, DATA_BEFORE_RESTART.length / 2);

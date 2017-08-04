@@ -36,7 +36,6 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.DataOutputBuffer;
-import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableComparable;
@@ -68,7 +67,7 @@ class BinaryProtocol<K1 extends WritableComparable, V1 extends Writable,
    * The integer codes to represent the different messages. These must match
    * the C++ codes or massive confusion will result.
    */
-  private enum MessageType { START(0),
+  private static enum MessageType { START(0),
                                     SET_JOB_CONF(1),
                                     SET_INPUT_TYPES(2),
                                     RUN_MAP(3),
@@ -201,8 +200,8 @@ class BinaryProtocol<K1 extends WritableComparable, V1 extends Writable,
       file = new FileOutputStream(filename);
     }
     public void write(byte b[], int off, int len) throws IOException {
-      file.write(b, off, len);
-      out.write(b, off, len);
+      file.write(b,off,len);
+      out.write(b,off,len);
     }
 
     public void write(int b) throws IOException {
@@ -216,12 +215,9 @@ class BinaryProtocol<K1 extends WritableComparable, V1 extends Writable,
     }
 
     public void close() throws IOException {
-      try {
-        flush();
-      } finally {
-        IOUtils.closeStream(file);
-        IOUtils.closeStream(out);
-      }
+      flush();
+      file.close();
+      out.close();
     }
   }
 

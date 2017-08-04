@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.hdfs.web;
 
-import static org.junit.Assert.*;
-
 import java.io.BufferedReader;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -27,7 +25,6 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.text.MessageFormat;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Random;
@@ -45,15 +42,14 @@ import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.AppendTestUtil;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.web.resources.*;
 import org.apache.hadoop.hdfs.web.resources.NamenodeAddressParam;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.Test;
 
 public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
@@ -64,6 +60,7 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
   private UserGroupInformation ugi;
 
   static {
+    conf.setBoolean(DFSConfigKeys.DFS_WEBHDFS_ENABLED_KEY, true);
     try {
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(2).build();
       cluster.waitActive();
@@ -76,13 +73,13 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
     }
   }
 
-  @Before
-  public void setUp() throws Exception {
+  @Override
+  protected void setUp() throws Exception {
     //get file system as a non-superuser
     final UserGroupInformation current = UserGroupInformation.getCurrentUser();
     ugi = UserGroupInformation.createUserForTesting(
         current.getShortUserName() + "x", new String[]{"user"});
-    fs = WebHdfsTestUtil.getWebHdfsFileSystemAs(ugi, conf, WebHdfsConstants.WEBHDFS_SCHEME);
+    fs = WebHdfsTestUtil.getWebHdfsFileSystemAs(ugi, conf, WebHdfsFileSystem.SCHEME);
     defaultWorkingDirectory = fs.getWorkingDirectory().toUri().getPath();
   }
 
@@ -95,7 +92,7 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
    * when calling exist(..) on a path /foo/bar/file
    * but /foo/bar is indeed a file in HDFS.
    */
-  @Test
+  @Override
   public void testMkdirsFailsForSubdirectoryOfExistingFile() throws Exception {
     Path testDir = path("/test/hadoop");
     assertFalse(fs.exists(testDir));
@@ -133,7 +130,6 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
   
   //the following are new tests (i.e. not over-riding the super class methods)
 
-  @Test
   public void testGetFileBlockLocations() throws IOException {
     final String f = "/test/testGetFileBlockLocations";
     createFile(path(f));
@@ -158,7 +154,6 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
     }
   }
 
-  @Test
   public void testCaseInsensitive() throws IOException {
     final Path p = new Path("/test/testCaseInsensitive");
     final WebHdfsFileSystem webhdfs = (WebHdfsFileSystem)fs;
@@ -185,19 +180,17 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
     assertTrue(fs.getFileStatus(p).isDirectory());
   }
 
-  @Test
   public void testOpenNonExistFile() throws IOException {
     final Path p = new Path("/test/testOpenNonExistFile");
     //open it as a file, should get FileNotFoundException 
     try {
-      fs.open(p).read();
+      fs.open(p);
       fail("Expected FileNotFoundException was not thrown");
     } catch(FileNotFoundException fnfe) {
       WebHdfsFileSystem.LOG.info("This is expected.", fnfe);
     }
   }
 
-  @Test
   public void testSeek() throws IOException {
     final Path dir = new Path("/test/testSeek");
     assertTrue(fs.mkdirs(dir));
@@ -259,7 +252,6 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
   }
 
 
-  @Test
   public void testRootDir() throws IOException {
     final Path root = new Path("/");
 
@@ -299,7 +291,6 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
   /**
    * Test get with length parameter greater than actual file length.
    */
-  @Test
   public void testLengthParamLongerThanFile() throws IOException {
     WebHdfsFileSystem webhdfs = (WebHdfsFileSystem)fs;
     Path dir = new Path("/test");
@@ -349,7 +340,6 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
    * Test get with offset and length parameters that combine to request a length
    * greater than actual file length.
    */
-  @Test
   public void testOffsetPlusLengthParamsLongerThanFile() throws IOException {
     WebHdfsFileSystem webhdfs = (WebHdfsFileSystem)fs;
     Path dir = new Path("/test");
@@ -396,7 +386,6 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
     }
   }
 
-  @Test
   public void testResponseCode() throws IOException {
     final WebHdfsFileSystem webhdfs = (WebHdfsFileSystem)fs;
     final Path root = new Path("/");
@@ -412,7 +401,7 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
       final HttpURLConnection conn = (HttpURLConnection) url.openConnection();
       final Map<?, ?> m = WebHdfsTestUtil.connectAndGetJson(
           conn, HttpServletResponse.SC_OK);
-      assertEquals(webhdfs.getHomeDirectory().toUri().getPath(),
+      assertEquals(WebHdfsFileSystem.getHomeDirectoryString(ugi),
           m.get(Path.class.getSimpleName()));
       conn.disconnect();
     }
@@ -545,52 +534,13 @@ public class TestWebHdfsFileSystemContract extends FileSystemContractBaseTest {
   }
 
   @Test
-  public void testDatanodeCreateMissingParameter() throws IOException {
-    final WebHdfsFileSystem webhdfs = (WebHdfsFileSystem) fs;
-    final Path testDir = new Path(MessageFormat.format("/test/{0}/{1}",
-        TestWebHdfsFileSystemContract.class,
-        GenericTestUtils.getMethodName()));
-    assertTrue(webhdfs.mkdirs(testDir));
-
-    for (String dnCreateParam : new String[]{
-        CreateFlagParam.NAME,
-        CreateParentParam.NAME,
-        OverwriteParam.NAME
-    }) {
-      final HttpOpParam.Op op = PutOpParam.Op.CREATE;
-      final Path newfile = new Path(testDir, "newfile_" + dnCreateParam);
-      final URL url = webhdfs.toUrl(op, newfile);
-      HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-      conn.setRequestMethod(op.getType().toString());
-      conn.setDoOutput(false);
-      conn.setInstanceFollowRedirects(false);
-      conn.connect();
-      final String redirect = conn.getHeaderField("Location");
-      conn.disconnect();
-
-      //remove createparent
-      WebHdfsFileSystem.LOG.info("redirect = " + redirect);
-      String re = "&" + dnCreateParam + "=[^&]*";
-      String modified = redirect.replaceAll(re, "");
-      WebHdfsFileSystem.LOG.info("modified = " + modified);
-
-      //connect to datanode
-      conn = (HttpURLConnection)new URL(modified).openConnection();
-      conn.setRequestMethod(op.getType().toString());
-      conn.setDoOutput(op.getDoOutput());
-      conn.connect();
-      assertEquals(HttpServletResponse.SC_CREATED, conn.getResponseCode());
-    }
-  }
-
-  @Test
   public void testAccess() throws IOException, InterruptedException {
     Path p1 = new Path("/pathX");
     try {
       UserGroupInformation ugi = UserGroupInformation.createUserForTesting("alpha",
           new String[]{"beta"});
       WebHdfsFileSystem fs = WebHdfsTestUtil.getWebHdfsFileSystemAs(ugi, conf,
-          WebHdfsConstants.WEBHDFS_SCHEME);
+          WebHdfsFileSystem.SCHEME);
 
       fs.mkdirs(p1);
       fs.setPermission(p1, new FsPermission((short) 0444));

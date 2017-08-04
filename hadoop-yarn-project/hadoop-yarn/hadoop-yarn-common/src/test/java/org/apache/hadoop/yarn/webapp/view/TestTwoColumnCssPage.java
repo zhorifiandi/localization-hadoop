@@ -22,6 +22,8 @@ import org.apache.hadoop.yarn.MockApps;
 import org.apache.hadoop.yarn.webapp.Controller;
 import org.apache.hadoop.yarn.webapp.WebApps;
 import org.apache.hadoop.yarn.webapp.test.WebAppTests;
+import org.apache.hadoop.yarn.webapp.view.HtmlPage;
+import org.apache.hadoop.yarn.webapp.view.TwoColumnCssLayout;
 import org.junit.Test;
 
 public class TestTwoColumnCssPage {
@@ -50,10 +52,10 @@ public class TestTwoColumnCssPage {
 
   public static class TestView extends HtmlPage {
     @Override
-    public void render(Page.HTML<__> html) {
+    public void render(Page.HTML<_> html) {
       html.
         title($("title")).
-        h1($("title")).__();
+        h1($("title"))._();
     }
   }
 

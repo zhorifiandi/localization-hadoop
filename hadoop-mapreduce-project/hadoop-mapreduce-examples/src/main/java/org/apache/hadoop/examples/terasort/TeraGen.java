@@ -66,10 +66,11 @@ import org.apache.hadoop.util.ToolRunner;
  * <b>bin/hadoop jar hadoop-*-examples.jar teragen 10000000000 in-dir</b>
  */
 public class TeraGen extends Configured implements Tool {
-  private static final Log LOG = LogFactory.getLog(TeraGen.class);
+  private static final Log LOG = LogFactory.getLog(TeraSort.class);
 
-  public enum Counters {CHECKSUM}
+  public static enum Counters {CHECKSUM}
 
+  public static final String NUM_ROWS = "mapreduce.terasort.num-rows";
   /**
    * An input format that assigns ranges of longs to each mapper.
    */
@@ -188,12 +189,11 @@ public class TeraGen extends Configured implements Tool {
   }
   
   static long getNumberOfRows(JobContext job) {
-    return job.getConfiguration().getLong(TeraSortConfigKeys.NUM_ROWS.key(),
-        TeraSortConfigKeys.DEFAULT_NUM_ROWS);
+    return job.getConfiguration().getLong(NUM_ROWS, 0);
   }
   
   static void setNumberOfRows(Job job, long numRows) {
-    job.getConfiguration().setLong(TeraSortConfigKeys.NUM_ROWS.key(), numRows);
+    job.getConfiguration().setLong(NUM_ROWS, numRows);
   }
 
   /**
@@ -246,9 +246,6 @@ public class TeraGen extends Configured implements Tool {
 
   private static void usage() throws IOException {
     System.err.println("teragen <num rows> <output dir>");
-    System.err.println("If you want to generate data and store them as " +
-        "erasure code striping file, just make sure that the parent dir " +
-        "of <output dir> has erasure code policy set");
   }
 
   /**

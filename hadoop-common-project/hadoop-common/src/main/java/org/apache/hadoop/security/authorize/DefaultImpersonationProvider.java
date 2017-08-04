@@ -108,10 +108,6 @@ public class DefaultImpersonationProvider implements ImpersonationProvider {
   public void authorize(UserGroupInformation user, 
       String remoteAddress) throws AuthorizationException {
     
-    if (user == null) {
-      throw new IllegalArgumentException("user is null.");
-    }
-
     UserGroupInformation realUser = user.getRealUser();
     if (realUser == null) {
       return;

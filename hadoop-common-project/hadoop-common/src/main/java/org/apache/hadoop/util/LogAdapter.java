@@ -32,10 +32,6 @@ class LogAdapter {
     this.LOGGER = LOGGER;
   }
 
-  /**
-   * @deprecated use {@link #create(Logger)} instead
-   */
-  @Deprecated
   public static LogAdapter create(Log LOG) {
     return new LogAdapter(LOG);
   }

@@ -18,13 +18,17 @@
 
 package org.apache.hadoop.util;
 
+import com.google.common.base.Preconditions;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -36,13 +40,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.commons.lang.SystemUtils;
-import org.apache.commons.lang.time.FastDateFormat;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.net.NetUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.net.InetAddresses;
 
 /**
@@ -178,17 +180,6 @@ public class StringUtils {
   }
 
   /**
-   * Convert a byte to a hex string.
-   * @see #byteToHexString(byte[])
-   * @see #byteToHexString(byte[], int, int)
-   * @param b byte
-   * @return byte's hex value as a String
-   */
-  public static String byteToHexString(byte b) {
-    return byteToHexString(new byte[] {b});
-  }
-
-  /**
    * Given a hexstring this will return the byte array corresponding to the
    * string
    * @param hex the hex String array
@@ -297,72 +288,21 @@ public class StringUtils {
     buf.append("sec");
     return buf.toString(); 
   }
-
   /**
-   *
-   * Given the time in long milliseconds, returns a String in the sortable
-   * format Xhrs, Ymins, Zsec. X, Y, and Z are always two-digit. If the time is
-   * more than 100 hours ,it is displayed as 99hrs, 59mins, 59sec.
-   *
-   * @param timeDiff The time difference to format
-   */
-  public static String formatTimeSortable(long timeDiff) {
-    StringBuilder buf = new StringBuilder();
-    long hours = timeDiff / (60 * 60 * 1000);
-    long rem = (timeDiff % (60 * 60 * 1000));
-    long minutes = rem / (60 * 1000);
-    rem = rem % (60 * 1000);
-    long seconds = rem / 1000;
-
-    // if hours is more than 99 hours, it will be set a max value format
-    if (hours > 99) {
-      hours = 99;
-      minutes = 59;
-      seconds = 59;
-    }
-
-    buf.append(String.format("%02d", hours));
-    buf.append("hrs, ");
-
-    buf.append(String.format("%02d", minutes));
-    buf.append("mins, ");
-
-    buf.append(String.format("%02d", seconds));
-    buf.append("sec");
-    return buf.toString();
-  }
-
-  /**
-   * Formats time in ms and appends difference (finishTime - startTime)
+   * Formats time in ms and appends difference (finishTime - startTime) 
    * as returned by formatTimeDiff().
-   * If finish time is 0, empty string is returned, if start time is 0
-   * then difference is not appended to return value.
-   *
+   * If finish time is 0, empty string is returned, if start time is 0 
+   * then difference is not appended to return value. 
    * @param dateFormat date format to use
-   * @param finishTime finish time
-   * @param startTime  start time
-   * @return formatted value.
-   */
-  public static String getFormattedTimeWithDiff(FastDateFormat dateFormat,
-      long finishTime, long startTime) {
-    String formattedFinishTime = dateFormat.format(finishTime);
-    return getFormattedTimeWithDiff(formattedFinishTime, finishTime, startTime);
-  }
-  /**
-   * Formats time in ms and appends difference (finishTime - startTime)
-   * as returned by formatTimeDiff().
-   * If finish time is 0, empty string is returned, if start time is 0
-   * then difference is not appended to return value.
-   * @param formattedFinishTime formattedFinishTime to use
-   * @param finishTime finish time
+   * @param finishTime fnish time
    * @param startTime start time
-   * @return formatted value.
+   * @return formatted value. 
    */
-  public static String getFormattedTimeWithDiff(String formattedFinishTime,
-      long finishTime, long startTime){
+  public static String getFormattedTimeWithDiff(DateFormat dateFormat, 
+                                                long finishTime, long startTime){
     StringBuilder buf = new StringBuilder();
     if (0 != finishTime) {
-      buf.append(formattedFinishTime);
+      buf.append(dateFormat.format(new Date(finishTime)));
       if (0 != startTime){
         buf.append(" (" + formatTimeDiff(finishTime , startTime) + ")");
       }
@@ -372,22 +312,11 @@ public class StringUtils {
   
   /**
    * Returns an arraylist of strings.
-   * @param str the comma separated string values
-   * @return the arraylist of the comma separated string values
+   * @param str the comma seperated string values
+   * @return the arraylist of the comma seperated string values
    */
   public static String[] getStrings(String str){
-    String delim = ",";
-    return getStrings(str, delim);
-  }
-
-  /**
-   * Returns an arraylist of strings.
-   * @param str the string values
-   * @param delim delimiter to separate the values
-   * @return the arraylist of the separated string values
-   */
-  public static String[] getStrings(String str, String delim){
-    Collection<String> values = getStringCollection(str, delim);
+    Collection<String> values = getStringCollection(str);
     if(values.size() == 0) {
       return null;
     }
@@ -396,7 +325,7 @@ public class StringUtils {
 
   /**
    * Returns a collection of strings.
-   * @param str comma separated string values
+   * @param str comma seperated string values
    * @return an <code>ArrayList</code> of string values
    */
   public static Collection<String> getStringCollection(String str){
@@ -425,12 +354,10 @@ public class StringUtils {
   }
 
   /**
-   * Splits a comma separated value <code>String</code>, trimming leading and
-   * trailing whitespace on each value. Duplicate and empty values are removed.
-   *
-   * @param str a comma separated <String> with values, may be null
-   * @return a <code>Collection</code> of <code>String</code> values, empty
-   *         Collection if null String input
+   * Splits a comma separated value <code>String</code>, trimming leading and trailing whitespace on each value.
+   * Duplicate and empty values are removed.
+   * @param str a comma separated <String> with values
+   * @return a <code>Collection</code> of <code>String</code> values
    */
   public static Collection<String> getTrimmedStringCollection(String str){
     Set<String> set = new LinkedHashSet<String>(
@@ -440,20 +367,29 @@ public class StringUtils {
   }
   
   /**
-   * Splits a comma or newline separated value <code>String</code>, trimming
-   * leading and trailing whitespace on each value.
-   *
-   * @param str a comma or newline separated <code>String</code> with values,
-   *            may be null
-   * @return an array of <code>String</code> values, empty array if null String
-   *         input
+   * Splits a comma separated value <code>String</code>, trimming leading and trailing whitespace on each value.
+   * @param str a comma separated <String> with values
+   * @return an array of <code>String</code> values
    */
   public static String[] getTrimmedStrings(String str){
     if (null == str || str.trim().isEmpty()) {
       return emptyStringArray;
     }
 
-    return str.trim().split("\\s*[,\n]\\s*");
+    return str.trim().split("\\s*,\\s*");
+  }
+
+  /**
+   * Trims all the strings in a Collection<String> and returns a Set<String>.
+   * @param strings
+   * @return
+   */
+  public static Set<String> getTrimmedStrings(Collection<String> strings) {
+    Set<String> trimmedStrings = new HashSet<String>();
+    for (String string: strings) {
+      trimmedStrings.add(string.trim());
+    }
+    return trimmedStrings;
   }
 
   final public static String[] emptyStringArray = {};
@@ -676,11 +612,11 @@ public class StringUtils {
    * @param msg content of the message
    * @return a message for logging
    */
-  public static String toStartupShutdownString(String prefix, String[] msg) {
+  private static String toStartupShutdownString(String prefix, String [] msg) {
     StringBuilder b = new StringBuilder(prefix);
     b.append("\n/************************************************************");
     for(String s : msg)
-      b.append("\n").append(prefix).append(s);
+      b.append("\n" + prefix + s);
     b.append("\n************************************************************/");
     return b.toString();
   }
@@ -711,7 +647,20 @@ public class StringUtils {
                                      final LogAdapter LOG) { 
     final String hostname = NetUtils.getHostname();
     final String classname = clazz.getSimpleName();
-    LOG.info(createStartupShutdownMessage(classname, hostname, args));
+    LOG.info(
+        toStartupShutdownString("STARTUP_MSG: ", new String[] {
+            "Starting " + classname,
+            "  host = " + hostname,
+            "  args = " + Arrays.asList(args),
+            "  version = " + VersionInfo.getVersion(),
+            "  classpath = " + System.getProperty("java.class.path"),
+            "  build = " + VersionInfo.getUrl() + " -r "
+                         + VersionInfo.getRevision()  
+                         + "; compiled by '" + VersionInfo.getUser()
+                         + "' on " + VersionInfo.getDate(),
+            "  java = " + System.getProperty("java.version") }
+        )
+      );
 
     if (SystemUtils.IS_OS_UNIX) {
       try {
@@ -732,34 +681,11 @@ public class StringUtils {
   }
 
   /**
-   * Generate the text for the startup/shutdown message of processes.
-   * @param classname short classname of the class
-   * @param hostname hostname
-   * @param args Command arguments
-   * @return a string to log.
-   */
-  public static String createStartupShutdownMessage(String classname,
-      String hostname, String[] args) {
-    return toStartupShutdownString("STARTUP_MSG: ", new String[] {
-        "Starting " + classname,
-        "  host = " + hostname,
-        "  args = " + Arrays.asList(args),
-        "  version = " + VersionInfo.getVersion(),
-        "  classpath = " + System.getProperty("java.class.path"),
-        "  build = " + VersionInfo.getUrl() + " -r "
-                     + VersionInfo.getRevision()  
-                     + "; compiled by '" + VersionInfo.getUser()
-                     + "' on " + VersionInfo.getDate(),
-        "  java = " + System.getProperty("java.version") }
-    );
-  }
-
-  /**
    * The traditional binary prefixes, kilo, mega, ..., exa,
    * which can be represented by a 64-bit integer.
    * TraditionalBinaryPrefix symbol are case insensitive. 
    */
-  public enum TraditionalBinaryPrefix {
+  public static enum TraditionalBinaryPrefix {
     KILO(10),
     MEGA(KILO.bitShift + 10),
     GIGA(MEGA.bitShift + 10),
@@ -946,10 +872,6 @@ public class StringUtils {
     return sb.toString();
   }
 
-  public static String join(char separator, Iterable<?> strings) {
-    return join(separator + "", strings);
-  }
-
   /**
    * Concatenates strings, using a separator.
    *
@@ -970,10 +892,6 @@ public class StringUtils {
       sb.append(s);
     }
     return sb.toString();
-  }
-
-  public static String join(char separator, String[] strings) {
-    return join(separator + "", strings);
   }
 
   /**

@@ -20,24 +20,20 @@ import org.apache.hadoop.security.authentication.server.AuthenticationFilter;
 import org.apache.http.HttpResponse;
 import org.apache.http.auth.AuthScope;
 import org.apache.http.auth.Credentials;
-import org.apache.http.client.CredentialsProvider;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.params.AuthPolicy;
 import org.apache.http.entity.InputStreamEntity;
-import org.apache.http.impl.auth.SPNegoScheme;
-import org.apache.http.impl.client.BasicCredentialsProvider;
-import org.apache.http.impl.client.HttpClientBuilder;
+import org.apache.http.impl.auth.SPNegoSchemeFactory;
+import org.apache.http.impl.client.SystemDefaultHttpClient;
 import org.apache.http.util.EntityUtils;
-import org.eclipse.jetty.server.Connector;
-import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.servlet.FilterHolder;
-import org.eclipse.jetty.servlet.ServletContextHandler;
-import org.eclipse.jetty.servlet.ServletHolder;
+import org.mortbay.jetty.Server;
+import org.mortbay.jetty.servlet.Context;
+import org.mortbay.jetty.servlet.FilterHolder;
+import org.mortbay.jetty.servlet.ServletHolder;
 
-import javax.servlet.DispatcherType;
 import javax.servlet.FilterConfig;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -56,9 +52,7 @@ import java.net.HttpURLConnection;
 import java.net.ServerSocket;
 import java.net.URL;
 import java.security.Principal;
-import java.util.EnumSet;
 import java.util.Properties;
-
 import org.junit.Assert;
 
 public class AuthenticatorTestCase {
@@ -67,7 +61,7 @@ public class AuthenticatorTestCase {
   private int port = -1;
   private boolean useTomcat = false;
   private Tomcat tomcat = null;
-  ServletContextHandler context;
+  Context context;
 
   private static Properties authenticatorConfig;
 
@@ -125,19 +119,16 @@ public class AuthenticatorTestCase {
   }
 
   protected void startJetty() throws Exception {
-    server = new Server();
-    context = new ServletContextHandler();
+    server = new Server(0);
+    context = new Context();
     context.setContextPath("/foo");
     server.setHandler(context);
-    context.addFilter(new FilterHolder(TestFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(TestFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(TestServlet.class), "/bar");
     host = "localhost";
     port = getLocalPort();
-    ServerConnector connector = new ServerConnector(server);
-    connector.setHost(host);
-    connector.setPort(port);
-    server.setConnectors(new Connector[] {connector});
+    server.getConnectors()[0].setHost(host);
+    server.getConnectors()[0].setPort(port);
     server.start();
     System.out.println("Running embedded servlet container at: http://" + host + ":" + port);
   }
@@ -250,29 +241,22 @@ public class AuthenticatorTestCase {
     }
   }
 
-  private HttpClient getHttpClient() {
-    HttpClientBuilder builder = HttpClientBuilder.create();
-    // Register auth schema
-    builder.setDefaultAuthSchemeRegistry(
-        s-> httpContext -> new SPNegoScheme(true, true)
-    );
+  private SystemDefaultHttpClient getHttpClient() {
+    final SystemDefaultHttpClient httpClient = new SystemDefaultHttpClient();
+    httpClient.getAuthSchemes().register(AuthPolicy.SPNEGO, new SPNegoSchemeFactory(true));
+     Credentials use_jaas_creds = new Credentials() {
+       public String getPassword() {
+         return null;
+       }
 
-    Credentials useJaasCreds = new Credentials() {
-      public String getPassword() {
-        return null;
-      }
-      public Principal getUserPrincipal() {
-        return null;
-      }
-    };
+       public Principal getUserPrincipal() {
+         return null;
+       }
+     };
 
-    CredentialsProvider jaasCredentialProvider
-        = new BasicCredentialsProvider();
-    jaasCredentialProvider.setCredentials(AuthScope.ANY, useJaasCreds);
-    // Set credential provider
-    builder.setDefaultCredentialsProvider(jaasCredentialProvider);
-
-    return builder.build();
+     httpClient.getCredentialsProvider().setCredentials(
+       AuthScope.ANY, use_jaas_creds);
+     return httpClient;
   }
 
   private void doHttpClientRequest(HttpClient httpClient, HttpUriRequest request) throws Exception {
@@ -289,7 +273,7 @@ public class AuthenticatorTestCase {
   protected void _testAuthenticationHttpClient(Authenticator authenticator, boolean doPost) throws Exception {
     start();
     try {
-      HttpClient httpClient = getHttpClient();
+      SystemDefaultHttpClient httpClient = getHttpClient();
       doHttpClientRequest(httpClient, new HttpGet(getBaseURL()));
 
       // Always do a GET before POST to trigger the SPNego negotiation

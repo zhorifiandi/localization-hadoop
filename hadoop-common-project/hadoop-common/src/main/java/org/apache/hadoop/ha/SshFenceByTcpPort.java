@@ -23,6 +23,8 @@ import java.util.Collection;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configured;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -30,8 +32,6 @@ import com.jcraft.jsch.ChannelExec;
 import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.Session;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This fencing implementation sshes to the target node and uses 
@@ -58,8 +58,9 @@ import org.slf4j.LoggerFactory;
 public class SshFenceByTcpPort extends Configured
   implements FenceMethod {
 
-  static final Logger LOG = LoggerFactory.getLogger(SshFenceByTcpPort.class);
-
+  static final Log LOG = LogFactory.getLog(
+      SshFenceByTcpPort.class);
+  
   static final String CONF_CONNECT_TIMEOUT_KEY =
     "dfs.ha.fencing.ssh.connect-timeout";
   private static final int CONF_CONNECT_TIMEOUT_DEFAULT =
@@ -255,10 +256,10 @@ public class SshFenceByTcpPort extends Configured
       }
     }
 
-    private int parseConfiggedPort(String portStr)
+    private Integer parseConfiggedPort(String portStr)
         throws BadFencingConfigurationException {
       try {
-        return Integer.parseInt(portStr);
+        return Integer.valueOf(portStr);
       } catch (NumberFormatException nfe) {
         throw new BadFencingConfigurationException(
             "Port number '" + portStr + "' invalid");
@@ -270,7 +271,7 @@ public class SshFenceByTcpPort extends Configured
    * Adapter from JSch's logger interface to our log4j
    */
   private static class LogAdapter implements com.jcraft.jsch.Logger {
-    static final Logger LOG = LoggerFactory.getLogger(
+    static final Log LOG = LogFactory.getLog(
         SshFenceByTcpPort.class.getName() + ".jsch");
 
     @Override
@@ -283,8 +284,9 @@ public class SshFenceByTcpPort extends Configured
       case com.jcraft.jsch.Logger.WARN:
         return LOG.isWarnEnabled();
       case com.jcraft.jsch.Logger.ERROR:
-      case com.jcraft.jsch.Logger.FATAL:
         return LOG.isErrorEnabled();
+      case com.jcraft.jsch.Logger.FATAL:
+        return LOG.isFatalEnabled();
       default:
         return false;
       }
@@ -303,8 +305,10 @@ public class SshFenceByTcpPort extends Configured
         LOG.warn(message);
         break;
       case com.jcraft.jsch.Logger.ERROR:
-      case com.jcraft.jsch.Logger.FATAL:
         LOG.error(message);
+        break;
+      case com.jcraft.jsch.Logger.FATAL:
+        LOG.fatal(message);
         break;
       default:
         break;

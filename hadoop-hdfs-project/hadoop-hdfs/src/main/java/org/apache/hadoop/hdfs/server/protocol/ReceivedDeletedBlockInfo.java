@@ -28,7 +28,7 @@ public class ReceivedDeletedBlockInfo {
   BlockStatus status;
   String delHints;
 
-  public enum BlockStatus {
+  public static enum BlockStatus {
     RECEIVING_BLOCK(1),
     RECEIVED_BLOCK(2),
     DELETED_BLOCK(3);

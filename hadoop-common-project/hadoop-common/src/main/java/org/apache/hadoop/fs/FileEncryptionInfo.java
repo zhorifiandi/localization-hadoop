@@ -17,8 +17,6 @@
  */
 package org.apache.hadoop.fs;
 
-import java.io.Serializable;
-
 import org.apache.commons.codec.binary.Hex;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.crypto.CipherSuite;
@@ -32,9 +30,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
  * an encrypted file.
  */
 @InterfaceAudience.Private
-public class FileEncryptionInfo implements Serializable {
-
-  private static final long serialVersionUID = 0x156abe03;
+public class FileEncryptionInfo {
 
   private final CipherSuite cipherSuite;
   private final CryptoProtocolVersion version;
@@ -115,27 +111,6 @@ public class FileEncryptionInfo implements Serializable {
 
   @Override
   public String toString() {
-    StringBuilder builder = new StringBuilder("{");
-    builder.append("cipherSuite: " + cipherSuite);
-    builder.append(", cryptoProtocolVersion: " + version);
-    builder.append(", edek: " + Hex.encodeHexString(edek));
-    builder.append(", iv: " + Hex.encodeHexString(iv));
-    builder.append(", keyName: " + keyName);
-    builder.append(", ezKeyVersionName: " + ezKeyVersionName);
-    builder.append("}");
-    return builder.toString();
-  }
-
-  /**
-   * A frozen version of {@link #toString()} to be backward compatible.
-   * When backward compatibility is not needed, use {@link #toString()}, which
-   * provides more info and is supposed to evolve.
-   * Don't change this method except for major revisions.
-   *
-   * NOTE:
-   * Currently this method is used by CLI for backward compatibility.
-   */
-  public String toStringStable() {
     StringBuilder builder = new StringBuilder("{");
     builder.append("cipherSuite: " + cipherSuite);
     builder.append(", cryptoProtocolVersion: " + version);

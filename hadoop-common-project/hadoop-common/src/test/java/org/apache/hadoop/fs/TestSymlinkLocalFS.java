@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.fs;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -30,6 +29,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 
+import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.util.Shell;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.Test;
@@ -69,43 +69,53 @@ abstract public class TestSymlinkLocalFS extends SymlinkBaseTest {
   }
 
   @Override
+  protected boolean emulatingSymlinksOnWindows() {
+    // Java 6 on Windows has very poor symlink support. Specifically
+    // Specifically File#length and File#renameTo do not work as expected.
+    // (see HADOOP-9061 for additional details)
+    // Hence some symlink tests will be skipped.
+    //
+    return (Shell.WINDOWS && !Shell.isJava7OrAbove());
+  }
+
+  @Override
   public void testCreateDanglingLink() throws IOException {
     // Dangling symlinks are not supported on Windows local file system.
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     super.testCreateDanglingLink();
   }
 
   @Override
   public void testCreateFileViaDanglingLinkParent() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     super.testCreateFileViaDanglingLinkParent();
   }
 
   @Override
   public void testOpenResolvesLinks() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     super.testOpenResolvesLinks();
   }
 
   @Override
   public void testRecursiveLinks() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     super.testRecursiveLinks();
   }
 
   @Override
   public void testRenameDirToDanglingSymlink() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     super.testRenameDirToDanglingSymlink();
   }
 
   @Override  
   public void testStatDanglingLink() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     super.testStatDanglingLink();
   }
 
-  @Test(timeout=10000)
+  @Test(timeout=1000)
   /** lstat a non-existant file using a partially qualified path */
   public void testDanglingLinkFilePartQual() throws IOException {
     Path filePartQual = new Path(getScheme()+":///doesNotExist");
@@ -123,10 +133,10 @@ abstract public class TestSymlinkLocalFS extends SymlinkBaseTest {
     }
   }
   
-  @Test(timeout=10000)
+  @Test(timeout=1000)
   /** Stat and lstat a dangling link */
   public void testDanglingLink() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Path.WINDOWS);
     Path fileAbs  = new Path(testBaseDir1()+"/file");
     Path fileQual = new Path(testURI().toString(), fileAbs);
     Path link     = new Path(testBaseDir1()+"/linkToFile");
@@ -169,13 +179,14 @@ abstract public class TestSymlinkLocalFS extends SymlinkBaseTest {
     wrapper.getFileStatus(link);
   }
 
-  @Test(timeout=10000)
+  @Test(timeout=1000)
   /** 
    * Test getLinkTarget with a partially qualified target. 
    * NB: Hadoop does not support fully qualified URIs for the 
    * file scheme (eg file://host/tmp/test).
    */  
   public void testGetLinkStatusPartQualTarget() throws IOException {
+    assumeTrue(!emulatingSymlinksOnWindows());
     Path fileAbs  = new Path(testBaseDir1()+"/file");
     Path fileQual = new Path(testURI().toString(), fileAbs);
     Path dir      = new Path(testBaseDir1());
@@ -219,23 +230,5 @@ abstract public class TestSymlinkLocalFS extends SymlinkBaseTest {
     } catch (IllegalArgumentException iae) {
       // Expected.
     }
-  }
-
-  @Override
-  public void testSetTimesSymlinkToFile() throws IOException {
-    assumeTrue(!Shell.WINDOWS && !Shell.SOLARIS);
-    super.testSetTimesSymlinkToFile();
-  }
-
-  @Override
-  public void testSetTimesSymlinkToDir() throws IOException {
-    assumeTrue(!Path.WINDOWS && !Shell.SOLARIS);
-    super.testSetTimesSymlinkToDir();
-  }
-
-  @Override
-  public void testSetTimesDanglingLink() throws IOException {
-    assumeNotWindows();
-    super.testSetTimesDanglingLink();
   }
 }

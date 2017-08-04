@@ -19,15 +19,12 @@ package org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.policies;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import java.util.Comparator;
 
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.server.resourcemanager.resource.ResourceType;
 import org.apache.hadoop.yarn.server.resourcemanager.resource.ResourceWeights;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FSContext;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FakeSchedulable;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.Schedulable;
 import org.apache.hadoop.yarn.server.utils.BuilderUtils;
@@ -43,10 +40,7 @@ public class TestDominantResourceFairnessPolicy {
   private Comparator<Schedulable> createComparator(int clusterMem,
       int clusterCpu) {
     DominantResourceFairnessPolicy policy = new DominantResourceFairnessPolicy();
-    FSContext fsContext = mock(FSContext.class);
-    when(fsContext.getClusterResource()).
-        thenReturn(Resources.createResource(clusterMem, clusterCpu));
-    policy.initialize(fsContext);
+    policy.initialize(BuilderUtils.newResource(clusterMem, clusterCpu));
     return policy.getComparator();
   }
   
@@ -165,22 +159,5 @@ public class TestDominantResourceFairnessPolicy {
     assertEquals(.5, shares.getWeight(ResourceType.CPU), .00001);
     assertEquals(ResourceType.CPU, resourceOrder[0]);
     assertEquals(ResourceType.MEMORY, resourceOrder[1]);
-  }
-
-  @Test
-  public void testCompareSchedulablesWithClusterResourceChanges(){
-    Schedulable schedulable1 = createSchedulable(2000, 1);
-    Schedulable schedulable2 = createSchedulable(1000, 2);
-
-    // schedulable1 has share weights [1/2, 1/5], schedulable2 has share
-    // weights [1/4, 2/5], schedulable1 > schedulable2 since 1/2 > 2/5
-    assertTrue(createComparator(4000, 5)
-        .compare(schedulable1, schedulable2) > 0);
-
-    // share weights have changed because of the cluster resource change.
-    // schedulable1 has share weights [1/4, 1/6], schedulable2 has share
-    // weights [1/8, 1/3], schedulable1 < schedulable2 since 1/4 < 1/3
-    assertTrue(createComparator(8000, 6)
-        .compare(schedulable1, schedulable2) < 0);
   }
 }

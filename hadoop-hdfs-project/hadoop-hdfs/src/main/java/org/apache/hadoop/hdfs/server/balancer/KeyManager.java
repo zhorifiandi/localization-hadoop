@@ -21,30 +21,29 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.EnumSet;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.StorageType;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.protocol.datatransfer.sasl.DataEncryptionKeyFactory;
 import org.apache.hadoop.hdfs.security.token.block.BlockTokenIdentifier;
 import org.apache.hadoop.hdfs.security.token.block.BlockTokenSecretManager;
+import org.apache.hadoop.hdfs.security.token.block.BlockTokenSecretManager.AccessMode;
 import org.apache.hadoop.hdfs.security.token.block.DataEncryptionKey;
 import org.apache.hadoop.hdfs.security.token.block.ExportedBlockKeys;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocol;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Daemon;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.util.Timer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The class provides utilities for key and token management.
  */
 @InterfaceAudience.Private
 public class KeyManager implements Closeable, DataEncryptionKeyFactory {
-  private static final Logger LOG = LoggerFactory.getLogger(KeyManager.class);
+  private static final Log LOG = LogFactory.getLog(KeyManager.class);
 
   private final NamenodeProtocol namenode;
 
@@ -55,17 +54,11 @@ public class KeyManager implements Closeable, DataEncryptionKeyFactory {
   private final BlockTokenSecretManager blockTokenSecretManager;
   private final BlockKeyUpdater blockKeyUpdater;
   private DataEncryptionKey encryptionKey;
-  /**
-   * Timer object for querying the current time. Separated out for
-   * unit testing.
-   */
-  private Timer timer;
 
   public KeyManager(String blockpoolID, NamenodeProtocol namenode,
       boolean encryptDataTransfer, Configuration conf) throws IOException {
     this.namenode = namenode;
     this.encryptDataTransfer = encryptDataTransfer;
-    this.timer = new Timer();
 
     final ExportedBlockKeys keys = namenode.getBlockKeys();
     this.isBlockTokenEnabled = keys.isBlockTokenEnabled();
@@ -77,12 +70,8 @@ public class KeyManager implements Closeable, DataEncryptionKeyFactory {
           + ", token lifetime=" + StringUtils.formatTime(tokenLifetime));
       String encryptionAlgorithm = conf.get(
           DFSConfigKeys.DFS_DATA_ENCRYPTION_ALGORITHM_KEY);
-      final boolean enableProtobuf = conf.getBoolean(
-          DFSConfigKeys.DFS_BLOCK_ACCESS_TOKEN_PROTOBUF_ENABLE,
-          DFSConfigKeys.DFS_BLOCK_ACCESS_TOKEN_PROTOBUF_ENABLE_DEFAULT);
       this.blockTokenSecretManager = new BlockTokenSecretManager(
-          updateInterval, tokenLifetime, blockpoolID, encryptionAlgorithm,
-          enableProtobuf);
+          updateInterval, tokenLifetime, blockpoolID, encryptionAlgorithm);
       this.blockTokenSecretManager.addKeys(keys);
 
       // sync block keys with NN more frequently than NN updates its block keys
@@ -101,8 +90,8 @@ public class KeyManager implements Closeable, DataEncryptionKeyFactory {
   }
 
   /** Get an access token for a block. */
-  public Token<BlockTokenIdentifier> getAccessToken(ExtendedBlock eb,
-      StorageType[] storageTypes, String[] storageIds) throws IOException {
+  public Token<BlockTokenIdentifier> getAccessToken(ExtendedBlock eb
+      ) throws IOException {
     if (!isBlockTokenEnabled) {
       return BlockTokenSecretManager.DUMMY_TOKEN;
     } else {
@@ -111,8 +100,7 @@ public class KeyManager implements Closeable, DataEncryptionKeyFactory {
             "Cannot get access token since BlockKeyUpdater is not running");
       }
       return blockTokenSecretManager.generateToken(null, eb,
-          EnumSet.of(BlockTokenIdentifier.AccessMode.REPLACE,
-              BlockTokenIdentifier.AccessMode.COPY), storageTypes, storageIds);
+          EnumSet.of(AccessMode.REPLACE, AccessMode.COPY));
     }
   }
 
@@ -120,25 +108,7 @@ public class KeyManager implements Closeable, DataEncryptionKeyFactory {
   public DataEncryptionKey newDataEncryptionKey() {
     if (encryptDataTransfer) {
       synchronized (this) {
-        if (encryptionKey == null ||
-            encryptionKey.expiryDate < timer.now()) {
-          // Encryption Key (EK) is generated from Block Key (BK).
-          // Check if EK is expired, and generate a new one using the current BK
-          // if so, otherwise continue to use the previously generated EK.
-          //
-          // It's important to make sure that when EK is not expired, the BK
-          // used to generate the EK is not expired and removed, because
-          // the same BK will be used to re-generate the EK
-          // by BlockTokenSecretManager.
-          //
-          // The current implementation ensures that when an EK is not expired
-          // (within tokenLifetime), the BK that's used to generate it
-          // still has at least "keyUpdateInterval" of life time before
-          // the BK gets expired and removed.
-          // See BlockTokenSecretManager for details.
-          LOG.debug("Generating new data encryption key because current key "
-              + (encryptionKey == null ?
-              "is null." : "expired on " + encryptionKey.expiryDate));
+        if (encryptionKey == null) {
           encryptionKey = blockTokenSecretManager.generateDataEncryptionKey();
         }
         return encryptionKey;

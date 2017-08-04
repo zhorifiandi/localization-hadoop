@@ -17,39 +17,38 @@
  */
 package org.apache.hadoop.util;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
+import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.jar.JarOutputStream;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 
+import junit.framework.TestCase;
+
 import org.apache.hadoop.fs.FileUtil;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-public class TestRunJar {
-  private static final String FOOBAR_TXT = "foobar.txt";
-  private static final String FOOBAZ_TXT = "foobaz.txt";
-  private static final int BUFF_SIZE = 2048;
+public class TestRunJar extends TestCase {
   private File TEST_ROOT_DIR;
 
   private static final String TEST_JAR_NAME="test-runjar.jar";
   private static final String TEST_JAR_2_NAME = "test-runjar2.jar";
-  private static final long MOCKED_NOW = 1_460_389_972_000L;
-  private static final long MOCKED_NOW_PLUS_TWO_SEC = MOCKED_NOW + 2_000;
 
+  @Override
   @Before
-  public void setUp() throws Exception {
-    TEST_ROOT_DIR = GenericTestUtils.getTestDir(getClass().getSimpleName());
+  protected void setUp()
+      throws Exception {
+    TEST_ROOT_DIR =
+        new File(System.getProperty("test.build.data", "/tmp"), getClass()
+            .getSimpleName());
     if (!TEST_ROOT_DIR.exists()) {
       TEST_ROOT_DIR.mkdirs();
     }
@@ -57,8 +56,9 @@ public class TestRunJar {
     makeTestJar();
   }
 
+  @Override
   @After
-  public void tearDown() {
+  protected void tearDown() {
     FileUtil.fullyDelete(TEST_ROOT_DIR);
   }
 
@@ -70,13 +70,9 @@ public class TestRunJar {
     File jarFile = new File(TEST_ROOT_DIR, TEST_JAR_NAME);
     JarOutputStream jstream =
         new JarOutputStream(new FileOutputStream(jarFile));
-    ZipEntry zipEntry1 = new ZipEntry(FOOBAR_TXT);
-    zipEntry1.setTime(MOCKED_NOW);
-    jstream.putNextEntry(zipEntry1);
+    jstream.putNextEntry(new ZipEntry("foobar.txt"));
     jstream.closeEntry();
-    ZipEntry zipEntry2 = new ZipEntry(FOOBAZ_TXT);
-    zipEntry2.setTime(MOCKED_NOW_PLUS_TWO_SEC);
-    jstream.putNextEntry(zipEntry2);
+    jstream.putNextEntry(new ZipEntry("foobaz.txt"));
     jstream.closeEntry();
     jstream.close();
   }
@@ -86,52 +82,37 @@ public class TestRunJar {
    */
   @Test
   public void testUnJar() throws Exception {
-    File unjarDir = getUnjarDir("unjar-all");
+    File unjarDir = new File(TEST_ROOT_DIR, "unjar-all");
+    assertFalse("unjar dir shouldn't exist at test start",
+                new File(unjarDir, "foobar.txt").exists());
 
     // Unjar everything
     RunJar.unJar(new File(TEST_ROOT_DIR, TEST_JAR_NAME),
                  unjarDir);
     assertTrue("foobar unpacked",
-               new File(unjarDir, TestRunJar.FOOBAR_TXT).exists());
+               new File(unjarDir, "foobar.txt").exists());
     assertTrue("foobaz unpacked",
-               new File(unjarDir, FOOBAZ_TXT).exists());
+               new File(unjarDir, "foobaz.txt").exists());
+
   }
 
   /**
    * Test unjarring a specific regex
    */
-  @Test
   public void testUnJarWithPattern() throws Exception {
-    File unjarDir = getUnjarDir("unjar-pattern");
+    File unjarDir = new File(TEST_ROOT_DIR, "unjar-pattern");
+    assertFalse("unjar dir shouldn't exist at test start",
+                new File(unjarDir, "foobar.txt").exists());
 
     // Unjar only a regex
     RunJar.unJar(new File(TEST_ROOT_DIR, TEST_JAR_NAME),
                  unjarDir,
                  Pattern.compile(".*baz.*"));
     assertFalse("foobar not unpacked",
-                new File(unjarDir, TestRunJar.FOOBAR_TXT).exists());
+                new File(unjarDir, "foobar.txt").exists());
     assertTrue("foobaz unpacked",
-               new File(unjarDir, FOOBAZ_TXT).exists());
-  }
+               new File(unjarDir, "foobaz.txt").exists());
 
-  @Test
-  public void testUnJarDoesNotLooseLastModify() throws Exception {
-    File unjarDir = getUnjarDir("unjar-lastmod");
-
-    // Unjar everything
-    RunJar.unJar(new File(TEST_ROOT_DIR, TEST_JAR_NAME),
-            unjarDir);
-
-    String failureMessage = "Last modify time was lost during unJar";
-    assertEquals(failureMessage, MOCKED_NOW, new File(unjarDir, TestRunJar.FOOBAR_TXT).lastModified());
-    assertEquals(failureMessage, MOCKED_NOW_PLUS_TWO_SEC, new File(unjarDir, FOOBAZ_TXT).lastModified());
-  }
-
-  private File getUnjarDir(String dirName) {
-    File unjarDir = new File(TEST_ROOT_DIR, dirName);
-    assertFalse("unjar dir shouldn't exist at test start",
-                new File(unjarDir, TestRunJar.FOOBAR_TXT).exists());
-    return unjarDir;
   }
 
   /**
@@ -154,8 +135,7 @@ public class TestRunJar {
     when(runJar.getSystemClasses()).thenReturn(systemClasses);
 
     // create the test jar
-    File testJar = JarFinder.makeClassLoaderTestJar(this.getClass(),
-        TEST_ROOT_DIR, TEST_JAR_2_NAME, BUFF_SIZE, mainCls, thirdCls);
+    File testJar = makeClassLoaderTestJar(mainCls, thirdCls);
     // form the args
     String[] args = new String[3];
     args[0] = testJar.getAbsolutePath();
@@ -164,5 +144,29 @@ public class TestRunJar {
     // run RunJar
     runJar.run(args);
     // it should not throw an exception
+  }
+
+  private File makeClassLoaderTestJar(String... clsNames) throws IOException {
+    File jarFile = new File(TEST_ROOT_DIR, TEST_JAR_2_NAME);
+    JarOutputStream jstream =
+        new JarOutputStream(new FileOutputStream(jarFile));
+    for (String clsName: clsNames) {
+      String name = clsName.replace('.', '/') + ".class";
+      InputStream entryInputStream = this.getClass().getResourceAsStream(
+          "/" + name);
+      ZipEntry entry = new ZipEntry(name);
+      jstream.putNextEntry(entry);
+      BufferedInputStream bufInputStream = new BufferedInputStream(
+          entryInputStream, 2048);
+      int count;
+      byte[] data = new byte[2048];
+      while ((count = bufInputStream.read(data, 0, 2048)) != -1) {
+        jstream.write(data, 0, count);
+      }
+      jstream.closeEntry();
+    }
+    jstream.close();
+
+    return jarFile;
   }
 }

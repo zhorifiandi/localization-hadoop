@@ -25,11 +25,7 @@ import javax.xml.bind.annotation.XmlTransient;
 import javax.xml.bind.annotation.XmlType;
 
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CSQueue;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.LeafQueue;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @XmlRootElement(name = "capacityScheduler")
 @XmlType(name = "capacityScheduler")
@@ -41,8 +37,6 @@ public class CapacitySchedulerInfo extends SchedulerInfo {
   protected float maxCapacity;
   protected String queueName;
   protected CapacitySchedulerQueueInfoList queues;
-  protected QueueCapacitiesInfo capacities;
-  protected CapacitySchedulerHealthInfo health;
 
   @XmlTransient
   static final float EPSILON = 1e-8f;
@@ -50,7 +44,7 @@ public class CapacitySchedulerInfo extends SchedulerInfo {
   public CapacitySchedulerInfo() {
   } // JAXB needs this
 
-  public CapacitySchedulerInfo(CSQueue parent, CapacityScheduler cs) {
+  public CapacitySchedulerInfo(CSQueue parent) {
     this.queueName = parent.getQueueName();
     this.usedCapacity = parent.getUsedCapacity() * 100;
     this.capacity = parent.getCapacity() * 100;
@@ -59,9 +53,7 @@ public class CapacitySchedulerInfo extends SchedulerInfo {
       max = 1f;
     this.maxCapacity = max * 100;
 
-    capacities = new QueueCapacitiesInfo(parent.getQueueCapacities(), false);
     queues = getQueues(parent);
-    health = new CapacitySchedulerHealthInfo(cs);
   }
 
   public float getCapacity() {
@@ -70,10 +62,6 @@ public class CapacitySchedulerInfo extends SchedulerInfo {
 
   public float getUsedCapacity() {
     return this.usedCapacity;
-  }
-
-  public QueueCapacitiesInfo getCapacities() {
-    return capacities;
   }
 
   public float getMaxCapacity() {
@@ -89,29 +77,12 @@ public class CapacitySchedulerInfo extends SchedulerInfo {
   }
 
   protected CapacitySchedulerQueueInfoList getQueues(CSQueue parent) {
-    CapacitySchedulerQueueInfoList queuesInfo =
-        new CapacitySchedulerQueueInfoList();
-    // JAXB marashalling leads to situation where the "type" field injected
-    // for JSON changes from string to array depending on order of printing
-    // Issue gets fixed if all the leaf queues are marshalled before the
-    // non-leaf queues. See YARN-4785 for more details.
-    List<CSQueue> childQueues = new ArrayList<>();
-    List<CSQueue> childLeafQueues = new ArrayList<>();
-    List<CSQueue> childNonLeafQueues = new ArrayList<>();
-    for (CSQueue queue : parent.getChildQueues()) {
-      if (queue instanceof LeafQueue) {
-        childLeafQueues.add(queue);
-      } else {
-        childNonLeafQueues.add(queue);
-      }
-    }
-    childQueues.addAll(childLeafQueues);
-    childQueues.addAll(childNonLeafQueues);
-
-    for (CSQueue queue : childQueues) {
+    CSQueue parentQueue = parent;
+    CapacitySchedulerQueueInfoList queuesInfo = new CapacitySchedulerQueueInfoList();
+    for (CSQueue queue : parentQueue.getChildQueues()) {
       CapacitySchedulerQueueInfo info;
       if (queue instanceof LeafQueue) {
-        info = new CapacitySchedulerLeafQueueInfo((LeafQueue) queue);
+        info = new CapacitySchedulerLeafQueueInfo((LeafQueue)queue);
       } else {
         info = new CapacitySchedulerQueueInfo(queue);
         info.queues = getQueues(queue);
@@ -120,4 +91,5 @@ public class CapacitySchedulerInfo extends SchedulerInfo {
     }
     return queuesInfo;
   }
+
 }

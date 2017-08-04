@@ -17,9 +17,12 @@
  */
 package org.apache.hadoop.tools;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.protocol.SnapshotDiffReport;
 
 /**
@@ -38,53 +41,25 @@ class DiffInfo {
   static final Comparator<DiffInfo> targetComparator = new Comparator<DiffInfo>() {
     @Override
     public int compare(DiffInfo d1, DiffInfo d2) {
-      return d1.target == null ? ((d2.target == null)? 0 : -1) :
-        (d2.target ==  null ? 1 : d1.target.compareTo(d2.target));
+      return d1.target == null ? -1 :
+          (d2.target ==  null ? 1 : d1.target.compareTo(d2.target));
     }
   };
 
   /** The source file/dir of the rename or deletion op */
-  private Path source;
-  /** The target file/dir of the rename op. Null means the op is deletion. */
-  private Path target;
-
-  private SnapshotDiffReport.DiffType type;
+  final Path source;
   /**
    * The intermediate file/dir for the op. For a rename or a delete op,
    * we first rename the source to this tmp file/dir.
    */
   private Path tmp;
+  /** The target file/dir of the rename op. Null means the op is deletion. */
+  final Path target;
 
-  DiffInfo(final Path source, final Path target,
-      SnapshotDiffReport.DiffType type) {
+  DiffInfo(Path source, Path target) {
     assert source != null;
     this.source = source;
     this.target= target;
-    this.type = type;
-  }
-
-  void setSource(final Path source) {
-    this.source = source;
-  }
-
-  Path getSource() {
-    return source;
-  }
-
-  void setTarget(final Path target) {
-    this.target = target;
-  }
-
-  Path getTarget() {
-    return target;
-  }
-
-  public void setType(final SnapshotDiffReport.DiffType type){
-    this.type = type;
-  }
-
-  public SnapshotDiffReport.DiffType getType(){
-    return type;
   }
 
   void setTmp(Path tmp) {
@@ -95,9 +70,21 @@ class DiffInfo {
     return tmp;
   }
 
-  @Override
-  public String toString() {
-    return type + ": src=" + String.valueOf(source) + " tgt="
-        + String.valueOf(target) + " tmp=" + String.valueOf(tmp);
+  static DiffInfo[] getDiffs(SnapshotDiffReport report, Path targetDir) {
+    List<DiffInfo> diffs = new ArrayList<>();
+    for (SnapshotDiffReport.DiffReportEntry entry : report.getDiffList()) {
+      if (entry.getType() == SnapshotDiffReport.DiffType.DELETE) {
+        final Path source = new Path(targetDir,
+            DFSUtil.bytes2String(entry.getSourcePath()));
+        diffs.add(new DiffInfo(source, null));
+      } else if (entry.getType() == SnapshotDiffReport.DiffType.RENAME) {
+        final Path source = new Path(targetDir,
+            DFSUtil.bytes2String(entry.getSourcePath()));
+        final Path target = new Path(targetDir,
+            DFSUtil.bytes2String(entry.getTargetPath()));
+        diffs.add(new DiffInfo(source, target));
+      }
+    }
+    return diffs.toArray(new DiffInfo[diffs.size()]);
   }
 }

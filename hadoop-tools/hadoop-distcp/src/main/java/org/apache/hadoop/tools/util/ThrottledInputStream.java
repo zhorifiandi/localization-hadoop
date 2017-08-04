@@ -18,10 +18,13 @@
 
 package org.apache.hadoop.tools.util;
 
-import org.apache.hadoop.fs.PositionedReadable;
-
 import java.io.IOException;
 import java.io.InputStream;
+
+import org.apache.hadoop.fs.FSDataInputStream;
+import org.apache.hadoop.fs.PositionedReadable;
+
+import com.google.common.base.Preconditions;
 
 /**
  * The ThrottleInputStream provides bandwidth throttling on a specified
@@ -36,7 +39,7 @@ import java.io.InputStream;
 public class ThrottledInputStream extends InputStream {
 
   private final InputStream rawStream;
-  private final float maxBytesPerSec;
+  private final long maxBytesPerSec;
   private final long startTime = System.currentTimeMillis();
 
   private long bytesRead = 0;
@@ -48,8 +51,8 @@ public class ThrottledInputStream extends InputStream {
     this(rawStream, Long.MAX_VALUE);
   }
 
-  public ThrottledInputStream(InputStream rawStream, float maxBytesPerSec) {
-    assert maxBytesPerSec > 0 : "Bandwidth " + maxBytesPerSec + " is invalid";
+  public ThrottledInputStream(InputStream rawStream, long maxBytesPerSec) {
+    assert maxBytesPerSec > 0 : "Bandwidth " + maxBytesPerSec + " is invalid"; 
     this.rawStream = rawStream;
     this.maxBytesPerSec = maxBytesPerSec;
   }
@@ -84,9 +87,6 @@ public class ThrottledInputStream extends InputStream {
   /** {@inheritDoc} */
   @Override
   public int read(byte[] b, int off, int len) throws IOException {
-    if (len == 0) {
-      return 0;
-    }
     throttle();
     int readLen = rawStream.read(b, off, len);
     if (readLen != -1) {

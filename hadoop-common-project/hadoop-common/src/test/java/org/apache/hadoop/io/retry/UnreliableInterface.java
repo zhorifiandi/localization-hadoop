@@ -54,9 +54,6 @@ public interface UnreliableInterface {
   void alwaysFailsWithFatalException() throws FatalException;
   void alwaysFailsWithRemoteFatalException() throws RemoteException;
 
-  void failsOnceWithIOException() throws IOException;
-  void failsOnceWithRemoteException() throws RemoteException;
-
   void failsOnceThenSucceeds() throws UnreliableException;
   boolean failsOnceThenSucceedsWithReturnValue() throws UnreliableException;
 

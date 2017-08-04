@@ -24,7 +24,6 @@ import java.util.Set;
 import org.apache.hadoop.classification.InterfaceAudience.LimitedPrivate;
 import org.apache.hadoop.classification.InterfaceStability.Evolving;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.QueueACL;
 import org.apache.hadoop.yarn.api.records.QueueInfo;
 import org.apache.hadoop.yarn.api.records.QueueUserACLInfo;
@@ -63,7 +62,7 @@ public interface Queue {
 
   boolean hasAccess(QueueACL acl, UserGroupInformation user);
   
-  public AbstractUsersManager getAbstractUsersManager();
+  public ActiveUsersManager getActiveUsersManager();
 
   /**
    * Recover the state of the queue for a given container.
@@ -91,51 +90,4 @@ public interface Queue {
    * @return default label expression
    */
   public String getDefaultNodeLabelExpression();
-
-  /**
-   * When new outstanding resource is asked, calling this will increase pending
-   * resource in a queue.
-   * 
-   * @param nodeLabel asked by application
-   * @param resourceToInc new resource asked
-   */
-  public void incPendingResource(String nodeLabel, Resource resourceToInc);
-  
-  /**
-   * When an outstanding resource is fulfilled or canceled, calling this will
-   * decrease pending resource in a queue.
-   * 
-   * @param nodeLabel
-   *          asked by application
-   * @param resourceToDec
-   *          new resource asked
-   */
-  public void decPendingResource(String nodeLabel, Resource resourceToDec);
-
-  /**
-   * Get the Default Application Priority for this queue
-   *
-   * @return default application priority
-   */
-  public Priority getDefaultApplicationPriority();
-
-  /**
-   * Increment Reserved Capacity
-   *
-   * @param partition
-   *          asked by application
-   * @param reservedRes
-   *          reserved resource asked
-   */
-  public void incReservedResource(String partition, Resource reservedRes);
-
-  /**
-   * Decrement Reserved Capacity
-   *
-   * @param partition
-   *          asked by application
-   * @param reservedRes
-   *          reserved resource asked
-   */
-  public void decReservedResource(String partition, Resource reservedRes);
 }

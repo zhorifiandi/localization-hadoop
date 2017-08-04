@@ -24,7 +24,6 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Arrays;
 
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import static org.junit.Assert.*;
 import org.junit.Before;
@@ -58,7 +57,9 @@ import static org.apache.hadoop.fs.HardLink.*;
  */
 public class TestHardLink {
   
-  final static private File TEST_DIR = GenericTestUtils.getTestDir("test/hl");
+  public static final String TEST_ROOT_DIR = 
+    System.getProperty("test.build.data", "build/test/data") + "/test";
+  final static private File TEST_DIR = new File(TEST_ROOT_DIR, "hl");
   private static String DIR = "dir_";
   //define source and target directories
   private static File src = new File(TEST_DIR, DIR + "src");
@@ -320,7 +321,7 @@ public class TestHardLink {
     assertEquals(2, ("%f").length()); 
     //make sure "\\%f" was munged correctly
     assertEquals(3, ("\\%f").length()); 
-    assertEquals("hardlink", win.getLinkCountCommand[1]);
+    assertTrue(win.getLinkCountCommand[1].equals("hardlink"));
     //make sure "-c%h" was not munged
     assertEquals(4, ("-c%h").length()); 
   }

@@ -18,17 +18,14 @@
 
 package org.apache.hadoop.io;
 
-import org.junit.Test;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
+import junit.framework.TestCase;
 
 import java.nio.charset.MalformedInputException;
 import java.util.Arrays;
 
 /** Unit tests for NonUTF8. */
-public class TestTextNonUTF8 {
+public class TestTextNonUTF8 extends TestCase {
 
-  @Test
   public void testNonUTF8() throws Exception{
     // this is a non UTF8 byte array
     byte b[] = {-0x01, -0x01, -0x01, -0x01, -0x01, -0x01, -0x01};
@@ -47,4 +44,9 @@ public class TestTextNonUTF8 {
     assertTrue(Arrays.equals(b, ret));
   }
 
+  public static void main(String[] args)  throws Exception
+  {
+    TestTextNonUTF8 test = new TestTextNonUTF8();
+    test.testNonUTF8();
+  }
 }

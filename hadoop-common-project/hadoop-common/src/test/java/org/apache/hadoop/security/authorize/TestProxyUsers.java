@@ -25,6 +25,8 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Collection;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.security.Groups;
@@ -32,13 +34,11 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.NativeCodeLoader;
 import org.apache.hadoop.util.StringUtils;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 
 public class TestProxyUsers {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestProxyUsers.class);
+  private static final Log LOG =
+    LogFactory.getLog(TestProxyUsers.class);
   private static final String REAL_USER_NAME = "proxier";
   private static final String PROXY_USER_NAME = "proxied_user";
   private static final String AUTHORIZED_PROXY_USER_NAME = "authorized_proxied_user";
@@ -332,45 +332,6 @@ public class TestProxyUsers {
     assertAuthorized(proxyUserUgi, "10.222.0.0");
     // From bad IP
     assertNotAuthorized(proxyUserUgi, "10.221.0.0");
-  }
-
-  @Test(expected = IllegalArgumentException.class)
-  public void testNullUser() throws Exception {
-    Configuration conf = new Configuration();
-    conf.set(
-        DefaultImpersonationProvider.getTestProvider().
-            getProxySuperuserGroupConfKey(REAL_USER_NAME),
-        "*");
-    conf.set(
-        DefaultImpersonationProvider.getTestProvider().
-            getProxySuperuserIpConfKey(REAL_USER_NAME),
-        PROXY_IP_RANGE);
-    ProxyUsers.refreshSuperUserGroupsConfiguration(conf);
-    // user is null
-    ProxyUsers.authorize(null, "10.222.0.0");
-  }
-
-  @Test(expected = IllegalArgumentException.class)
-  public void testNullIpAddress() throws Exception {
-    Configuration conf = new Configuration();
-    conf.set(
-        DefaultImpersonationProvider.getTestProvider().
-            getProxySuperuserGroupConfKey(REAL_USER_NAME),
-        "*");
-    conf.set(
-        DefaultImpersonationProvider.getTestProvider().
-            getProxySuperuserIpConfKey(REAL_USER_NAME),
-        PROXY_IP_RANGE);
-    ProxyUsers.refreshSuperUserGroupsConfiguration(conf);
-
-    // First try proxying a group that's allowed
-    UserGroupInformation realUserUgi = UserGroupInformation
-        .createRemoteUser(REAL_USER_NAME);
-    UserGroupInformation proxyUserUgi = UserGroupInformation.createProxyUserForTesting(
-        PROXY_USER_NAME, realUserUgi, GROUP_NAMES);
-
-    // remote address is null
-    ProxyUsers.authorize(proxyUserUgi, null);
   }
 
   @Test

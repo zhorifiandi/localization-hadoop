@@ -26,13 +26,12 @@ import javax.crypto.IllegalBlockSizeException;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.ShortBufferException;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.util.NativeCodeLoader;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.util.PerformanceAdvisory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * OpenSSL cipher using JNI.
@@ -41,13 +40,13 @@ import org.slf4j.LoggerFactory;
  */
 @InterfaceAudience.Private
 public final class OpensslCipher {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(OpensslCipher.class.getName());
+  private static final Log LOG =
+      LogFactory.getLog(OpensslCipher.class.getName());
   public static final int ENCRYPT_MODE = 1;
   public static final int DECRYPT_MODE = 0;
   
   /** Currently only support AES/CTR/NoPadding. */
-  private enum AlgMode {
+  private static enum AlgMode {
     AES_CTR;
     
     static int get(String algorithm, String mode) 
@@ -61,7 +60,7 @@ public final class OpensslCipher {
     }
   }
   
-  private enum Padding {
+  private static enum Padding {
     NoPadding;
     
     static int get(String padding) throws NoSuchPaddingException {
@@ -83,7 +82,6 @@ public final class OpensslCipher {
     String loadingFailure = null;
     try {
       if (!NativeCodeLoader.buildSupportsOpenssl()) {
-        PerformanceAdvisory.LOG.debug("Build does not support openssl");
         loadingFailure = "build does not support openssl.";
       } else {
         initIDs();

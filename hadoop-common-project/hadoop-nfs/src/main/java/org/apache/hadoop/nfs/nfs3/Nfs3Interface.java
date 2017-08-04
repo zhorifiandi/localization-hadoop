@@ -26,176 +26,69 @@ import org.apache.hadoop.oncrpc.XDR;
  */
 public interface Nfs3Interface {
 
-  /**
-   * NULL: Do nothing.
-   * @return null NFS procedure
-   */
+  /** NULL: Do nothing */
   public NFS3Response nullProcedure();
 
-  /**
-   * GETATTR: Get file attributes.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** GETATTR: Get file attributes */
   public NFS3Response getattr(XDR xdr, RpcInfo info);
 
-  /**
-   * SETATTR: Set file attributes.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** SETATTR: Set file attributes */
   public NFS3Response setattr(XDR xdr, RpcInfo info);
 
-  /**
-   * LOOKUP: Lookup filename.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** LOOKUP: Lookup filename */
   public NFS3Response lookup(XDR xdr, RpcInfo info);
 
-  /**
-   * ACCESS: Check access permission.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** ACCESS: Check access permission */
   public NFS3Response access(XDR xdr, RpcInfo info);
 
-  /** READLINK: Read from symbolic link.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+    /** READLINK: Read from symbolic link */
   public NFS3Response readlink(XDR xdr, RpcInfo info);
 
-  /**
-   * READ: Read from file.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** READ: Read from file */
   public NFS3Response read(XDR xdr, RpcInfo info);
 
-  /**
-   * WRITE: Write to file.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** WRITE: Write to file */
   public NFS3Response write(XDR xdr, RpcInfo info);
 
-  /**
-   * CREATE: Create a file.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** CREATE: Create a file */
   public NFS3Response create(XDR xdr, RpcInfo info);
 
-  /**
-   * MKDIR: Create a directory.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** MKDIR: Create a directory */
   public NFS3Response mkdir(XDR xdr, RpcInfo info);
 
-  /**
-   * SYMLINK: Create a symbolic link.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** SYMLINK: Create a symbolic link */
   public NFS3Response symlink(XDR xdr, RpcInfo info);
 
-  /**
-   * MKNOD: Create a special device.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** MKNOD: Create a special device */
   public NFS3Response mknod(XDR xdr, RpcInfo info);
 
-  /**
-   * REMOVE: Remove a file.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** REMOVE: Remove a file */
   public NFS3Response remove(XDR xdr, RpcInfo info);
 
-  /**
-   * RMDIR: Remove a directory.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** RMDIR: Remove a directory */
   public NFS3Response rmdir(XDR xdr, RpcInfo info);
 
-  /**
-   * RENAME: Rename a file or directory.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** RENAME: Rename a file or directory */
   public NFS3Response rename(XDR xdr, RpcInfo info);
 
-  /**
-   * LINK: create link to an object.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** LINK: create link to an object */
   public NFS3Response link(XDR xdr, RpcInfo info);
 
-  /**
-   * READDIR: Read From directory.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** READDIR: Read From directory */
   public NFS3Response readdir(XDR xdr, RpcInfo info);
 
-  /**
-   * READDIRPLUS: Extended read from directory.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** READDIRPLUS: Extended read from directory */
   public NFS3Response readdirplus(XDR xdr, RpcInfo info);
   
-  /**
-   * FSSTAT: Get dynamic file system information.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** FSSTAT: Get dynamic file system information */
   public NFS3Response fsstat(XDR xdr, RpcInfo info);
 
-  /**
-   * FSINFO: Get static file system information.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** FSINFO: Get static file system information */
   public NFS3Response fsinfo(XDR xdr, RpcInfo info);
 
-  /**
-   * PATHCONF: Retrieve POSIX information.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** PATHCONF: Retrieve POSIX information */
   public NFS3Response pathconf(XDR xdr, RpcInfo info);
 
-  /**
-   * COMMIT: Commit cached data on a server to stable storage.
-   * @param xdr XDR message
-   * @param info context of rpc message
-   * @return NFSv3 response
-   */
+  /** COMMIT: Commit cached data on a server to stable storage */
   public NFS3Response commit(XDR xdr, RpcInfo info);
 }

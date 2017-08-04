@@ -18,11 +18,10 @@
 
 package org.apache.hadoop.metrics2.sink.ganglia;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.IOException;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * This code supports Ganglia 3.1
@@ -30,7 +29,7 @@ import java.io.IOException;
  */
 public class GangliaSink31 extends GangliaSink30 {
 
-  public final Logger LOG = LoggerFactory.getLogger(this.getClass());
+  public final Log LOG = LogFactory.getLog(this.getClass());    
 
   /**
    * The method sends metrics to Ganglia servers. The method has been taken from
@@ -44,7 +43,6 @@ public class GangliaSink31 extends GangliaSink30 {
    * @param gSlope The slope for this metric
    * @throws IOException
    */
-  @Override
   protected void emitMetric(String groupName, String name, String type,
       String value, GangliaConf gConf, GangliaSlope gSlope) 
     throws IOException {

@@ -19,6 +19,9 @@ package org.apache.hadoop.ha;
 
 import java.io.IOException;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
@@ -29,8 +32,6 @@ import org.apache.hadoop.ha.HAServiceProtocol.RequestSource;
 import org.apache.hadoop.ipc.RPC;
 
 import com.google.common.base.Preconditions;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The FailOverController is responsible for electing an active service
@@ -42,8 +43,7 @@ import org.slf4j.LoggerFactory;
 @InterfaceStability.Evolving
 public class FailoverController {
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(FailoverController.class);
+  private static final Log LOG = LogFactory.getLog(FailoverController.class);
 
   private final int gracefulFenceTimeout;
   private final int rpcTimeoutToNewActive;
@@ -252,7 +252,7 @@ public class FailoverController {
         } catch (FailoverFailedException ffe) {
           msg += ". Failback to " + fromSvc +
             " failed (" + ffe.getMessage() + ")";
-          LOG.error(msg);
+          LOG.fatal(msg);
         }
       }
       throw new FailoverFailedException(msg, cause);

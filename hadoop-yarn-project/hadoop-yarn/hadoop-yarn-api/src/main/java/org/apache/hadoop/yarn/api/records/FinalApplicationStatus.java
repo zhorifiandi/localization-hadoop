@@ -38,8 +38,5 @@ public enum FinalApplicationStatus {
   FAILED,
 
   /** Application which was terminated by a user or admin. */
-  KILLED,
-
-  /** Application which has subtasks with multiple end states. */
-  ENDED
+  KILLED
 }

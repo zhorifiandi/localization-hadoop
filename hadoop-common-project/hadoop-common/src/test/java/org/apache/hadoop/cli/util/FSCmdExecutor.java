@@ -30,8 +30,8 @@ public class FSCmdExecutor extends CommandExecutor {
   }
 
   @Override
-  protected int execute(final String cmd) throws Exception{
+  protected void execute(final String cmd) throws Exception{
     String[] args = getCommandAsArgs(cmd, "NAMENODE", this.namenode);
-    return ToolRunner.run(shell, args);
+    ToolRunner.run(shell, args);
   }
 }

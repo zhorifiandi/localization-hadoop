@@ -29,6 +29,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Arrays;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -115,8 +117,6 @@ final class PageBlobOutputStream extends OutputStream implements Syncable {
   // The last task given to the ioThreadPool to execute, to allow
   // waiting until it's done.
   private WriteRequest lastQueuedTask;
-  // Whether the stream has been closed.
-  private boolean closed = false;
 
   public static final Log LOG = LogFactory.getLog(AzureNativeFileSystemStore.class);
 
@@ -201,11 +201,7 @@ final class PageBlobOutputStream extends OutputStream implements Syncable {
    * service.
    */
   @Override
-  public synchronized void close() throws IOException {
-    if (closed) {
-      return;
-    }
-
+  public void close() throws IOException {
     LOG.debug("Closing page blob output stream.");
     flush();
     checkStreamState();
@@ -214,7 +210,7 @@ final class PageBlobOutputStream extends OutputStream implements Syncable {
       LOG.debug(ioThreadPool.toString());
       if (!ioThreadPool.awaitTermination(10, TimeUnit.MINUTES)) {
         LOG.debug("Timed out after 10 minutes waiting for IO requests to finish");
-        NativeAzureFileSystemHelper.logAllLiveStackTraces();
+        logAllStackTraces();
         LOG.debug(ioThreadPool.toString());
         throw new IOException("Timed out waiting for IO requests to finish");
       }
@@ -225,10 +221,21 @@ final class PageBlobOutputStream extends OutputStream implements Syncable {
       Thread.currentThread().interrupt();
     }
 
-    closed = true;
+    this.lastError = new IOException("Stream is already closed.");
   }
 
-
+  // Log the stacks of all threads.
+  private void logAllStackTraces() {
+    Map liveThreads = Thread.getAllStackTraces();
+    for (Iterator i = liveThreads.keySet().iterator(); i.hasNext(); ) {
+      Thread key = (Thread) i.next();
+      LOG.debug("Thread " + key.getName());
+      StackTraceElement[] trace = (StackTraceElement[]) liveThreads.get(key);
+      for (int j = 0; j < trace.length; j++) {
+        LOG.debug("\tat " + trace[j]);
+      }
+    }
+  }
 
   /**
    * A single write request for data to write to Azure storage.

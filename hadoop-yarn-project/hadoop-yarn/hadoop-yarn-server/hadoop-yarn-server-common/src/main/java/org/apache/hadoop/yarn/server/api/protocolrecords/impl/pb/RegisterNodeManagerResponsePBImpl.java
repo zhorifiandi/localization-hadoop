@@ -19,10 +19,7 @@
 package org.apache.hadoop.yarn.server.api.protocolrecords.impl.pb;
 
 
-import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.api.records.impl.pb.ProtoUtils;
-import org.apache.hadoop.yarn.api.records.impl.pb.ResourcePBImpl;
-import org.apache.hadoop.yarn.proto.YarnProtos.ResourceProto;
+import org.apache.hadoop.yarn.api.records.impl.pb.ProtoBase;
 import org.apache.hadoop.yarn.proto.YarnServerCommonProtos.MasterKeyProto;
 import org.apache.hadoop.yarn.proto.YarnServerCommonProtos.NodeActionProto;
 import org.apache.hadoop.yarn.proto.YarnServerCommonServiceProtos.RegisterNodeManagerResponseProto;
@@ -32,22 +29,18 @@ import org.apache.hadoop.yarn.server.api.records.MasterKey;
 import org.apache.hadoop.yarn.server.api.records.NodeAction;
 import org.apache.hadoop.yarn.server.api.records.impl.pb.MasterKeyPBImpl;
 
-/**
- * PBImpl class for RegisterNodeManagerResponse.
- */
-public class RegisterNodeManagerResponsePBImpl
-    extends RegisterNodeManagerResponse {
-  private RegisterNodeManagerResponseProto proto =
-      RegisterNodeManagerResponseProto.getDefaultInstance();
-  private RegisterNodeManagerResponseProto.Builder builder = null;
-  private boolean viaProto = false;
-  private Resource resource = null;
 
+    
+public class RegisterNodeManagerResponsePBImpl extends ProtoBase<RegisterNodeManagerResponseProto> implements RegisterNodeManagerResponse {
+  RegisterNodeManagerResponseProto proto = RegisterNodeManagerResponseProto.getDefaultInstance();
+  RegisterNodeManagerResponseProto.Builder builder = null;
+  boolean viaProto = false;
+  
   private MasterKey containerTokenMasterKey = null;
   private MasterKey nmTokenMasterKey = null;
-
+  
   private boolean rebuild = false;
-
+  
   public RegisterNodeManagerResponsePBImpl() {
     builder = RegisterNodeManagerResponseProto.newBuilder();
   }
@@ -56,7 +49,7 @@ public class RegisterNodeManagerResponsePBImpl
     this.proto = proto;
     viaProto = true;
   }
-
+  
   public RegisterNodeManagerResponseProto getProto() {
     if (rebuild)
       mergeLocalToProto();
@@ -74,9 +67,6 @@ public class RegisterNodeManagerResponsePBImpl
       builder.setNmTokenMasterKey(
           convertToProtoFormat(this.nmTokenMasterKey));
     }
-    if (this.resource != null) {
-      builder.setResource(convertToProtoFormat(this.resource));
-    }
   }
 
   private void mergeLocalToProto() {
@@ -93,28 +83,6 @@ public class RegisterNodeManagerResponsePBImpl
       builder = RegisterNodeManagerResponseProto.newBuilder(proto);
     }
     viaProto = false;
-  }
-
-  @Override
-  public Resource getResource() {
-    RegisterNodeManagerResponseProtoOrBuilder p = viaProto ? proto : builder;
-    if (this.resource != null) {
-      return this.resource;
-    }
-    if (!p.hasResource()) {
-      return null;
-    }
-    this.resource = convertFromProtoFormat(p.getResource());
-    return this.resource;
-  }
-
-  @Override
-  public void setResource(Resource resource) {
-    maybeInitBuilder();
-    if (resource == null) {
-      builder.clearResource();
-    }
-    this.resource = resource;
   }
 
   @Override
@@ -247,26 +215,5 @@ public class RegisterNodeManagerResponsePBImpl
 
   private MasterKeyProto convertToProtoFormat(MasterKey t) {
     return ((MasterKeyPBImpl)t).getProto();
-  }
-
-  private ResourcePBImpl convertFromProtoFormat(ResourceProto p) {
-    return new ResourcePBImpl(p);
-  }
-
-  private ResourceProto convertToProtoFormat(Resource t) {
-    return ProtoUtils.convertToProtoFormat(t);
-  }
-
-  @Override
-  public boolean getAreNodeLabelsAcceptedByRM() {
-    RegisterNodeManagerResponseProtoOrBuilder p =
-        this.viaProto ? this.proto : this.builder;
-    return p.getAreNodeLabelsAcceptedByRM();
-  }
-
-  @Override
-  public void setAreNodeLabelsAcceptedByRM(boolean areNodeLabelsAcceptedByRM) {
-    maybeInitBuilder();
-    this.builder.setAreNodeLabelsAcceptedByRM(areNodeLabelsAcceptedByRM);
   }
 }  

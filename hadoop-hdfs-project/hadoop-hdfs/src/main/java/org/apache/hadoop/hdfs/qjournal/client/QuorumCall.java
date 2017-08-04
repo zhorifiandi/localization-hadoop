@@ -20,10 +20,8 @@ package org.apache.hadoop.hdfs.qjournal.client;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.util.StopWatch;
 import org.apache.hadoop.util.Time;
 
 import com.google.common.base.Joiner;
@@ -60,7 +58,6 @@ class QuorumCall<KEY, RESULT> {
    * fraction of the configured timeout for any call.
    */
   private static final float WAIT_PROGRESS_WARN_THRESHOLD = 0.7f;
-  private final StopWatch quorumStopWatch = new StopWatch();
   
   static <KEY, RESULT> QuorumCall<KEY, RESULT> create(
       Map<KEY, ? extends ListenableFuture<RESULT>> calls) {
@@ -86,16 +83,6 @@ class QuorumCall<KEY, RESULT> {
   private QuorumCall() {
     // Only instantiated from factory method above
   }
-
-  private void restartQuorumStopWatch() {
-    quorumStopWatch.reset().start();
-  }
-
-  private boolean shouldIncreaseQuorumTimeout(long offset, int millis) {
-    long elapsed = quorumStopWatch.now(TimeUnit.MILLISECONDS);
-    return elapsed + offset > (millis * WAIT_PROGRESS_INFO_THRESHOLD);
-  }
-
   
   /**
    * Wait for the quorum to achieve a certain number of responses.
@@ -123,7 +110,6 @@ class QuorumCall<KEY, RESULT> {
     long nextLogTime = st + (long)(millis * WAIT_PROGRESS_INFO_THRESHOLD);
     long et = st + millis;
     while (true) {
-      restartQuorumStopWatch();
       checkAssertionErrors();
       if (minResponses > 0 && countResponses() >= minResponses) return;
       if (minSuccesses > 0 && countSuccesses() >= minSuccesses) return;
@@ -153,21 +139,11 @@ class QuorumCall<KEY, RESULT> {
       }
       long rem = et - now;
       if (rem <= 0) {
-        // Increase timeout if a full GC occurred after restarting stopWatch
-        if (shouldIncreaseQuorumTimeout(0, millis)) {
-          et = et + millis;
-        } else {
-          throw new TimeoutException();
-        }
+        throw new TimeoutException();
       }
-      restartQuorumStopWatch();
       rem = Math.min(rem, nextLogTime - now);
       rem = Math.max(rem, 1);
       wait(rem);
-      // Increase timeout if a full GC occurred after restarting stopWatch
-      if (shouldIncreaseQuorumTimeout(-rem, millis)) {
-        et = et + millis;
-      }
     }
   }
 

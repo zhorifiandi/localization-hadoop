@@ -58,7 +58,6 @@ public class TestAclConfigFlag {
     IOUtils.cleanup(null, fs);
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 

@@ -25,7 +25,6 @@ import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.server.nodemanager.LinuxContainerExecutor;
 
-@Deprecated
 public interface LCEResourcesHandler extends Configurable {
 
   void init(LinuxContainerExecutor lce) throws IOException;

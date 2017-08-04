@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.fs.swift;
 
+import junit.framework.AssertionFailedError;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -26,10 +27,6 @@ import org.apache.hadoop.fs.ParentNotDirectoryException;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.swift.snative.SwiftNativeFileSystem;
 import org.apache.hadoop.fs.swift.util.SwiftTestUtils;
-import org.junit.Before;
-import org.junit.Test;
-
-import static org.junit.Assert.*;
 
 import java.io.IOException;
 import java.net.URI;
@@ -58,8 +55,8 @@ public class TestSwiftFileSystemContract
     return false;
   }
 
-  @Before
-  public void setUp() throws Exception {
+  @Override
+  protected void setUp() throws Exception {
     final URI uri = getFilesystemURI();
     final Configuration conf = new Configuration();
     fs = createSwiftFS();
@@ -71,6 +68,7 @@ public class TestSwiftFileSystemContract
       fs = null;
       throw e;
     }
+    super.setUp();
   }
 
   protected URI getFilesystemURI() throws URISyntaxException, IOException {
@@ -83,7 +81,7 @@ public class TestSwiftFileSystemContract
     return swiftNativeFileSystem;
   }
 
-  @Test
+  @Override
   public void testMkdirsFailsForSubdirectoryOfExistingFile() throws Exception {
     Path testDir = path("/test/hadoop");
     assertFalse(fs.exists(testDir));
@@ -117,21 +115,20 @@ public class TestSwiftFileSystemContract
 
   }
 
-  @Test
+  @Override
   public void testWriteReadAndDeleteEmptyFile() throws Exception {
     try {
       super.testWriteReadAndDeleteEmptyFile();
-    } catch (AssertionError e) {
+    } catch (AssertionFailedError e) {
       SwiftTestUtils.downgrade("empty files get mistaken for directories", e);
     }
   }
 
-  @Test
+  @Override
   public void testMkdirsWithUmask() throws Exception {
     //unsupported
   }
 
-  @Test
   public void testZeroByteFilesAreFiles() throws Exception {
 //    SwiftTestUtils.unsupported("testZeroByteFilesAreFiles");
   }

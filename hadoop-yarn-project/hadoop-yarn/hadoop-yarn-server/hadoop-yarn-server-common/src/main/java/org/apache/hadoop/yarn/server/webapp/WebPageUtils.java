@@ -24,15 +24,10 @@ import static org.apache.hadoop.yarn.webapp.view.JQueryUI.tableInit;
 public class WebPageUtils {
 
   public static String appsTableInit() {
-    return appsTableInit(false, true);
+    return appsTableInit(false);
   }
 
-  public static String appsTableInit(boolean isResourceManager) {
-    return appsTableInit(false, isResourceManager);
-  }
-
-  public static String appsTableInit(
-      boolean isFairSchedulerPage, boolean isResourceManager) {
+  public static String appsTableInit(boolean isFairSchedulerPage) {
     // id, user, name, queue, starttime, finishtime, state, status, progress, ui
     // FairSchedulerPage's table is a bit different
     return tableInit()
@@ -40,29 +35,22 @@ public class WebPageUtils {
       .append(", bDeferRender: true")
       .append(", bProcessing: true")
       .append("\n, aoColumnDefs: ")
-      .append(getAppsTableColumnDefs(isFairSchedulerPage, isResourceManager))
+      .append(getAppsTableColumnDefs(isFairSchedulerPage))
       // Sort by id upon page load
       .append(", aaSorting: [[0, 'desc']]}").toString();
   }
 
-  private static String getAppsTableColumnDefs(
-      boolean isFairSchedulerPage, boolean isResourceManager) {
+  private static String getAppsTableColumnDefs(boolean isFairSchedulerPage) {
     StringBuilder sb = new StringBuilder();
-    sb.append("[\n")
-      .append("{'sType':'natural', 'aTargets': [0]")
+    return sb
+      .append("[\n")
+      .append("{'sType':'string', 'aTargets': [0]")
       .append(", 'mRender': parseHadoopID }")
-      .append("\n, {'sType':'numeric', 'aTargets': [6, 7]")
+      .append("\n, {'sType':'numeric', 'aTargets': " +
+          (isFairSchedulerPage ? "[6, 7]": "[5, 6]"))
       .append(", 'mRender': renderHadoopDate }")
-      .append("\n, {'sType':'numeric', bSearchable:false, 'aTargets':");
-    if (isFairSchedulerPage) {
-      sb.append("[13]");
-    } else if (isResourceManager) {
-      sb.append("[15]");
-    } else {
-      sb.append("[9]");
-    }
-    sb.append(", 'mRender': parseHadoopProgress }]");
-    return sb.toString();
+      .append("\n, {'sType':'numeric', bSearchable:false, 'aTargets': [9]")
+      .append(", 'mRender': parseHadoopProgress }]").toString();
   }
 
   public static String attemptsTableInit() {
@@ -75,7 +63,7 @@ public class WebPageUtils {
 
   private static String getAttemptsTableColumnDefs() {
     StringBuilder sb = new StringBuilder();
-    return sb.append("[\n").append("{'sType':'natural', 'aTargets': [0]")
+    return sb.append("[\n").append("{'sType':'string', 'aTargets': [0]")
       .append(", 'mRender': parseHadoopID }")
       .append("\n, {'sType':'numeric', 'aTargets': [1]")
       .append(", 'mRender': renderHadoopDate }]").toString();
@@ -91,14 +79,8 @@ public class WebPageUtils {
 
   private static String getContainersTableColumnDefs() {
     StringBuilder sb = new StringBuilder();
-    return sb.append("[\n").append("{'sType':'natural', 'aTargets': [0]")
+    return sb.append("[\n").append("{'sType':'string', 'aTargets': [0]")
       .append(", 'mRender': parseHadoopID }]").toString();
-  }
-
-  public static String resourceRequestsTableInit() {
-    return tableInit().append(", 'aaData': resourceRequestsTableData")
-        .append(", bDeferRender: true").append(", bProcessing: true}")
-        .toString();
   }
 
 }

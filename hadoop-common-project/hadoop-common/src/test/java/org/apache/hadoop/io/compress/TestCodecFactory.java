@@ -23,15 +23,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.*;
 
+import junit.framework.TestCase;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.conf.Configuration;
 
-import org.junit.Test;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
-
-public class TestCodecFactory {
+public class TestCodecFactory extends TestCase {
 
   private static class BaseCodec implements CompressionCodec {
     private Configuration conf;
@@ -141,10 +138,9 @@ public class TestCodecFactory {
                  expected.getName(),
                  actual.getClass().getName());
   }
-
-  @Test
-  public void testFinding() {
-    CompressionCodecFactory factory =
+  
+  public static void testFinding() {
+    CompressionCodecFactory factory = 
       new CompressionCodecFactory(new Configuration());
     CompressionCodec codec = factory.getCodec(new Path("/tmp/foo.bar"));
     assertEquals("default factory foo codec", null, codec);

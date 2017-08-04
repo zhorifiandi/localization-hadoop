@@ -23,9 +23,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ThreadLocalRandom;
 
 import com.google.common.base.Supplier;
 import com.google.common.collect.Lists;
@@ -39,10 +37,13 @@ import org.apache.hadoop.fs.StorageType;
 import org.apache.hadoop.hdfs.AppendTestUtil;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSTestUtil;
+import org.apache.hadoop.hdfs.DFSUtil;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.MiniDFSNNTopology;
+import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.protocolPB.DatanodeProtocolClientSideTranslatorPB;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockCollection;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockManager;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockManagerTestUtil;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockPlacementPolicy;
@@ -50,7 +51,6 @@ import org.apache.hadoop.hdfs.server.blockmanagement.BlockPlacementPolicyDefault
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeStorageInfo;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
-import org.apache.hadoop.hdfs.server.datanode.InternalDataNodeTestUtils;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
 import org.apache.hadoop.hdfs.server.protocol.BlockReportContext;
@@ -87,10 +87,9 @@ public class TestDNFencing {
   public void setupCluster() throws Exception {
     conf = new Configuration();
     conf.setInt(DFSConfigKeys.DFS_BLOCK_SIZE_KEY, SMALL_BLOCK);
-    // Bump up redundancy interval so that we only run low redundancy
+    // Bump up replication interval so that we only run replication
     // checks explicitly.
-    conf.setInt(DFSConfigKeys.DFS_NAMENODE_REDUNDANCY_INTERVAL_SECONDS_KEY,
-        600);
+    conf.setInt(DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_KEY, 600);
     // Increase max streams so that we re-replicate quickly.
     conf.setInt(DFSConfigKeys.DFS_NAMENODE_REPLICATION_MAX_STREAMS_KEY, 1000);
     // See RandomDeleterPolicy javadoc.
@@ -120,7 +119,6 @@ public class TestDNFencing {
       banner("Shutting down cluster. NN2 metadata:");
       doMetasave(nn2);
       cluster.shutdown();
-      cluster = null;
     }
   }
   
@@ -168,7 +166,7 @@ public class TestDNFencing {
     // The blocks should no longer be postponed.
     assertEquals(0, nn2.getNamesystem().getPostponedMisreplicatedBlocks());
     
-    // Wait for NN2 to enact its deletions (redundancy monitor has to run, etc)
+    // Wait for NN2 to enact its deletions (replication monitor has to run, etc)
     BlockManagerTestUtil.computeInvalidationWork(
         nn2.getNamesystem().getBlockManager());
     cluster.triggerHeartbeats();
@@ -259,7 +257,7 @@ public class TestDNFencing {
     // The block should no longer be postponed.
     assertEquals(0, nn2.getNamesystem().getPostponedMisreplicatedBlocks());
     
-    // Wait for NN2 to enact its deletions (redundancy monitor has to run, etc)
+    // Wait for NN2 to enact its deletions (replication monitor has to run, etc)
     BlockManagerTestUtil.computeInvalidationWork(
         nn2.getNamesystem().getBlockManager());
 
@@ -298,7 +296,7 @@ public class TestDNFencing {
       LOG.info("Getting more replication work computed");
     }
     BlockManager bm1 = nn1.getNamesystem().getBlockManager();
-    while (bm1.getPendingReconstructionBlocksCount() > 0) {
+    while (bm1.getPendingReplicationBlocksCount() > 0) {
       BlockManagerTestUtil.updateState(bm1);
       cluster.triggerHeartbeats();
       Thread.sleep(1000);
@@ -359,7 +357,7 @@ public class TestDNFencing {
     // The block should no longer be postponed.
     assertEquals(0, nn2.getNamesystem().getPostponedMisreplicatedBlocks());
     
-    // Wait for NN2 to enact its deletions (redundancy monitor has to run, etc)
+    // Wait for NN2 to enact its deletions (replication monitor has to run, etc)
     BlockManagerTestUtil.computeInvalidationWork(
         nn2.getNamesystem().getBlockManager());
 
@@ -460,7 +458,6 @@ public class TestDNFencing {
       numQueued += numDN * 2; // RBW messages, see comments in case 1
     } finally {
       IOUtils.closeStream(out);
-      cluster.triggerHeartbeats();
       numQueued += numDN; // blockReceived
     }
     assertEquals(numQueued, cluster.getNameNode(1).getNamesystem().
@@ -541,8 +538,8 @@ public class TestDNFencing {
 
       DataNode dn = cluster.getDataNodes().get(0);
       DatanodeProtocolClientSideTranslatorPB spy =
-        InternalDataNodeTestUtils.spyOnBposToNN(dn, nn2);
-
+        DataNodeTestUtils.spyOnBposToNN(dn, nn2);
+      
       Mockito.doAnswer(delayer)
         .when(spy).blockReport(
           Mockito.<DatanodeRegistration>anyObject(),
@@ -634,17 +631,16 @@ public class TestDNFencing {
     }
 
     @Override
-    public DatanodeStorageInfo chooseReplicaToDelete(
-        Collection<DatanodeStorageInfo> moreThanOne,
-        Collection<DatanodeStorageInfo> exactlyOne,
-        List<StorageType> excessTypes,
-        Map<String, List<DatanodeStorageInfo>> rackMap) {
-
-      Collection<DatanodeStorageInfo> chooseFrom = !moreThanOne.isEmpty() ?
-          moreThanOne : exactlyOne;
+    public DatanodeStorageInfo chooseReplicaToDelete(BlockCollection inode,
+        Block block, short replicationFactor,
+        Collection<DatanodeStorageInfo> first,
+        Collection<DatanodeStorageInfo> second,
+        List<StorageType> excessTypes) {
+      
+      Collection<DatanodeStorageInfo> chooseFrom = !first.isEmpty() ? first : second;
 
       List<DatanodeStorageInfo> l = Lists.newArrayList(chooseFrom);
-      return l.get(ThreadLocalRandom.current().nextInt(l.size()));
+      return l.get(DFSUtil.getRandom().nextInt(l.size()));
     }
   }
 

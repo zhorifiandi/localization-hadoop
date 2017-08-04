@@ -18,6 +18,7 @@
 package org.apache.hadoop.hdfs.tools.offlineImageViewer;
 
 import java.io.BufferedInputStream;
+import java.io.EOFException;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -37,24 +38,20 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.XAttr;
 import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
-import org.apache.hadoop.hdfs.XAttrHelper;
 import org.apache.hadoop.hdfs.protocol.proto.HdfsProtos;
 import org.apache.hadoop.hdfs.server.namenode.FSImageFormatPBINode;
 import org.apache.hadoop.hdfs.server.namenode.FSImageFormatProtobuf;
 import org.apache.hadoop.hdfs.server.namenode.FSImageUtil;
 import org.apache.hadoop.hdfs.server.namenode.FsImageProto;
-import org.apache.hadoop.hdfs.server.namenode.FsImageProto.INodeSection.INode;
-import org.apache.hadoop.hdfs.server.namenode.INodeFile;
 import org.apache.hadoop.hdfs.server.namenode.INodeId;
 import org.apache.hadoop.hdfs.web.JsonUtil;
-import org.apache.hadoop.hdfs.web.resources.XAttrEncodingParam;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.util.LimitInputStream;
+import org.codehaus.jackson.map.ObjectMapper;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -150,10 +147,8 @@ class FSImageLoader {
             summary.getCodec(), new BufferedInputStream(new LimitInputStream(
             fin, s.getLength())));
 
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Loading section " + s.getName() + " length: " + s.getLength
-              ());
-        }
+        LOG.debug("Loading section " + s.getName() + " length: " + s.getLength
+                ());
         switch (FSImageFormatProtobuf.SectionName.fromString(s.getName())) {
           case STRING_TABLE:
             stringTable = loadStringTable(is);
@@ -204,7 +199,7 @@ class FSImageLoader {
     return dirs;
   }
 
-  static ImmutableList<Long> loadINodeReferenceSection(InputStream in)
+  private static ImmutableList<Long> loadINodeReferenceSection(InputStream in)
       throws IOException {
     LOG.info("Loading inode references");
     ImmutableList.Builder<Long> builder = ImmutableList.builder();
@@ -263,9 +258,10 @@ class FSImageLoader {
    * @throws IOException if failed to serialize fileStatus to JSON.
    */
   String getFileStatus(String path) throws IOException {
+    ObjectMapper mapper = new ObjectMapper();
     FsImageProto.INodeSection.INode inode = fromINodeId(lookup(path));
     return "{\"FileStatus\":\n"
-        + JsonUtil.toJsonString(getFileStatus(inode, false)) + "\n}\n";
+        + mapper.writeValueAsString(getFileStatus(inode, false)) + "\n}\n";
   }
 
   /**
@@ -276,6 +272,7 @@ class FSImageLoader {
    */
   String listStatus(String path) throws IOException {
     StringBuilder sb = new StringBuilder();
+    ObjectMapper mapper = new ObjectMapper();
     List<Map<String, Object>> fileStatusList = getFileStatusList(path);
     sb.append("{\"FileStatuses\":{\"FileStatus\":[\n");
     int i = 0;
@@ -283,7 +280,7 @@ class FSImageLoader {
       if (i++ != 0) {
         sb.append(',');
       }
-      sb.append(JsonUtil.toJsonString(fileStatusMap));
+      sb.append(mapper.writeValueAsString(fileStatusMap));
     }
     sb.append("\n]}}\n");
     return sb.toString();
@@ -307,165 +304,6 @@ class FSImageLoader {
       list.add(getFileStatus(inode, false));
     }
     return list;
-  }
-
-  /**
-   * Return the JSON formatted ContentSummary of the specified path.
-   * @param path a path specifies a file or directory
-   * @return JSON formatted ContentSummary
-   * @throws IOException if failed to serialize ContentSummary to JSON.
-   */
-  String getContentSummary(String path) throws IOException {
-    return "{\"ContentSummary\":\n"
-        + JsonUtil.toJsonString(getContentSummaryMap(path)) + "\n}\n";
-  }
-
-  private Map<String, Object> getContentSummaryMap(String path)
-      throws IOException {
-    long id = lookup(path);
-    INode inode = fromINodeId(id);
-    long spaceQuota = 0;
-    long nsQuota = 0;
-    long[] data = new long[4];
-    FsImageProto.INodeSection.INodeFile f = inode.getFile();
-    switch (inode.getType()) {
-    case FILE:
-      data[0] = 0;
-      data[1] = 1;
-      data[2] = getFileSize(f);
-      nsQuota = -1;
-      data[3] = data[2] * f.getReplication();
-      spaceQuota = -1;
-      return fillSummaryMap(spaceQuota, nsQuota, data);
-    case DIRECTORY:
-      fillDirSummary(id, data);
-      nsQuota = inode.getDirectory().getNsQuota();
-      spaceQuota = inode.getDirectory().getDsQuota();
-      return fillSummaryMap(spaceQuota, nsQuota, data);
-    case SYMLINK:
-      data[0] = 0;
-      data[1] = 1;
-      data[2] = 0;
-      nsQuota = -1;
-      data[3] = 0;
-      spaceQuota = -1;
-      return fillSummaryMap(spaceQuota, nsQuota, data);
-    default:
-      return null;
-    }
-
-  }
-
-  private Map<String, Object> fillSummaryMap(long spaceQuota,
-      long nsQuota, long[] data) {
-    Map<String, Object> map = Maps.newHashMap();
-    map.put("directoryCount", data[0]);
-    map.put("fileCount", data[1]);
-    map.put("length", data[2]);
-    map.put("quota", nsQuota);
-    map.put("spaceConsumed", data[3]);
-    map.put("spaceQuota", spaceQuota);
-    return map;
-  }
-
-  private void fillDirSummary(long id, long[] data) throws IOException {
-    data[0]++;
-    long[] children = dirmap.get(id);
-    if (children == null) {
-      return;
-    }
-
-    for (long cid : children) {
-      INode node = fromINodeId(cid);
-      switch (node.getType()) {
-      case DIRECTORY:
-        fillDirSummary(cid, data);
-        break;
-      case FILE:
-        FsImageProto.INodeSection.INodeFile f = node.getFile();
-        long curLength = getFileSize(f);
-        data[1]++;
-        data[2] += curLength;
-        data[3] += (curLength) * (f.getReplication());
-        break;
-      case SYMLINK:
-        data[1]++;
-        break;
-      default:
-        break;
-      }
-    }
-  }
-
-  /**
-   * Return the JSON formatted XAttrNames of the specified file.
-   *
-   * @param path
-   *          a path specifies a file
-   * @return JSON formatted XAttrNames
-   * @throws IOException
-   *           if failed to serialize fileStatus to JSON.
-   */
-  String listXAttrs(String path) throws IOException {
-    return JsonUtil.toJsonString(getXAttrList(path));
-  }
-
-  /**
-   * Return the JSON formatted XAttrs of the specified file.
-   *
-   * @param path
-   *          a path specifies a file
-   * @return JSON formatted XAttrs
-   * @throws IOException
-   *           if failed to serialize fileStatus to JSON.
-   */
-  String getXAttrs(String path, List<String> names, String encoder)
-      throws IOException {
-
-    List<XAttr> xAttrs = getXAttrList(path);
-    List<XAttr> filtered;
-    if (names == null || names.size() == 0) {
-      filtered = xAttrs;
-    } else {
-      filtered = Lists.newArrayListWithCapacity(names.size());
-      for (String name : names) {
-        XAttr search = XAttrHelper.buildXAttr(name);
-
-        boolean found = false;
-        for (XAttr aXAttr : xAttrs) {
-          if (aXAttr.getNameSpace() == search.getNameSpace()
-              && aXAttr.getName().equals(search.getName())) {
-
-            filtered.add(aXAttr);
-            found = true;
-            break;
-          }
-        }
-
-        if (!found) {
-          throw new IOException(
-              "At least one of the attributes provided was not found.");
-        }
-      }
-
-    }
-    return JsonUtil.toJsonString(filtered,
-        new XAttrEncodingParam(encoder).getEncoding());
-  }
-
-  private List<XAttr> getXAttrList(String path) throws IOException {
-    long id = lookup(path);
-    FsImageProto.INodeSection.INode inode = fromINodeId(id);
-    switch (inode.getType()) {
-    case FILE:
-      return FSImageFormatPBINode.Loader.loadXAttrs(
-          inode.getFile().getXAttrs(), stringTable);
-    case DIRECTORY:
-      return FSImageFormatPBINode.Loader.loadXAttrs(inode.getDirectory()
-          .getXAttrs(), stringTable);
-    default:
-      return null;
-    }
   }
 
   /**
@@ -590,11 +428,7 @@ class FSImageLoader {
         map.put("pathSuffix",
             printSuffix ? inode.getName().toStringUtf8() : "");
         map.put("permission", toString(p.getPermission()));
-        if (f.hasErasureCodingPolicyID()) {
-          map.put("replication", INodeFile.DEFAULT_REPL_FOR_STRIPED_BLOCKS);
-        } else {
-          map.put("replication", f.getReplication());
-        }
+        map.put("replication", f.getReplication());
         map.put("type", inode.getType());
         map.put("fileId", inode.getId());
         map.put("childrenNum", 0);

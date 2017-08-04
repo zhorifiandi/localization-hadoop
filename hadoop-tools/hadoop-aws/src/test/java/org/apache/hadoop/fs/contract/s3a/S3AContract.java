@@ -19,16 +19,15 @@
 package org.apache.hadoop.fs.contract.s3a;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.contract.AbstractBondedFSContract;
-import org.apache.hadoop.fs.s3a.S3ATestUtils;
 
 /**
- * The contract of S3A: only enabled if the test bucket is provided.
+ * The contract of S3A: only enabled if the test bucket is provided
  */
 public class S3AContract extends AbstractBondedFSContract {
 
   public static final String CONTRACT_XML = "contract/s3a.xml";
+
 
   public S3AContract(Configuration conf) {
     super(conf);
@@ -41,8 +40,4 @@ public class S3AContract extends AbstractBondedFSContract {
     return "s3a";
   }
 
-  @Override
-  public Path getTestPath() {
-    return S3ATestUtils.createTestPath(super.getTestPath());
-  }
 }

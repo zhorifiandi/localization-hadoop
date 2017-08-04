@@ -76,7 +76,6 @@ public class CryptoOutputStream extends FilterOutputStream implements
   private final byte[] key;
   private final byte[] initIV;
   private byte[] iv;
-  private boolean closeOutputStream;
   
   public CryptoOutputStream(OutputStream out, CryptoCodec codec, 
       int bufferSize, byte[] key, byte[] iv) throws IOException {
@@ -85,13 +84,6 @@ public class CryptoOutputStream extends FilterOutputStream implements
   
   public CryptoOutputStream(OutputStream out, CryptoCodec codec, 
       int bufferSize, byte[] key, byte[] iv, long streamOffset) 
-      throws IOException {
-    this(out, codec, bufferSize, key, iv, streamOffset, true);
-  }
-
-  public CryptoOutputStream(OutputStream out, CryptoCodec codec,
-      int bufferSize, byte[] key, byte[] iv, long streamOffset,
-      boolean closeOutputStream)
       throws IOException {
     super(out);
     CryptoStreamUtils.checkCodec(codec);
@@ -103,7 +95,6 @@ public class CryptoOutputStream extends FilterOutputStream implements
     inBuffer = ByteBuffer.allocateDirect(this.bufferSize);
     outBuffer = ByteBuffer.allocateDirect(this.bufferSize);
     this.streamOffset = streamOffset;
-    this.closeOutputStream = closeOutputStream;
     try {
       encryptor = codec.createEncryptor();
     } catch (GeneralSecurityException e) {
@@ -119,14 +110,8 @@ public class CryptoOutputStream extends FilterOutputStream implements
   
   public CryptoOutputStream(OutputStream out, CryptoCodec codec, 
       byte[] key, byte[] iv, long streamOffset) throws IOException {
-    this(out, codec, key, iv, streamOffset, true);
-  }
-
-  public CryptoOutputStream(OutputStream out, CryptoCodec codec,
-      byte[] key, byte[] iv, long streamOffset, boolean closeOutputStream)
-      throws IOException {
     this(out, codec, CryptoStreamUtils.getBufferSize(codec.getConf()), 
-        key, iv, streamOffset, closeOutputStream);
+        key, iv, streamOffset);
   }
   
   public OutputStream getWrappedStream() {
@@ -236,11 +221,7 @@ public class CryptoOutputStream extends FilterOutputStream implements
       return;
     }
     try {
-      flush();
-      if (closeOutputStream) {
-        super.close();
-        codec.close();
-      }
+      super.close();
       freeBuffers();
     } finally {
       closed = true;
@@ -253,9 +234,7 @@ public class CryptoOutputStream extends FilterOutputStream implements
    */
   @Override
   public synchronized void flush() throws IOException {
-    if (closed) {
-      return;
-    }
+    checkStream();
     encrypt();
     super.flush();
   }
@@ -281,6 +260,12 @@ public class CryptoOutputStream extends FilterOutputStream implements
       throw new UnsupportedOperationException("This stream does not " +
           "support setting the drop-behind caching.");
     }
+  }
+
+  @Override
+  @Deprecated
+  public void sync() throws IOException {
+    hflush();
   }
 
   @Override

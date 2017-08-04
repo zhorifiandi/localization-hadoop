@@ -20,6 +20,8 @@
 package org.apache.hadoop.service;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.service.AbstractService;
+import org.apache.hadoop.service.Service;
 
 /**
  * This is a service that can be configured to break on any of the lifecycle
@@ -67,19 +69,10 @@ public class BreakableService extends AbstractService {
     return counts[convert(state)];
   }
 
-  private void maybeFail(boolean fail, String action) throws Exception {
+  private void maybeFail(boolean fail, String action) {
     if (fail) {
-      throw createFailureException(action);
+      throw new BrokenLifecycleEvent(this, action);
     }
-  }
-
-  /**
-   * Override point: create the exception to raise
-   * @param action action in progress
-   * @return the exception that will be thrown
-   */
-  protected Exception createFailureException(String action) {
-    return new BrokenLifecycleEvent(this, action);
   }
 
   @Override
@@ -90,13 +83,13 @@ public class BreakableService extends AbstractService {
   }
 
   @Override
-  protected void serviceStart() throws Exception {
+  protected void serviceStart() {
     inc(STATE.STARTED);
     maybeFail(failOnStart, "start");
   }
 
   @Override
-  protected void serviceStop() throws Exception {
+  protected void serviceStop() {
     inc(STATE.STOPPED);
     maybeFail(failOnStop, "stop");
   }
@@ -114,11 +107,11 @@ public class BreakableService extends AbstractService {
   }
 
   /**
-   * The exception explicitly raised on a failure.
+   * The exception explicitly raised on a failure
    */
   public static class BrokenLifecycleEvent extends RuntimeException {
 
-    public final STATE state;
+    final STATE state;
 
     public BrokenLifecycleEvent(Service service, String action) {
       super("Lifecycle Failure during " + action + " state is "

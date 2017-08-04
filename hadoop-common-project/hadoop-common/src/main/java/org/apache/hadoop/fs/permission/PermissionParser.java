@@ -55,7 +55,7 @@ class PermissionParser {
     if ((matcher = symbolic.matcher(modeStr)).find()) {
       applyNormalPattern(modeStr, matcher);
     } else if ((matcher = octal.matcher(modeStr)).matches()) {
-      applyOctalPattern(matcher);
+      applyOctalPattern(modeStr, matcher);
     } else {
       throw new IllegalArgumentException(modeStr);
     }
@@ -63,10 +63,10 @@ class PermissionParser {
 
   private void applyNormalPattern(String modeStr, Matcher matcher) {
     // Are there multiple permissions stored in one chmod?
-    boolean commaSeparated = false;
+    boolean commaSeperated = false;
 
     for (int i = 0; i < 1 || matcher.end() < modeStr.length(); i++) {
-      if (i > 0 && (!commaSeparated || !matcher.find())) {
+      if (i > 0 && (!commaSeperated || !matcher.find())) {
         throw new IllegalArgumentException(modeStr);
       }
 
@@ -144,26 +144,19 @@ class PermissionParser {
         stickyBitType = type;
       }
 
-      commaSeparated = matcher.group(4).contains(",");
+      commaSeperated = matcher.group(4).contains(",");
     }
     symbolic = true;
   }
 
-  private void applyOctalPattern(final Matcher matcher) {
-    // Matcher groups: 1: [01]  2: [0-7]{3}
-    final char typeApply = '=';
-    stickyBitType = typeApply;
-    userType = typeApply;
-    groupType = typeApply;
-    othersType = typeApply;
+  private void applyOctalPattern(String modeStr, Matcher matcher) {
+    userType = groupType = othersType = '=';
 
-    // If sticky bit is specified get the bit, else
-    // default to reset for apply condition
+    // Check if sticky bit is specified
     String sb = matcher.group(1);
     if (!sb.isEmpty()) {
       stickyMode = Short.valueOf(sb.substring(0, 1));
-    } else {
-      stickyMode = 0;
+      stickyBitType = '=';
     }
 
     String str = matcher.group(2);

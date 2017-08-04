@@ -19,7 +19,6 @@
 package org.apache.hadoop.tools.mapred.lib;
 
 import org.apache.hadoop.tools.DistCpConstants;
-import org.apache.hadoop.tools.DistCpContext;
 import org.junit.Assert;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -41,7 +40,6 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -85,9 +83,9 @@ public class TestDynamicInputFormat {
 
     List<Path> sourceList = new ArrayList<Path>();
     sourceList.add(sourcePath);
-    return new DistCpOptions.Builder(sourceList, targetPath)
-        .maxMaps(NUM_SPLITS)
-        .build();
+    DistCpOptions options = new DistCpOptions(sourceList, targetPath);
+    options.setMaxMaps(NUM_SPLITS);
+    return options;
   }
 
   private static void createFile(String path) throws Exception {
@@ -111,13 +109,13 @@ public class TestDynamicInputFormat {
 
   @Test
   public void testGetSplits() throws Exception {
-    final DistCpContext context = new DistCpContext(getOptions());
+    DistCpOptions options = getOptions();
     Configuration configuration = new Configuration();
     configuration.set("mapred.map.tasks",
-                      String.valueOf(context.getMaxMaps()));
-    CopyListing.getCopyListing(configuration, CREDENTIALS, context)
-        .buildListing(new Path(cluster.getFileSystem().getUri().toString()
-            +"/tmp/testDynInputFormat/fileList.seq"), context);
+                      String.valueOf(options.getMaxMaps()));
+    CopyListing.getCopyListing(configuration, CREDENTIALS, options).buildListing(
+            new Path(cluster.getFileSystem().getUri().toString()
+                    +"/tmp/testDynInputFormat/fileList.seq"), options);
 
     JobContext jobContext = new JobContextImpl(configuration, new JobID());
     DynamicInputFormat<Text, CopyListingFileStatus> inputFormat =
@@ -128,14 +126,13 @@ public class TestDynamicInputFormat {
     int taskId = 0;
 
     for (InputSplit split : splits) {
+      RecordReader<Text, CopyListingFileStatus> recordReader =
+           inputFormat.createRecordReader(split, null);
       StubContext stubContext = new StubContext(jobContext.getConfiguration(),
-                                                null, taskId);
+                                                recordReader, taskId);
       final TaskAttemptContext taskAttemptContext
          = stubContext.getContext();
-
-      RecordReader<Text, CopyListingFileStatus> recordReader =
-          inputFormat.createRecordReader(split, taskAttemptContext);
-      stubContext.setReader(recordReader);
+      
       recordReader.initialize(splits.get(0), taskAttemptContext);
       float previousProgressValue = 0f;
       while (recordReader.nextKeyValue()) {
@@ -184,28 +181,5 @@ public class TestDynamicInputFormat {
     conf.setInt(DistCpConstants.CONF_LABEL_MIN_RECORDS_PER_CHUNK, 10);
     conf.setInt(DistCpConstants.CONF_LABEL_SPLIT_RATIO, 53);
     Assert.assertEquals(53, DynamicInputFormat.getSplitRatio(3, 200, conf));
-  }
-
-  @Test
-  public void testDynamicInputChunkContext() throws IOException {
-    Configuration configuration = new Configuration();
-    configuration.set(DistCpConstants.CONF_LABEL_LISTING_FILE_PATH,
-        "/tmp/test/file1.seq");
-    DynamicInputFormat firstInputFormat = new DynamicInputFormat();
-    DynamicInputFormat secondInputFormat = new DynamicInputFormat();
-    DynamicInputChunkContext firstContext =
-        firstInputFormat.getChunkContext(configuration);
-    DynamicInputChunkContext secondContext =
-        firstInputFormat.getChunkContext(configuration);
-    DynamicInputChunkContext thirdContext =
-        secondInputFormat.getChunkContext(configuration);
-    DynamicInputChunkContext fourthContext =
-        secondInputFormat.getChunkContext(configuration);
-    Assert.assertTrue("Chunk contexts from the same DynamicInputFormat " +
-        "object should be the same.",firstContext.equals(secondContext));
-    Assert.assertTrue("Chunk contexts from the same DynamicInputFormat " +
-        "object should be the same.",thirdContext.equals(fourthContext));
-    Assert.assertTrue("Contexts from different DynamicInputFormat " +
-        "objects should be different.",!firstContext.equals(thirdContext));
   }
 }

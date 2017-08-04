@@ -72,10 +72,4 @@ public class ContainerExitStatus {
    */
   public static final int KILLED_AFTER_APP_COMPLETION = -107;
 
-  /**
-   * Container was terminated by the ContainerScheduler to make room
-   * for another container...
-   */
-  public static final int KILLED_BY_CONTAINER_SCHEDULER = -108;
-
 }

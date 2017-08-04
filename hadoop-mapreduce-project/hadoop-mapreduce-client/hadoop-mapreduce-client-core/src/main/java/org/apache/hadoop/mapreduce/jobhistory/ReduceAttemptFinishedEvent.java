@@ -18,8 +18,6 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.util.Set;
-
 import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -28,10 +26,6 @@ import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskID;
 import org.apache.hadoop.mapreduce.TaskType;
-import org.apache.hadoop.mapreduce.util.JobHistoryEventUtils;
-import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 
 /**
  * Event to record successful completion of a reduce attempt
@@ -39,7 +33,7 @@ import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
-public class ReduceAttemptFinishedEvent implements HistoryEvent {
+public class ReduceAttemptFinishedEvent  implements HistoryEvent {
 
   private ReduceAttemptFinished datum = null;
 
@@ -132,50 +126,50 @@ public class ReduceAttemptFinishedEvent implements HistoryEvent {
   public Object getDatum() {
     if (datum == null) {
       datum = new ReduceAttemptFinished();
-      datum.setTaskid(new Utf8(attemptId.getTaskID().toString()));
-      datum.setAttemptId(new Utf8(attemptId.toString()));
-      datum.setTaskType(new Utf8(taskType.name()));
-      datum.setTaskStatus(new Utf8(taskStatus));
-      datum.setShuffleFinishTime(shuffleFinishTime);
-      datum.setSortFinishTime(sortFinishTime);
-      datum.setFinishTime(finishTime);
-      datum.setHostname(new Utf8(hostname));
-      datum.setPort(port);
+      datum.taskid = new Utf8(attemptId.getTaskID().toString());
+      datum.attemptId = new Utf8(attemptId.toString());
+      datum.taskType = new Utf8(taskType.name());
+      datum.taskStatus = new Utf8(taskStatus);
+      datum.shuffleFinishTime = shuffleFinishTime;
+      datum.sortFinishTime = sortFinishTime;
+      datum.finishTime = finishTime;
+      datum.hostname = new Utf8(hostname);
+      datum.port = port;
       if (rackName != null) {
-        datum.setRackname(new Utf8(rackName));
+        datum.rackname = new Utf8(rackName);
       }
-      datum.setState(new Utf8(state));
-      datum.setCounters(EventWriter.toAvro(counters));
+      datum.state = new Utf8(state);
+      datum.counters = EventWriter.toAvro(counters);
 
-      datum.setClockSplits(AvroArrayUtils.toAvro(ProgressSplitsBlock
-          .arrayGetWallclockTime(allSplits)));
-      datum.setCpuUsages(AvroArrayUtils.toAvro(ProgressSplitsBlock
-          .arrayGetCPUTime(allSplits)));
-      datum.setVMemKbytes(AvroArrayUtils.toAvro(ProgressSplitsBlock
-          .arrayGetVMemKbytes(allSplits)));
-      datum.setPhysMemKbytes(AvroArrayUtils.toAvro(ProgressSplitsBlock
-          .arrayGetPhysMemKbytes(allSplits)));
+      datum.clockSplits = AvroArrayUtils.toAvro(ProgressSplitsBlock
+        .arrayGetWallclockTime(allSplits));
+      datum.cpuUsages = AvroArrayUtils.toAvro(ProgressSplitsBlock
+        .arrayGetCPUTime(allSplits));
+      datum.vMemKbytes = AvroArrayUtils.toAvro(ProgressSplitsBlock
+        .arrayGetVMemKbytes(allSplits));
+      datum.physMemKbytes = AvroArrayUtils.toAvro(ProgressSplitsBlock
+        .arrayGetPhysMemKbytes(allSplits));
     }
     return datum;
   }
 
   public void setDatum(Object oDatum) {
     this.datum = (ReduceAttemptFinished)oDatum;
-    this.attemptId = TaskAttemptID.forName(datum.getAttemptId().toString());
-    this.taskType = TaskType.valueOf(datum.getTaskType().toString());
-    this.taskStatus = datum.getTaskStatus().toString();
-    this.shuffleFinishTime = datum.getShuffleFinishTime();
-    this.sortFinishTime = datum.getSortFinishTime();
-    this.finishTime = datum.getFinishTime();
-    this.hostname = datum.getHostname().toString();
-    this.rackName = datum.getRackname().toString();
-    this.port = datum.getPort();
-    this.state = datum.getState().toString();
-    this.counters = EventReader.fromAvro(datum.getCounters());
-    this.clockSplits = AvroArrayUtils.fromAvro(datum.getClockSplits());
-    this.cpuUsages = AvroArrayUtils.fromAvro(datum.getCpuUsages());
-    this.vMemKbytes = AvroArrayUtils.fromAvro(datum.getVMemKbytes());
-    this.physMemKbytes = AvroArrayUtils.fromAvro(datum.getPhysMemKbytes());
+    this.attemptId = TaskAttemptID.forName(datum.attemptId.toString());
+    this.taskType = TaskType.valueOf(datum.taskType.toString());
+    this.taskStatus = datum.taskStatus.toString();
+    this.shuffleFinishTime = datum.shuffleFinishTime;
+    this.sortFinishTime = datum.sortFinishTime;
+    this.finishTime = datum.finishTime;
+    this.hostname = datum.hostname.toString();
+    this.rackName = datum.rackname.toString();
+    this.port = datum.port;
+    this.state = datum.state.toString();
+    this.counters = EventReader.fromAvro(datum.counters);
+    this.clockSplits = AvroArrayUtils.fromAvro(datum.clockSplits);
+    this.cpuUsages = AvroArrayUtils.fromAvro(datum.cpuUsages);
+    this.vMemKbytes = AvroArrayUtils.fromAvro(datum.vMemKbytes);
+    this.physMemKbytes = AvroArrayUtils.fromAvro(datum.physMemKbytes);
   }
 
   /** Get the Task ID */
@@ -227,31 +221,6 @@ public class ReduceAttemptFinishedEvent implements HistoryEvent {
   }
   public int[] getPhysMemKbytes() {
     return physMemKbytes;
-  }
-
-  @Override
-  public TimelineEvent toTimelineEvent() {
-    TimelineEvent tEvent = new TimelineEvent();
-    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
-    tEvent.addInfo("TASK_TYPE", getTaskType().toString());
-    tEvent.addInfo("ATTEMPT_ID", getAttemptId() == null ?
-        "" : getAttemptId().toString());
-    tEvent.addInfo("FINISH_TIME", getFinishTime());
-    tEvent.addInfo("STATUS", getTaskStatus());
-    tEvent.addInfo("STATE", getState());
-    tEvent.addInfo("SHUFFLE_FINISH_TIME", getShuffleFinishTime());
-    tEvent.addInfo("SORT_FINISH_TIME", getSortFinishTime());
-    tEvent.addInfo("HOSTNAME", getHostname());
-    tEvent.addInfo("PORT", getPort());
-    tEvent.addInfo("RACK_NAME", getRackName());
-    return tEvent;
-  }
-
-  @Override
-  public Set<TimelineMetric> getTimelineMetrics() {
-    Set<TimelineMetric> metrics = JobHistoryEventUtils
-        .countersToTimelineMetric(getCounters(), finishTime);
-    return metrics;
   }
 
 }

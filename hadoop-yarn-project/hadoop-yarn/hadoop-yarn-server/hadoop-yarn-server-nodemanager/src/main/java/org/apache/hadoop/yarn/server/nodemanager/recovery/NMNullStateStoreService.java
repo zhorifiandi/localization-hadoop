@@ -27,7 +27,6 @@ import org.apache.hadoop.yarn.api.protocolrecords.StartContainerRequest;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerId;
-import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.proto.YarnProtos.LocalResourceProto;
 import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.ContainerManagerApplicationProto;
 import org.apache.hadoop.yarn.proto.YarnServerNodemanagerRecoveryProtos.DeletionServiceDeleteTaskProto;
@@ -59,6 +58,10 @@ public class NMNullStateStoreService extends NMStateStoreService {
   }
 
   @Override
+  public void storeFinishedApplication(ApplicationId appId) {
+  }
+
+  @Override
   public void removeApplication(ApplicationId appId) throws IOException {
   }
 
@@ -70,12 +73,8 @@ public class NMNullStateStoreService extends NMStateStoreService {
   }
 
   @Override
-  public void storeContainer(ContainerId containerId, int version,
+  public void storeContainer(ContainerId containerId,
       StartContainerRequest startRequest) throws IOException {
-  }
-
-  @Override
-  public void storeContainerQueued(ContainerId containerId) throws IOException {
   }
 
   @Override
@@ -89,11 +88,6 @@ public class NMNullStateStoreService extends NMStateStoreService {
   }
 
   @Override
-  public void storeContainerResourceChanged(ContainerId containerId,
-      int version, Resource capability) throws IOException {
-  }
-
-  @Override
   public void storeContainerKilled(ContainerId containerId)
       throws IOException {
   }
@@ -101,21 +95,6 @@ public class NMNullStateStoreService extends NMStateStoreService {
   @Override
   public void storeContainerCompleted(ContainerId containerId, int exitCode)
       throws IOException {
-  }
-
-  @Override
-  public void storeContainerRemainingRetryAttempts(ContainerId containerId,
-      int remainingRetryAttempts) throws IOException {
-  }
-
-  @Override
-  public void storeContainerWorkDir(ContainerId containerId,
-      String workDir) throws IOException {
-  }
-
-  @Override
-  public void storeContainerLogDir(ContainerId containerId,
-      String logDir) throws IOException {
   }
 
   @Override
@@ -226,35 +205,6 @@ public class NMNullStateStoreService extends NMStateStoreService {
 
   @Override
   public void removeLogDeleter(ApplicationId appId) throws IOException {
-  }
-
-  @Override
-  public RecoveredAMRMProxyState loadAMRMProxyState() throws IOException {
-    throw new UnsupportedOperationException(
-        "Recovery not supported by this state store");
-  }
-
-  @Override
-  public void storeAMRMProxyCurrentMasterKey(MasterKey key) throws IOException {
-  }
-
-  @Override
-  public void storeAMRMProxyNextMasterKey(MasterKey key) throws IOException {
-  }
-
-  @Override
-  public void storeAMRMProxyAppContextEntry(ApplicationAttemptId attempt,
-      String key, byte[] data) throws IOException {
-  }
-
-  @Override
-  public void removeAMRMProxyAppContextEntry(ApplicationAttemptId attempt,
-      String key) throws IOException {
-  }
-
-  @Override
-  public void removeAMRMProxyAppContext(ApplicationAttemptId attempt)
-      throws IOException {
   }
 
   @Override

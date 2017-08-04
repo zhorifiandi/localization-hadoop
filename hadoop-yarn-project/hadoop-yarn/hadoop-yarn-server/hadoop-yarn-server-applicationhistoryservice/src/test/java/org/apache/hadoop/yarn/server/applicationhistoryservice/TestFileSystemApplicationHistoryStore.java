@@ -27,7 +27,6 @@ import org.junit.Assert;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -35,7 +34,6 @@ import static org.mockito.Mockito.verify;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RawLocalFileSystem;
@@ -50,7 +48,6 @@ import org.apache.hadoop.yarn.server.applicationhistoryservice.records.Container
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 public class TestFileSystemApplicationHistoryStore extends
     ApplicationHistoryStoreTestUtils {
@@ -273,9 +270,7 @@ public class TestFileSystemApplicationHistoryStore extends
 
     // Setup file system to inject startup conditions
     FileSystem fs = spy(new RawLocalFileSystem());
-    FileStatus fileStatus = Mockito.mock(FileStatus.class);
-    doReturn(true).when(fileStatus).isDirectory();
-    doReturn(fileStatus).when(fs).getFileStatus(any(Path.class));
+    doReturn(true).when(fs).isDirectory(any(Path.class));
 
     try {
       initAndStartStore(fs);
@@ -284,8 +279,8 @@ public class TestFileSystemApplicationHistoryStore extends
     }
 
     // Make sure that directory creation was not attempted
-    verify(fileStatus, never()).isDirectory();
-    verify(fs, times(1)).mkdirs(any(Path.class));
+    verify(fs, times(1)).isDirectory(any(Path.class));
+    verify(fs, times(0)).mkdirs(any(Path.class));
   }
 
   @Test
@@ -295,9 +290,7 @@ public class TestFileSystemApplicationHistoryStore extends
 
     // Setup file system to inject startup conditions
     FileSystem fs = spy(new RawLocalFileSystem());
-    FileStatus fileStatus = Mockito.mock(FileStatus.class);
-    doReturn(false).when(fileStatus).isDirectory();
-    doReturn(fileStatus).when(fs).getFileStatus(any(Path.class));
+    doReturn(false).when(fs).isDirectory(any(Path.class));
     doThrow(new IOException()).when(fs).mkdirs(any(Path.class));
 
     try {
@@ -308,7 +301,7 @@ public class TestFileSystemApplicationHistoryStore extends
     }
 
     // Make sure that directory creation was attempted
-    verify(fileStatus, never()).isDirectory();
+    verify(fs, times(1)).isDirectory(any(Path.class));
     verify(fs, times(1)).mkdirs(any(Path.class));
   }
 }

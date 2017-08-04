@@ -29,6 +29,7 @@ import org.apache.hadoop.mapreduce.v2.jobhistory.JHAdminConfig;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
+import org.apache.hadoop.yarn.ipc.RPCUtil;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -75,9 +76,7 @@ public class MRWebAppUtil {
         : "http://";
   }
 
-  public static String getJHSWebappScheme(Configuration conf) {
-    setHttpPolicyInJHS(conf.get(JHAdminConfig.MR_HS_HTTP_POLICY,
-        JHAdminConfig.DEFAULT_MR_HS_HTTP_POLICY));
+  public static String getJHSWebappScheme() {
     return httpPolicyInJHS == HttpConfig.Policy.HTTPS_ONLY ? "https://"
         : "http://";
   }
@@ -102,7 +101,7 @@ public class MRWebAppUtil {
   }
   
   public static String getJHSWebappURLWithScheme(Configuration conf) {
-    return getJHSWebappScheme(conf) + getJHSWebappURLWithoutScheme(conf);
+    return getJHSWebappScheme() + getJHSWebappURLWithoutScheme(conf);
   }
   
   public static InetSocketAddress getJHSWebBindAddress(Configuration conf) {
@@ -138,9 +137,8 @@ public class MRWebAppUtil {
       hsAddress, getDefaultJHSWebappPort(),
       getDefaultJHSWebappURLWithoutScheme());
     StringBuffer sb = new StringBuffer();
-    if (address.getAddress() != null &&
-        (address.getAddress().isAnyLocalAddress() ||
-         address.getAddress().isLoopbackAddress())) {
+    if (address.getAddress().isAnyLocalAddress() || 
+        address.getAddress().isLoopbackAddress()) {
       sb.append(InetAddress.getLocalHost().getCanonicalHostName());
     } else {
       sb.append(address.getHostName());
@@ -154,7 +152,7 @@ public class MRWebAppUtil {
   
   public static String getApplicationWebURLOnJHSWithScheme(Configuration conf,
       ApplicationId appId) throws UnknownHostException {
-    return getJHSWebappScheme(conf)
+    return getJHSWebappScheme()
         + getApplicationWebURLOnJHSWithoutScheme(conf, appId);
   }
 

@@ -45,7 +45,7 @@ public class InlineDispatcher extends AsyncDispatcher {
     }
   }
   @Override
-  public EventHandler<Event> getEventHandler() {
+  public EventHandler getEventHandler() {
     return new TestEventHandler();
   }
   

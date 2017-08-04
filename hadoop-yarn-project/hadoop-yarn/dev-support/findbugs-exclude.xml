@@ -21,9 +21,6 @@
     <Package name="org.apache.hadoop.yarn.proto" />
   </Match>
   <Match>
-    <Package name="org.apache.hadoop.yarn.federation.proto" />
-  </Match>
-  <Match>
     <Class name="~org\.apache\.hadoop\.yarn\.ipc\.RpcProtos.*" />
   </Match>
 
@@ -112,29 +109,7 @@
     <Method name="handle" />
     <Bug pattern="BC_UNCONFIRMED_CAST" />
   </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher.ContainersLauncher" />
-    <Method name="handle" />
-    <Bug pattern="BC_UNCONFIRMED_CAST" />
-  </Match>
 
-  <!-- Object cast is based on the event type -->
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.nodemanager.timelineservice.NMTimelinePublisher" />
-    <Method name="publishApplicationEvent" />
-    <Bug pattern="BC_UNCONFIRMED_CAST" />
-  </Match>
-
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.nodemanager.timelineservice.NMTimelinePublisher" />
-    <Method name="publishLocalizationEvent" />
-    <Bug pattern="BC_UNCONFIRMED_CAST" />
-  </Match>
-
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.metrics.TimelineServiceV2Publisher$TimelineV2EventHandler" />
-     <Bug pattern="BC_UNCONFIRMED_CAST" />
-  </Match>
 
   <!-- Ignore intentional switch fallthroughs -->
   <Match>
@@ -164,26 +139,6 @@
   </Match>
   <Match>
     <Class name="org.apache.hadoop.yarn.server.resourcemanager.resource.Priority$Comparator" />
-    <Bug pattern="SE_COMPARATOR_SHOULD_BE_SERIALIZABLE" />
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.policy.FifoComparator" />
-    <Bug pattern="SE_COMPARATOR_SHOULD_BE_SERIALIZABLE" />
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.policy.FairOrderingPolicy$FairComparator" />
-    <Bug pattern="SE_COMPARATOR_SHOULD_BE_SERIALIZABLE" />
-  </Match>
-    <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.policy.CompoundComparator" />
-    <Bug pattern="SE_COMPARATOR_SHOULD_BE_SERIALIZABLE" />
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.policy.PriorityComparator" />
-    <Bug pattern="SE_COMPARATOR_SHOULD_BE_SERIALIZABLE" />
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.policy.RecoveryComparator" />
     <Bug pattern="SE_COMPARATOR_SHOULD_BE_SERIALIZABLE" />
   </Match>
   <!-- Ignore some irrelevant class name warning -->
@@ -229,8 +184,6 @@
       <Field name="userLimitFactor" />
       <Field name="maxAMResourcePerQueuePercent" />
       <Field name="lastClusterResource" />
-      <Field name="pendingOrderingPolicy" />
-      <Field name="pendingOPForRecoveredApps" />
     </Or>
     <Bug pattern="IS2_INCONSISTENT_SYNC" />
   </Match>
@@ -292,14 +245,6 @@
     <Bug pattern="IS2_INCONSISTENT_SYNC" />
   </Match>
   <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.recovery.RMStateStore" />
-    <Or>
-      <Field name="resourceManager"/>
-      <Field name="baseEpoch"/>
-    </Or>
-    <Bug pattern="IS2_INCONSISTENT_SYNC" />
-  </Match>
-  <Match>
     <Class name="org.apache.hadoop.yarn.server.resourcemanager.security.DelegationTokenRenewer"/>
     <Field name="renewalTimer" />
     <Bug code="IS"/>
@@ -307,15 +252,6 @@
   <Match>
     <Class name="org.apache.hadoop.yarn.client.NMClientImpl$NMCommunicator"/>
     <Field name="containerManager" />
-    <Bug pattern="IS2_INCONSISTENT_SYNC"/>
-  </Match>
-
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.federation.policies.RouterPolicyFacade"/>
-    <Or>
-      <Field name="globalConfMap"/>
-      <Field name="globalPolicyMap"/>
-    </Or>
     <Bug pattern="IS2_INCONSISTENT_SYNC"/>
   </Match>
 
@@ -355,7 +291,7 @@
     <Bug pattern="DM_EXIT" />
   </Match>
   <Match>
-    <Class name="org.apache.hadoop.yarn.event.EventDispatcher$EventProcessor" />
+    <Class name="org.apache.hadoop.yarn.server.resourcemanager.ResourceManager$SchedulerEventDispatcher$EventProcessor" />
     <Method name="run" />
     <Bug pattern="DM_EXIT" />
   </Match>
@@ -524,81 +460,6 @@
     <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.AbstractYarnScheduler" />
     <Method name="recoverContainersOnNode" />
     <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE" />
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.AbstractYarnScheduler" />
-    <Or>
-      <Field name="rmContext" />
-      <Field name="applications" />
-      <Field name="activitiesManager" />
-    </Or>
-    <Bug pattern="IS2_INCONSISTENT_SYNC" />
-  </Match>
-  <!-- Ignore SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING warnings for Timeline Phoenix storage. -->
-  <!-- Since we're using dynamic columns, we have to generate SQL statements dynamically -->
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.timelineservice.storage.PhoenixOfflineAggregationWriterImpl" />
-    <Or>
-      <Method name="storeEntityVariableLengthFields" />
-      <Method name="writeAggregatedEntity" />
-    </Or>
-    <Bug pattern="SQL_PREPARED_STATEMENT_GENERATED_FROM_NONCONSTANT_STRING" />
-  </Match>
-  
-  <!-- Following fields are used in ErrorsAndWarningsBlock, which is not a part of analysis of findbugs -->
-  <Match>
-    <Class name="org.apache.hadoop.yarn.util.Log4jWarningErrorMetricsAppender$Element" />
-    <Or>
-      <Field name="count" />
-      <Field name="timestampSeconds" />
-    </Or>
-    <Bug pattern="URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD" />
-  </Match>
-
-  <Match>
-    <Class name="org.apache.hadoop.yarn.api.records.ResourceRequest" />
-    <Method name="equals" />
-    <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NONNULL_VALUE" />
-  </Match>
-  <Match>
-    <Package name="org.apache.hadoop.yarn.api.records.impl.pb" />
-    <Bug pattern="NP_BOOLEAN_RETURN_NULL" />
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.ActivityNodeInfo"/>
-    <Or>
-      <Field name="allocationState" />
-      <Field name="diagnostic" />
-      <Field name="name" />
-      <Field name="requestPriority" />
-      <Field name="appPriority" />
-    </Or>
-    <Bug pattern="URF_UNREAD_PUBLIC_OR_PROTECTED_FIELD" />
-  </Match>
-
-  <!-- Ignore VO_VOLATILE_INCREMENT, they will be protected by writeLock -->
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.LeafQueue$User" />
-    <Or>
-      <Field name="pendingApplications" />
-      <Field name="activeApplications" />
-    </Or>
-    <Bug pattern="VO_VOLATILE_INCREMENT" />
-  </Match>
-
-
-  <!-- Ignore false alert for UL_UNRELEASED_LOCK_EXCEPTION_PATH -->
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler$ResourceCommitterService"/>
-    <Method name="run" />
-    <Bug pattern="UL_UNRELEASED_LOCK_EXCEPTION_PATH" />
-  </Match>
-
-  <!-- Ignore false alert for RCN_REDUNDANT_NULLCHECK_OF_NULL_VALUE -->
-  <Match>
-    <Class name="org.apache.hadoop.yarn.server.nodemanager.amrmproxy.FederationInterceptor" />
-    <Method name="registerApplicationMaster" />
-    <Bug pattern="RCN_REDUNDANT_NULLCHECK_OF_NULL_VALUE" />
   </Match>
 
 </FindBugsFilter>

@@ -36,7 +36,6 @@ public class TestMiniJournalCluster {
     Configuration conf = new Configuration();
     MiniJournalCluster c = new MiniJournalCluster.Builder(conf)
       .build();
-    c.waitActive();
     try {
       URI uri = c.getQuorumJournalURI("myjournal");
       String[] addrs = uri.getAuthority().split(";");

@@ -27,20 +27,17 @@ import static org.apache.hadoop.yarn.webapp.view.JQueryUI._TH;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.initID;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.tableInit;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.net.URLEncoder;
 
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.net.ServerSocketUtil;
 import org.apache.hadoop.yarn.MockApps;
 import org.apache.hadoop.yarn.webapp.view.HtmlPage;
 import org.apache.hadoop.yarn.webapp.view.JQueryUI;
-import org.apache.hadoop.yarn.webapp.view.RobotsTextPage;
 import org.apache.hadoop.yarn.webapp.view.TextPage;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -100,7 +97,7 @@ public class TestWebApp {
 
   static class TablesView extends HtmlPage {
     @Override
-    public void render(Page.HTML<__> html) {
+    public void render(Page.HTML<_> html) {
       set(DATATABLES_ID, "t1 t2 t3 t4");
       set(initID(DATATABLES, "t1"), tableInit().append("}").toString());
       set(initID(DATATABLES, "t2"), join("{bJQueryUI:true, sDom:'t',",
@@ -110,7 +107,7 @@ public class TestWebApp {
       html.
         title("Test DataTables").
         link("/static/yarn.css").
-          __(JQueryUI.class).
+        _(JQueryUI.class).
         style(".wrapper { padding: 1em }",
               ".wrapper h2 { margin: 0.5em 0 }",
               ".dataTables_wrapper { min-height: 1em }").
@@ -118,33 +115,33 @@ public class TestWebApp {
           h2("Default table init").
           table("#t1").
             thead().
-              tr().th("Column1").th("Column2").__().__().
+              tr().th("Column1").th("Column2")._()._().
             tbody().
-              tr().td("c1r1").td("c2r1").__().
-              tr().td("c1r2").td("c2r2").__().__().__().
+              tr().td("c1r1").td("c2r1")._().
+              tr().td("c1r2").td("c2r2")._()._()._().
           h2("Nested tables").
           div(_INFO_WRAP).
             table("#t2").
               thead().
-                tr().th(_TH, "Column1").th(_TH, "Column2").__().__().
+                tr().th(_TH, "Column1").th(_TH, "Column2")._()._().
               tbody().
                 tr().td("r1"). // th wouldn't work as of dt 1.7.5
                   td().$class(C_TABLE).
                     table("#t3").
                       thead().
-                        tr().th("SubColumn1").th("SubColumn2").__().__().
+                        tr().th("SubColumn1").th("SubColumn2")._()._().
                       tbody().
-                        tr().td("subc1r1").td("subc2r1").__().
-                        tr().td("subc1r2").td("subc2r2").__().__().__().__().__().
+                        tr().td("subc1r1").td("subc2r1")._().
+                        tr().td("subc1r2").td("subc2r2")._()._()._()._()._().
                 tr().td("r2"). // ditto
                   td().$class(C_TABLE).
                     table("#t4").
                       thead().
-                        tr().th("SubColumn1").th("SubColumn2").__().__().
+                        tr().th("SubColumn1").th("SubColumn2")._()._().
                       tbody().
-                        tr().td("subc1r1").td("subc2r1").__().
-                        tr().td("subc1r2").td("subc2r2").__().
-          __().__().__().__().__().__().__().__().__();
+                        tr().td("subc1r1").td("subc2r1")._().
+                        tr().td("subc1r2").td("subc2r2")._().
+                        _()._()._()._()._()._()._()._()._();
     }
   }
 
@@ -263,62 +260,8 @@ public class TestWebApp {
     }
   }
 
-  @Test public void testEncodedUrl() throws Exception {
-    WebApp app =
-        WebApps.$for("test", TestWebApp.class, this, "ws").start(new WebApp() {
-          @Override
-          public void setup() {
-            bind(MyTestJAXBContextResolver.class);
-            bind(MyTestWebService.class);
-
-            route("/:foo", FooController.class);
-          }
-        });
-    String baseUrl = baseUrl(app);
-
-    try {
-      // Test encoded url
-      String rawPath = "localhost:8080";
-      String encodedUrl = baseUrl + "test/" +
-          URLEncoder.encode(rawPath, "UTF-8");
-      assertEquals("foo" + rawPath, getContent(encodedUrl).trim());
-
-      rawPath = "@;%$";
-      encodedUrl = baseUrl + "test/" +
-          URLEncoder.encode(rawPath, "UTF-8");
-      assertEquals("foo" + rawPath, getContent(encodedUrl).trim());
-    } finally {
-      app.stop();
-    }
-  }
-
-  @Test public void testRobotsText() throws Exception {
-    WebApp app =
-        WebApps.$for("test", TestWebApp.class, this, "ws").start(new WebApp() {
-          @Override
-          public void setup() {
-            bind(MyTestJAXBContextResolver.class);
-            bind(MyTestWebService.class);
-          }
-        });
-    String baseUrl = baseUrl(app);
-    try {
-      //using system line separator here since that is what
-      // TextView (via PrintWriter) seems to use.
-      String[] robotsTxtOutput = getContent(baseUrl +
-          RobotsTextPage.ROBOTS_TXT).trim().split(System.getProperty("line"
-          + ".separator"));
-
-      assertEquals(2, robotsTxtOutput.length);
-      assertEquals("User-agent: *", robotsTxtOutput[0]);
-      assertEquals("Disallow: /", robotsTxtOutput[1]);
-    } finally {
-      app.stop();
-    }
-  }
-
   // This is to test the GuiceFilter should only be applied to webAppContext,
-  // not to logContext;
+  // not to staticContext  and logContext;
   @Test public void testYARNWebAppContext() throws Exception {
     // setting up the log context
     System.setProperty("hadoop.log.dir", "/Not/Existing/dir");
@@ -329,56 +272,14 @@ public class TestWebApp {
     });
     String baseUrl = baseUrl(app);
     try {
+      // should not redirect to foo
+      assertFalse("foo".equals(getContent(baseUrl +"static").trim()));
       // Not able to access a non-existing dir, should not redirect to foo.
       assertEquals(404, getResponseCode(baseUrl +"logs"));
       // should be able to redirect to foo.
       assertEquals("foo", getContent(baseUrl).trim());
     } finally {
       app.stop();
-    }
-  }
-
-  private static void stopWebApp(WebApp app) {
-    if (app != null) {
-      app.stop();
-    }
-  }
-
-  @Test
-  public void testPortRanges() throws Exception {
-    WebApp app = WebApps.$for("test", this).start();
-    String baseUrl = baseUrl(app);
-    WebApp app1 = null;
-    WebApp app2 = null;
-    WebApp app3 = null;
-    WebApp app4 = null;
-    WebApp app5 = null;
-    try {
-      int port =  ServerSocketUtil.waitForPort(48000, 60);
-      assertEquals("foo", getContent(baseUrl +"test/foo").trim());
-      app1 = WebApps.$for("test", this).at(port).start();
-      assertEquals(port, app1.getListenerAddress().getPort());
-      app2 = WebApps.$for("test", this).at("0.0.0.0", port, true).start();
-      assertTrue(app2.getListenerAddress().getPort() > port);
-      Configuration conf = new Configuration();
-      port =  ServerSocketUtil.waitForPort(47000, 60);
-      app3 = WebApps.$for("test", this).at(port).withPortRange(conf, "abc").
-          start();
-      assertEquals(port, app3.getListenerAddress().getPort());
-      ServerSocketUtil.waitForPort(46000, 60);
-      conf.set("abc", "46000-46500");
-      app4 = WebApps.$for("test", this).at(port).withPortRange(conf, "abc").
-          start();
-      assertEquals(46000, app4.getListenerAddress().getPort());
-      app5 = WebApps.$for("test", this).withPortRange(conf, "abc").start();
-      assertTrue(app5.getListenerAddress().getPort() > 46000);
-    } finally {
-      stopWebApp(app);
-      stopWebApp(app1);
-      stopWebApp(app2);
-      stopWebApp(app3);
-      stopWebApp(app4);
-      stopWebApp(app5);
     }
   }
 

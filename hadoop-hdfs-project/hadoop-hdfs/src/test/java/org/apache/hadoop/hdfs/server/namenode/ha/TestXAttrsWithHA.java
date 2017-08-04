@@ -82,7 +82,6 @@ public class TestXAttrsWithHA {
   public void shutdownCluster() throws IOException {
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 

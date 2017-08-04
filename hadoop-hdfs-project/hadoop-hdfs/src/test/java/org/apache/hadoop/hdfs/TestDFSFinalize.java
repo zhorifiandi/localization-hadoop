@@ -188,10 +188,7 @@ public class TestDFSFinalize {
   @After
   public void tearDown() throws Exception {
     LOG.info("Shutting down MiniDFSCluster");
-    if (cluster != null) {
-      cluster.shutdown();
-      cluster = null;
-    }
+    if (cluster != null) cluster.shutdown();
   }
   
   public static void main(String[] args) throws Exception {

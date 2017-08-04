@@ -16,6 +16,9 @@
 -->
 <FindBugsFilter>
      <Match>
+       <Package name="org.apache.hadoop.record.compiler.generated" />
+     </Match>
+     <Match>
        <Package name="org.apache.hadoop.security.proto" />
      </Match>
      <Match>
@@ -44,22 +47,9 @@
      --> 
      <Match>
        <Class name="org.apache.hadoop.ipc.Client$Connection" />
-       <Field name="ipcStreams" />
+       <Field name="out" />
        <Bug pattern="IS2_INCONSISTENT_SYNC" />
      </Match>
-    <!--
-       The nativeCoder field is get/set and used by native codes.
-    -->
-    <Match>
-        <Class name="org.apache.hadoop.io.erasurecode.rawcoder.AbstractNativeRawEncoder" />
-        <Field name="nativeCoder" />
-        <Bug pattern="UUF_UNUSED_FIELD" />
-    </Match>
-    <Match>
-        <Class name="org.apache.hadoop.io.erasurecode.rawcoder.AbstractNativeRawDecoder" />
-        <Field name="nativeCoder" />
-        <Bug pattern="UUF_UNUSED_FIELD" />
-    </Match>
      <!-- 
        Further SaslException should be ignored during cleanup and
        original exception should be re-thrown.
@@ -212,6 +202,21 @@
      </Match>
 
      <Match>
+       <Class name="org.apache.hadoop.record.meta.Utils" />
+       <Method name="skip" />
+       <Bug pattern="BC_UNCONFIRMED_CAST" />
+     </Match>
+
+     <!--
+        The compareTo method is actually a dummy method that just
+        throws excpetions. So, no need to override equals. Ignore
+     -->
+     <Match>
+       <Class name="org.apache.hadoop.record.meta.RecordTypeInfo" />
+       <Bug pattern="EQ_COMPARETO_USE_OBJECT_EQUALS" />
+     </Match>
+
+     <Match>
        <Class name="org.apache.hadoop.util.ProcfsBasedProcessTree" />
        <Bug pattern="DMI_HARDCODED_ABSOLUTE_FILENAME" />
      </Match>
@@ -323,10 +328,6 @@
       <!-- protobuf generated code -->
       <Class name="~org\.apache\.hadoop\.tracing\.TraceAdminPB.*"/>
     </Match>
-    <Match>
-      <!-- protobuf generated code -->
-      <Class name="~org\.apache\.hadoop\.fs\.FSProto.*"/>
-    </Match>
 
     <!--
        Manually checked, misses child thread manually syncing on parent's intrinsic lock.
@@ -345,7 +346,13 @@
        <Method name="removeRenewAction" />
        <Bug pattern="BC_UNCONFIRMED_CAST" />
      </Match>
-
+     
+     <!-- Inconsistent synchronization flagged by findbugs is not valid. -->
+     <Match>
+       <Class name="org.apache.hadoop.ipc.Client$Connection" />
+       <Field name="in" />
+       <Bug pattern="IS2_INCONSISTENT_SYNC" />
+     </Match>
      <!-- 
        The switch condition for INITIATE is expected to fallthru to RESPONSE
        to process initial sasl response token included in the INITIATE
@@ -356,13 +363,7 @@
        <Bug pattern="SF_SWITCH_FALLTHROUGH" />
      </Match>
 
-     <!-- WA_NOT_IN_LOOP is invalid in util.concurrent.AsyncGet$Util.wait. -->
-     <Match>
-       <Class name="org.apache.hadoop.util.concurrent.AsyncGet$Util" />
-       <Method name="wait" />
-       <Bug pattern="WA_NOT_IN_LOOP" />
-     </Match>
-
+     <!-- Synchronization performed on util.concurrent instance. -->
      <Match>
        <Class name="org.apache.hadoop.service.AbstractService" />
        <Method name="stop" />
@@ -409,41 +410,4 @@
     <Bug pattern="NP_NULL_PARAM_DEREF"/>
   </Match>
 
-  <Match>
-    <Class name="org.apache.hadoop.ipc.ExternalCall"/>
-    <Filed name="done"/>
-    <Bug pattern="JLM_JSR166_UTILCONCURRENT_MONITORENTER"/>
-  </Match>
-
-  <Match>
-    <Class name="org.apache.hadoop.metrics2.impl.MetricsConfig"/>
-    <Method name="toString"/>
-    <Bug pattern="DM_DEFAULT_ENCODING"/>
-  </Match>
-
-  <!-- We need to make the methods public because PBHelperClient calls them. -->
-  <Match>
-    <Class name="org.apache.hadoop.crypto.CipherSuite"/>
-    <Method name="setUnknownValue"/>
-    <Bug pattern="ME_ENUM_FIELD_SETTER"/>
-  </Match>
-  <Match>
-    <Class name="org.apache.hadoop.crypto.CryptoProtocolVersion"/>
-    <Method name="setUnknownValue"/>
-    <Bug pattern="ME_ENUM_FIELD_SETTER"/>
-  </Match>
-
-  <!-- We need to make the method public for testing. -->
-  <Match>
-    <Class name="org.apache.hadoop.metrics2.lib.DefaultMetricsSystem"/>
-    <Method name="setMiniClusterMode"/>
-    <Bug pattern="ME_ENUM_FIELD_SETTER"/>
-  </Match>
-
-  <!-- Experimental interface. Ignore. -->
-  <Match>
-    <Class name="org.apache.hadoop.metrics2.lib.DefaultMetricsFactory"/>
-    <Method name="setInstance"/>
-    <Bug pattern="ME_ENUM_FIELD_SETTER"/>
-  </Match>
 </FindBugsFilter>

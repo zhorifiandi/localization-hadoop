@@ -31,17 +31,17 @@ import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.Cont
 import org.apache.hadoop.yarn.server.nodemanager.webapp.dao.ContainerInfo;
 import org.apache.hadoop.yarn.webapp.SubView;
 import org.apache.hadoop.yarn.webapp.YarnWebParams;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.BODY;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.BODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
 
 public class AllContainersPage extends NMView {
 
-  @Override protected void preHead(Page.HTML<__> html) {
+  @Override protected void preHead(Page.HTML<_> html) {
     commonPreHead(html);
     setTitle("All containers running on this node");
     set(DATATABLES_ID, "containers");
@@ -52,15 +52,9 @@ public class AllContainersPage extends NMView {
   private String containersTableInit() {
     return tableInit().
         // containerid, containerid, log-url
-        append(", aoColumns:[").append(getContainersIdColumnDefs())
-        .append(", null, {bSearchable:false}]} ").toString();
+        append(", aoColumns:[null, null, {bSearchable:false}]} ").toString();
   }
 
-  private String getContainersIdColumnDefs() {
-    StringBuilder sb = new StringBuilder();
-    return sb.append("{'sType':'natural', 'aTargets': [0]")
-        .append(", 'mRender': parseHadoopID }").toString();
-  }
   @Override
   protected Class<? extends SubView> content() {
     return AllContainersBlock.class;
@@ -82,24 +76,24 @@ public class AllContainersPage extends NMView {
         .table("#containers")
           .thead()
             .tr()
-              .td().__("ContainerId").__()
-              .td().__("ContainerState").__()
-              .td().__("logs").__()
-            .__()
-          .__().tbody();
+              .td()._("ContainerId")._()
+              .td()._("ContainerState")._()
+              .td()._("logs")._()
+            ._()
+          ._().tbody();
       for (Entry<ContainerId, Container> entry : this.nmContext
           .getContainers().entrySet()) {
         ContainerInfo info = new ContainerInfo(this.nmContext, entry.getValue());
         tableBody
           .tr()
             .td().a(url("container", info.getId()), info.getId())
-            .__()
-            .td().__(info.getState()).__()
+            ._()
+            .td()._(info.getState())._()
             .td()
-                .a(url(info.getShortLogLink()), "logs").__()
-          .__();
+                .a(url(info.getShortLogLink()), "logs")._()
+          ._();
       }
-      tableBody.__().__().__();
+      tableBody._()._()._();
     }
 
   }

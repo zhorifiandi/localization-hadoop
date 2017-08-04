@@ -42,10 +42,15 @@ import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.xml.bind.annotation.XmlAccessType;
+import javax.xml.bind.annotation.XmlAccessorType;
+import javax.xml.bind.annotation.XmlElement;
+import javax.xml.bind.annotation.XmlRootElement;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.http.JettyUtils;
+import org.apache.hadoop.classification.InterfaceAudience.Public;
+import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.records.timeline.TimelineDomain;
@@ -60,8 +65,6 @@ import org.apache.hadoop.yarn.server.timeline.GenericObjectMapper;
 import org.apache.hadoop.yarn.server.timeline.NameValuePair;
 import org.apache.hadoop.yarn.server.timeline.TimelineDataManager;
 import org.apache.hadoop.yarn.server.timeline.TimelineReader.Field;
-import org.apache.hadoop.yarn.api.records.timeline.TimelineAbout;
-import org.apache.hadoop.yarn.util.timeline.TimelineUtils;
 import org.apache.hadoop.yarn.webapp.BadRequestException;
 import org.apache.hadoop.yarn.webapp.ForbiddenException;
 import org.apache.hadoop.yarn.webapp.NotFoundException;
@@ -83,17 +86,43 @@ public class TimelineWebServices {
     this.timelineDataManager = timelineDataManager;
   }
 
+  @XmlRootElement(name = "about")
+  @XmlAccessorType(XmlAccessType.NONE)
+  @Public
+  @Unstable
+  public static class AboutInfo {
+
+    private String about;
+
+    public AboutInfo() {
+
+    }
+
+    public AboutInfo(String about) {
+      this.about = about;
+    }
+
+    @XmlElement(name = "About")
+    public String getAbout() {
+      return about;
+    }
+
+    public void setAbout(String about) {
+      this.about = about;
+    }
+
+  }
+
   /**
    * Return the description of the timeline web services.
    */
   @GET
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
-  public TimelineAbout about(
+  @Produces({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
+  public AboutInfo about(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res) {
     init(res);
-    return TimelineUtils.createTimelineAbout("Timeline API");
+    return new AboutInfo("Timeline API");
   }
 
   /**
@@ -101,8 +130,7 @@ public class TimelineWebServices {
    */
   @GET
   @Path("/{entityType}")
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
+  @Produces({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
   public TimelineEntities getEntities(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,
@@ -130,9 +158,9 @@ public class TimelineWebServices {
           getUser(req));
     } catch (NumberFormatException e) {
       throw new BadRequestException(
-        "windowStart, windowEnd, fromTs or limit is not a numeric value: " + e);
+          "windowStart, windowEnd or limit is not a numeric value.");
     } catch (IllegalArgumentException e) {
-      throw new BadRequestException("requested invalid field: " + e);
+      throw new BadRequestException("requested invalid field.");
     } catch (Exception e) {
       LOG.error("Error getting entities", e);
       throw new WebApplicationException(e,
@@ -145,8 +173,7 @@ public class TimelineWebServices {
    */
   @GET
   @Path("/{entityType}/{entityId}")
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
+  @Produces({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
   public TimelineEntity getEntity(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,
@@ -162,7 +189,8 @@ public class TimelineWebServices {
           parseFieldsStr(fields, ","),
           getUser(req));
     } catch (IllegalArgumentException e) {
-      throw new BadRequestException(e);
+      throw new BadRequestException(
+          "requested invalid field.");
     } catch (Exception e) {
       LOG.error("Error getting entity", e);
       throw new WebApplicationException(e,
@@ -181,8 +209,7 @@ public class TimelineWebServices {
    */
   @GET
   @Path("/{entityType}/events")
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
+  @Produces({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
   public TimelineEvents getEvents(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,
@@ -203,9 +230,8 @@ public class TimelineWebServices {
           parseLongStr(limit),
           getUser(req));
     } catch (NumberFormatException e) {
-      throw (BadRequestException)new BadRequestException(
-          "windowStart, windowEnd or limit is not a numeric value.")
-          .initCause(e);
+      throw new BadRequestException(
+          "windowStart, windowEnd or limit is not a numeric value.");
     } catch (Exception e) {
       LOG.error("Error getting entity timelines", e);
       throw new WebApplicationException(e,
@@ -219,8 +245,6 @@ public class TimelineWebServices {
    */
   @POST
   @Consumes({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
   public TimelinePutResponse postEntities(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,
@@ -234,8 +258,6 @@ public class TimelineWebServices {
     }
     try {
       return timelineDataManager.postEntities(entities, callerUGI);
-    } catch (BadRequestException bre) {
-      throw bre;
     } catch (Exception e) {
       LOG.error("Error putting entities", e);
       throw new WebApplicationException(e,
@@ -250,8 +272,6 @@ public class TimelineWebServices {
   @PUT
   @Path("/domain")
   @Consumes({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
   public TimelinePutResponse putDomain(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,
@@ -270,10 +290,6 @@ public class TimelineWebServices {
       // The user doesn't have the access to override the existing domain.
       LOG.error(e.getMessage(), e);
       throw new ForbiddenException(e);
-    } catch (RuntimeException e) {
-      LOG.error("Error putting domain", e);
-      throw new WebApplicationException(e,
-          Response.Status.INTERNAL_SERVER_ERROR);
     } catch (IOException e) {
       LOG.error("Error putting domain", e);
       throw new WebApplicationException(e,
@@ -287,8 +303,7 @@ public class TimelineWebServices {
    */
   @GET
   @Path("/domain/{domainId}")
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
+  @Produces({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
   public TimelineDomain getDomain(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,
@@ -319,8 +334,7 @@ public class TimelineWebServices {
    */
   @GET
   @Path("/domain")
-  @Produces({ MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8
-      /* , MediaType.APPLICATION_XML */})
+  @Produces({ MediaType.APPLICATION_JSON /* , MediaType.APPLICATION_XML */})
   public TimelineDomains getDomains(
       @Context HttpServletRequest req,
       @Context HttpServletResponse res,

@@ -17,17 +17,16 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
+import org.apache.commons.io.Charsets;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfo;
-import org.apache.hadoop.hdfs.server.namenode.FSDirectory.DirOp;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguous;
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_BLOCK_SIZE_DEFAULT;
@@ -69,10 +68,9 @@ public class TestGetBlockLocations {
 
       @Override
       public Void answer(InvocationOnMock invocation) throws Throwable {
-        INodesInPath iip = fsd.getINodesInPath(FILE_PATH, DirOp.READ);
+        INodesInPath iip = fsd.getINodesInPath(FILE_PATH, true);
         FSDirDeleteOp.delete(fsd, iip, new INode.BlocksMapUpdateInfo(),
-                             new ArrayList<INode>(), new ArrayList<Long>(),
-                             now());
+                             new ArrayList<INode>(), now());
         invocation.callRealMethod();
         return null;
       }
@@ -120,15 +118,15 @@ public class TestGetBlockLocations {
     final FSNamesystem fsn = new FSNamesystem(conf, image, true);
 
     final FSDirectory fsd = fsn.getFSDirectory();
-    INodesInPath iip = fsd.getINodesInPath("/", DirOp.READ);
+    INodesInPath iip = fsd.getINodesInPath("/", true);
     PermissionStatus perm = new PermissionStatus(
         "hdfs", "supergroup",
         FsPermission.createImmutable((short) 0x1ff));
     final INodeFile file = new INodeFile(
-        MOCK_INODE_ID, FILE_NAME.getBytes(StandardCharsets.UTF_8),
-        perm, 1, 1, new BlockInfo[] {}, (short) 1,
+        MOCK_INODE_ID, FILE_NAME.getBytes(Charsets.UTF_8),
+        perm, 1, 1, new BlockInfoContiguous[] {}, (short) 1,
         DFS_BLOCK_SIZE_DEFAULT);
-    fsn.getFSDirectory().addINode(iip, file, null);
+    fsn.getFSDirectory().addINode(iip, file);
     return fsn;
   }
 

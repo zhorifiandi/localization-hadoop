@@ -20,6 +20,7 @@ package org.apache.hadoop.tools;
 import java.io.BufferedReader;
 import java.io.DataInput;
 import java.io.DataOutput;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
@@ -67,10 +68,11 @@ abstract class DistTool implements org.apache.hadoop.util.Tool {
     List<IOException> ioes = new ArrayList<IOException>();
     for(Path p : srcs) {
       try {
-        p.getFileSystem(conf).getFileStatus(p);
-      } catch(IOException e) {
-        ioes.add(e);
+        if (!p.getFileSystem(conf).exists(p)) {
+          ioes.add(new FileNotFoundException("Source "+p+" does not exist."));
+        }
       }
+      catch(IOException e) {ioes.add(e);}
     }
     if (!ioes.isEmpty()) {
       throw new InvalidInputException(ioes);

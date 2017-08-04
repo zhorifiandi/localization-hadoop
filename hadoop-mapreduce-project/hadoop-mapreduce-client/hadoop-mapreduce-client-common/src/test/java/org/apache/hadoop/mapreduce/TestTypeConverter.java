@@ -18,7 +18,6 @@
 package org.apache.hadoop.mapreduce;
 
 import org.apache.hadoop.util.StringUtils;
-
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,7 +35,6 @@ import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.ApplicationResourceUsageReport;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.QueueState;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
@@ -85,11 +83,10 @@ public class TestTypeConverter {
     applicationReport.setStartTime(appStartTime);
     applicationReport.setFinishTime(appFinishTime);
     applicationReport.setUser("TestTypeConverter-user");
-    applicationReport.setPriority(Priority.newInstance(3));
     ApplicationResourceUsageReport appUsageRpt = Records
         .newRecord(ApplicationResourceUsageReport.class);
     Resource r = Records.newRecord(Resource.class);
-    r.setMemorySize(2048);
+    r.setMemory(2048);
     appUsageRpt.setNeededResources(r);
     appUsageRpt.setNumReservedContainers(1);
     appUsageRpt.setNumUsedContainers(3);
@@ -100,7 +97,6 @@ public class TestTypeConverter {
     Assert.assertEquals(appStartTime, jobStatus.getStartTime());
     Assert.assertEquals(appFinishTime, jobStatus.getFinishTime());    
     Assert.assertEquals(state.toString(), jobStatus.getState().toString());
-    Assert.assertEquals(JobPriority.NORMAL, jobStatus.getPriority());
   }
 
   @Test
@@ -115,7 +111,6 @@ public class TestTypeConverter {
     when(mockReport.getYarnApplicationState()).thenReturn(YarnApplicationState.KILLED);
     when(mockReport.getUser()).thenReturn("dummy-user");
     when(mockReport.getQueue()).thenReturn("dummy-queue");
-    when(mockReport.getPriority()).thenReturn(Priority.newInstance(4));
     String jobFile = "dummy-path/job.xml";
 
     try {
@@ -128,7 +123,7 @@ public class TestTypeConverter {
     ApplicationResourceUsageReport appUsageRpt = Records
         .newRecord(ApplicationResourceUsageReport.class);
     Resource r = Records.newRecord(Resource.class);
-    r.setMemorySize(2048);
+    r.setMemory(2048);
     appUsageRpt.setNeededResources(r);
     appUsageRpt.setNumReservedContainers(1);
     appUsageRpt.setNumUsedContainers(3);
@@ -149,7 +144,6 @@ public class TestTypeConverter {
     Assert.assertEquals("num used slots info set incorrectly", 3, status.getNumUsedSlots());
     Assert.assertEquals("rsvd mem info set incorrectly", 2048, status.getReservedMem());
     Assert.assertEquals("used mem info set incorrectly", 2048, status.getUsedMem());
-    Assert.assertEquals("priority set incorrectly", JobPriority.HIGH, status.getPriority());
   }
 
   @Test
@@ -207,12 +201,10 @@ public class TestTypeConverter {
     jobReport.setJobState(state);
     jobReport.setStartTime(jobStartTime);
     jobReport.setFinishTime(jobFinishTime);
-    jobReport.setUser("TestTypeConverter-user");
-    jobReport.setJobPriority(Priority.newInstance(0));
+    jobReport.setUser("TestTypeConverter-user");    
     JobStatus jobStatus = TypeConverter.fromYarn(jobReport, "dummy-jobfile");
     Assert.assertEquals(jobStartTime, jobStatus.getStartTime());
     Assert.assertEquals(jobFinishTime, jobStatus.getFinishTime());    
     Assert.assertEquals(state.toString(), jobStatus.getState().toString());
-    Assert.assertEquals(JobPriority.DEFAULT, jobStatus.getPriority());
-  }
+  }  
 }

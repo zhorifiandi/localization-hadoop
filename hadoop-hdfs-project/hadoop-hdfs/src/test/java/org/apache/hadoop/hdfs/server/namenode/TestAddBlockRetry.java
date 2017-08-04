@@ -30,7 +30,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeStorageInfo;
@@ -39,7 +38,6 @@ import org.apache.hadoop.io.EnumSetWritable;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 /**
  * Race between two threads simultaneously calling
@@ -66,7 +64,6 @@ public class TestAddBlockRetry {
   public void tearDown() throws Exception {
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 
@@ -85,45 +82,30 @@ public class TestAddBlockRetry {
     nn.create(src, FsPermission.getFileDefault(),
         "clientName",
         new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)),
-        true, (short)3, 1024, null, null);
+        true, (short)3, 1024, null);
 
     // start first addBlock()
     LOG.info("Starting first addBlock for " + src);
     LocatedBlock[] onRetryBlock = new LocatedBlock[1];
-    ns.readLock();
-    FSDirWriteFileOp.ValidateAddBlockResult r;
-    FSPermissionChecker pc = Mockito.mock(FSPermissionChecker.class);
-    try {
-      r = FSDirWriteFileOp.validateAddBlock(ns, pc, src,
-                                            HdfsConstants.GRANDFATHER_INODE_ID,
-                                            "clientName", null, onRetryBlock);
-    } finally {
-      ns.readUnlock();;
-    }
-    DatanodeStorageInfo targets[] = FSDirWriteFileOp.chooseTargetForNewBlock(
-        ns.getBlockManager(), src, null, null, null, r);
+    DatanodeStorageInfo targets[] = ns.getNewBlockTargets(
+        src, INodeId.GRANDFATHER_INODE_ID, "clientName",
+        null, null, null, onRetryBlock);
     assertNotNull("Targets must be generated", targets);
 
     // run second addBlock()
     LOG.info("Starting second addBlock for " + src);
     nn.addBlock(src, "clientName", null, null,
-                HdfsConstants.GRANDFATHER_INODE_ID, null, null);
+        INodeId.GRANDFATHER_INODE_ID, null);
     assertTrue("Penultimate block must be complete",
-               checkFileProgress(src, false));
+        checkFileProgress(src, false));
     LocatedBlocks lbs = nn.getBlockLocations(src, 0, Long.MAX_VALUE);
     assertEquals("Must be one block", 1, lbs.getLocatedBlocks().size());
     LocatedBlock lb2 = lbs.get(0);
     assertEquals("Wrong replication", REPLICATION, lb2.getLocations().length);
 
     // continue first addBlock()
-    ns.writeLock();
-    LocatedBlock newBlock;
-    try {
-      newBlock = FSDirWriteFileOp.storeAllocatedBlock(ns, src,
-          HdfsConstants.GRANDFATHER_INODE_ID, "clientName", null, targets);
-    } finally {
-      ns.writeUnlock();
-    }
+    LocatedBlock newBlock = ns.storeAllocatedBlock(
+        src, INodeId.GRANDFATHER_INODE_ID, "clientName", null, targets);
     assertEquals("Blocks are not equal", lb2.getBlock(), newBlock.getBlock());
 
     // check locations
@@ -157,18 +139,18 @@ public class TestAddBlockRetry {
     // create file
     nameNodeRpc.create(src, FsPermission.getFileDefault(), "clientName",
         new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true,
-        (short) 3, 1024, null, null);
+        (short) 3, 1024, null);
     // start first addBlock()
     LOG.info("Starting first addBlock for " + src);
     LocatedBlock lb1 = nameNodeRpc.addBlock(src, "clientName", null, null,
-        HdfsConstants.GRANDFATHER_INODE_ID, null, null);
+        INodeId.GRANDFATHER_INODE_ID, null);
     assertTrue("Block locations should be present",
         lb1.getLocations().length > 0);
 
     cluster.restartNameNode();
     nameNodeRpc = cluster.getNameNodeRpc();
     LocatedBlock lb2 = nameNodeRpc.addBlock(src, "clientName", null, null,
-        HdfsConstants.GRANDFATHER_INODE_ID, null, null);
+        INodeId.GRANDFATHER_INODE_ID, null);
     assertEquals("Blocks are not equal", lb1.getBlock(), lb2.getBlock());
     assertTrue("Wrong locations with retry", lb2.getLocations().length > 0);
   }

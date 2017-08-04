@@ -49,6 +49,7 @@ public class TestDelegationTokenRenewer {
     renewer = DelegationTokenRenewer.getInstance();
   }
   
+  @SuppressWarnings("unchecked")
   @Test
   public void testAddRemoveRenewAction() throws IOException,
       InterruptedException {
@@ -80,7 +81,7 @@ public class TestDelegationTokenRenewer {
     verify(token).cancel(eq(conf));
 
     verify(fs, never()).getDelegationToken(null);
-    verify(fs, never()).setDelegationToken(any());
+    verify(fs, never()).setDelegationToken(any(Token.class));
     
     assertEquals("FileSystem not removed from DelegationTokenRenewer", 0,
         renewer.getRenewQueueLength());

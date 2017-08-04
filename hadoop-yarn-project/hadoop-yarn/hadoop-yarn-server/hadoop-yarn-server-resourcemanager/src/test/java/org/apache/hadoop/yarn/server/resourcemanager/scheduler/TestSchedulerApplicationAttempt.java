@@ -17,10 +17,9 @@
  */
 package org.apache.hadoop.yarn.server.resourcemanager.scheduler;
 
-import static org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.TestUtils.toSchedulerKey;
+import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
 import static org.junit.Assert.assertEquals;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -34,16 +33,9 @@ import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.api.records.Priority;
-import org.apache.hadoop.yarn.api.records.QueueInfo;
-import org.apache.hadoop.yarn.api.records.QueueState;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.ResourceRequest;
-import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
 import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.RMContainer;
-import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.RMContainerImpl;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fifo.FifoScheduler;
-import org.apache.hadoop.yarn.server.scheduler.SchedulerRequestKey;
-import org.apache.hadoop.yarn.util.resource.DefaultResourceCalculator;
 import org.junit.After;
 import org.junit.Test;
 
@@ -73,7 +65,7 @@ public class TestSchedulerApplicationAttempt {
     RMContext rmContext = mock(RMContext.class);
     when(rmContext.getEpoch()).thenReturn(3L);
     SchedulerApplicationAttempt app = new SchedulerApplicationAttempt(appAttId,
-        user, oldQueue, oldQueue.getAbstractUsersManager(), rmContext);
+        user, oldQueue, oldQueue.getActiveUsersManager(), rmContext);
     oldMetrics.submitApp(user);
     
     // confirm that containerId is calculated based on epoch.
@@ -90,8 +82,8 @@ public class TestSchedulerApplicationAttempt {
     RMContainer container1 = createRMContainer(appAttId, 1, requestedResource);
     app.liveContainers.put(container1.getContainerId(), container1);
     SchedulerNode node = createNode();
-    app.appSchedulingInfo.allocate(NodeType.OFF_SWITCH, node,
-        toSchedulerKey(requestedPriority), container1.getContainer());
+    app.appSchedulingInfo.allocate(NodeType.OFF_SWITCH, node, requestedPriority,
+        request, container1.getContainer());
     
     // Reserved container
     Priority prio1 = Priority.newInstance(1);
@@ -100,9 +92,8 @@ public class TestSchedulerApplicationAttempt {
         node.getNodeID(), prio1);
     Map<NodeId, RMContainer> reservations = new HashMap<NodeId, RMContainer>();
     reservations.put(node.getNodeID(), container2);
-    app.reservedContainers.put(toSchedulerKey(prio1), reservations);
-    oldMetrics.reserveResource(container2.getNodeLabelExpression(),
-        user, reservedResource);
+    app.reservedContainers.put(prio1, reservations);
+    oldMetrics.reserveResource(user, reservedResource);
     
     checkQueueMetrics(oldMetrics, 1, 1, 1536, 2, 2048, 3, 3072, 4);
     checkQueueMetrics(newMetrics, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -140,8 +131,7 @@ public class TestSchedulerApplicationAttempt {
       int id, Resource resource, NodeId nodeId, Priority reservedPriority) {
     RMContainer container = createRMContainer(appAttId, id, resource);
     when(container.getReservedResource()).thenReturn(resource);
-    when(container.getReservedSchedulerKey())
-        .thenReturn(toSchedulerKey(reservedPriority));
+    when(container.getReservedPriority()).thenReturn(reservedPriority);
     when(container.getReservedNode()).thenReturn(nodeId);
     return container;
   }
@@ -149,7 +139,7 @@ public class TestSchedulerApplicationAttempt {
   private RMContainer createRMContainer(ApplicationAttemptId appAttId, int id,
       Resource resource) {
     ContainerId containerId = ContainerId.newContainerId(appAttId, id);
-    RMContainer rmContainer = mock(RMContainerImpl.class);
+    RMContainer rmContainer = mock(RMContainer.class);
     Container container = mock(Container.class);
     when(container.getResource()).thenReturn(resource);
     when(container.getNodeId()).thenReturn(nodeId);
@@ -159,18 +149,11 @@ public class TestSchedulerApplicationAttempt {
   }
   
   private Queue createQueue(String name, Queue parent) {
-    return createQueue(name, parent, 1.0f);
-  }
-
-  private Queue createQueue(String name, Queue parent, float capacity) {
     QueueMetrics metrics = QueueMetrics.forQueue(name, parent, false, conf);
-    QueueInfo queueInfo = QueueInfo.newInstance(name, capacity, 1.0f, 0, null,
-        null, QueueState.RUNNING, null, "", null, false);
     ActiveUsersManager activeUsersManager = new ActiveUsersManager(metrics);
     Queue queue = mock(Queue.class);
     when(queue.getMetrics()).thenReturn(metrics);
-    when(queue.getAbstractUsersManager()).thenReturn(activeUsersManager);
-    when(queue.getQueueInfo(false, false)).thenReturn(queueInfo);
+    when(queue.getActiveUsersManager()).thenReturn(activeUsersManager);
     return queue;
   }
   
@@ -179,116 +162,5 @@ public class TestSchedulerApplicationAttempt {
     ApplicationAttemptId attId =
         ApplicationAttemptId.newInstance(appIdImpl, attemptId);
     return attId;
-  }
-
-  @Test
-  public void testAppPercentages() throws Exception {
-    FifoScheduler scheduler = mock(FifoScheduler.class);
-    when(scheduler.getClusterResource())
-        .thenReturn(Resource.newInstance(10 * 1024, 10));
-    when(scheduler.getResourceCalculator())
-        .thenReturn(new DefaultResourceCalculator());
-
-    ApplicationAttemptId appAttId = createAppAttemptId(0, 0);
-    RMContext rmContext = mock(RMContext.class);
-    when(rmContext.getEpoch()).thenReturn(3L);
-    when(rmContext.getScheduler()).thenReturn(scheduler);
-
-    final String user = "user1";
-    Queue queue = createQueue("test", null);
-    SchedulerApplicationAttempt app =
-        new SchedulerApplicationAttempt(appAttId, user, queue,
-            queue.getAbstractUsersManager(), rmContext);
-
-    // Resource request
-    Resource requestedResource = Resource.newInstance(1536, 2);
-    app.attemptResourceUsage.incUsed(requestedResource);
-
-    assertEquals(15.0f, app.getResourceUsageReport().getQueueUsagePercentage(),
-        0.01f);
-    assertEquals(15.0f,
-        app.getResourceUsageReport().getClusterUsagePercentage(), 0.01f);
-
-    queue = createQueue("test2", null, 0.5f);
-    app = new SchedulerApplicationAttempt(appAttId, user, queue,
-        queue.getAbstractUsersManager(), rmContext);
-    app.attemptResourceUsage.incUsed(requestedResource);
-    assertEquals(30.0f, app.getResourceUsageReport().getQueueUsagePercentage(),
-        0.01f);
-    assertEquals(15.0f,
-        app.getResourceUsageReport().getClusterUsagePercentage(), 0.01f);
-
-    app.attemptResourceUsage.incUsed(requestedResource);
-    app.attemptResourceUsage.incUsed(requestedResource);
-    app.attemptResourceUsage.incUsed(requestedResource);
-
-    assertEquals(120.0f, app.getResourceUsageReport().getQueueUsagePercentage(),
-        0.01f);
-    assertEquals(60.0f,
-        app.getResourceUsageReport().getClusterUsagePercentage(), 0.01f);
-
-    queue = createQueue("test3", null, 0.0f);
-    app = new SchedulerApplicationAttempt(appAttId, user, queue,
-        queue.getAbstractUsersManager(), rmContext);
-
-    // Resource request
-    app.attemptResourceUsage.incUsed(requestedResource);
-
-    assertEquals(0.0f, app.getResourceUsageReport().getQueueUsagePercentage(),
-        0.01f);
-    assertEquals(15.0f,
-        app.getResourceUsageReport().getClusterUsagePercentage(), 0.01f);
-  }
-
-  @Test
-  public void testAppPercentagesOnswitch() throws Exception {
-    FifoScheduler scheduler = mock(FifoScheduler.class);
-    when(scheduler.getClusterResource()).thenReturn(Resource.newInstance(0, 0));
-    when(scheduler.getResourceCalculator())
-        .thenReturn(new DefaultResourceCalculator());
-
-    ApplicationAttemptId appAttId = createAppAttemptId(0, 0);
-    RMContext rmContext = mock(RMContext.class);
-    when(rmContext.getEpoch()).thenReturn(3L);
-    when(rmContext.getScheduler()).thenReturn(scheduler);
-
-    final String user = "user1";
-    Queue queue = createQueue("test", null);
-    SchedulerApplicationAttempt app = new SchedulerApplicationAttempt(appAttId,
-        user, queue, queue.getAbstractUsersManager(), rmContext);
-
-    // Resource request
-    Resource requestedResource = Resource.newInstance(1536, 2);
-    app.attemptResourceUsage.incUsed(requestedResource);
-
-    assertEquals(0.0f, app.getResourceUsageReport().getQueueUsagePercentage(),
-        0.0f);
-    assertEquals(0.0f, app.getResourceUsageReport().getClusterUsagePercentage(),
-        0.0f);
-  }
-
-  @Test
-  public void testSchedulingOpportunityOverflow() throws Exception {
-    ApplicationAttemptId attemptId = createAppAttemptId(0, 0);
-    Queue queue = createQueue("test", null);
-    RMContext rmContext = mock(RMContext.class);
-    when(rmContext.getEpoch()).thenReturn(3L);
-    SchedulerApplicationAttempt app = new SchedulerApplicationAttempt(
-        attemptId, "user", queue, queue.getAbstractUsersManager(), rmContext);
-    Priority priority = Priority.newInstance(1);
-    SchedulerRequestKey schedulerKey = toSchedulerKey(priority);
-    assertEquals(0, app.getSchedulingOpportunities(schedulerKey));
-    app.addSchedulingOpportunity(schedulerKey);
-    assertEquals(1, app.getSchedulingOpportunities(schedulerKey));
-    // verify the count is capped at MAX_VALUE and does not overflow
-    app.setSchedulingOpportunities(schedulerKey, Integer.MAX_VALUE - 1);
-    assertEquals(Integer.MAX_VALUE - 1,
-        app.getSchedulingOpportunities(schedulerKey));
-    app.addSchedulingOpportunity(schedulerKey);
-    assertEquals(Integer.MAX_VALUE,
-        app.getSchedulingOpportunities(schedulerKey));
-    app.addSchedulingOpportunity(schedulerKey);
-    assertEquals(Integer.MAX_VALUE,
-        app.getSchedulingOpportunities(schedulerKey));
   }
 }

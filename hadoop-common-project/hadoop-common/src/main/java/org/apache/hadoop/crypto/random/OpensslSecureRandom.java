@@ -19,13 +19,12 @@ package org.apache.hadoop.crypto.random;
 
 import java.util.Random;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.util.NativeCodeLoader;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.util.PerformanceAdvisory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * OpenSSL secure random using JNI.
@@ -44,8 +43,8 @@ import org.slf4j.LoggerFactory;
 @InterfaceAudience.Private
 public class OpensslSecureRandom extends Random {
   private static final long serialVersionUID = -7828193502768789584L;
-  private static final Logger LOG =
-      LoggerFactory.getLogger(OpensslSecureRandom.class.getName());
+  private static final Log LOG =
+      LogFactory.getLog(OpensslSecureRandom.class.getName());
   
   /** If native SecureRandom unavailable, use java SecureRandom */
   private java.security.SecureRandom fallback = null;
@@ -68,8 +67,6 @@ public class OpensslSecureRandom extends Random {
   
   public OpensslSecureRandom() {
     if (!nativeEnabled) {
-      PerformanceAdvisory.LOG.debug("Build does not support openssl, " +
-          "falling back to Java SecureRandom.");
       fallback = new java.security.SecureRandom();
     }
   }

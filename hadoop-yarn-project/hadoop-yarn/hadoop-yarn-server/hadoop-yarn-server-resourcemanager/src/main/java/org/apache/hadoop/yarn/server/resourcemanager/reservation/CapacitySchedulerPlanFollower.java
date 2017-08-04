@@ -81,6 +81,22 @@ public class CapacitySchedulerPlanFollower extends AbstractSchedulerPlanFollower
   }
 
   @Override
+  protected float calculateReservationToPlanRatio(
+      Resource clusterResources, Resource planResources,
+      Resource reservationResources) {
+    return Resources.divide(cs.getResourceCalculator(),
+        clusterResources, reservationResources, planResources);
+  }
+
+  @Override
+  protected boolean arePlanResourcesLessThanReservations(
+      Resource clusterResources, Resource planResources,
+      Resource reservedResources) {
+    return Resources.greaterThan(cs.getResourceCalculator(),
+        clusterResources, reservedResources, planResources);
+  }
+
+  @Override
   protected List<? extends Queue> getChildReservationQueues(Queue queue) {
     PlanQueue planQueue = (PlanQueue)queue;
     List<CSQueue> childQueues = planQueue.getChildQueues();

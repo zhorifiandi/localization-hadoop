@@ -57,15 +57,10 @@ public abstract class RpcAuthInfo {
     this.flavor = flavor;
   }
   
-  /**
-   * Load auth info.
-   * @param xdr XDR message
-   */
+  /** Load auth info */
   public abstract void read(XDR xdr);
   
-  /** Write auth info.
-   * @param xdr XDR message
-   */
+  /** Write auth info */
   public abstract void write(XDR xdr);
   
   public AuthFlavor getFlavor() {

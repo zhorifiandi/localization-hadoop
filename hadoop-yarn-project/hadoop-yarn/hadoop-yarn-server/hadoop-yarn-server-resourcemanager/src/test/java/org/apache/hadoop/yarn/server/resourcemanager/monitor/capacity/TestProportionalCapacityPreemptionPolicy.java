@@ -17,6 +17,43 @@
  */
 package org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity;
 
+import static org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy.MAX_IGNORED_OVER_CAPACITY;
+import static org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy.MONITORING_INTERVAL;
+import static org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy.NATURAL_TERMINATION_FACTOR;
+import static org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy.OBSERVE_ONLY;
+import static org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy.TOTAL_PREEMPTION_PER_ROUND;
+import static org.apache.hadoop.yarn.server.resourcemanager.monitor.capacity.ProportionalCapacityPreemptionPolicy.WAIT_TIME_BEFORE_KILL;
+import static org.apache.hadoop.yarn.server.resourcemanager.scheduler.ContainerPreemptEventType.KILL_CONTAINER;
+import static org.apache.hadoop.yarn.server.resourcemanager.scheduler.ContainerPreemptEventType.PREEMPT_CONTAINER;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Matchers.argThat;
+import static org.mockito.Matchers.isA;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyString;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableSet;
+import java.util.Random;
+import java.util.Set;
+import java.util.StringTokenizer;
+import java.util.TreeSet;
+
+import org.apache.commons.collections.map.HashedMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.service.Service;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
@@ -24,36 +61,25 @@ import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.NodeId;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.event.Dispatcher;
-import org.apache.hadoop.yarn.event.Event;
 import org.apache.hadoop.yarn.event.EventHandler;
 import org.apache.hadoop.yarn.server.resourcemanager.MockRM;
 import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
 import org.apache.hadoop.yarn.server.resourcemanager.monitor.SchedulingMonitor;
 import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMNodeLabelsManager;
+import org.apache.hadoop.yarn.server.resourcemanager.resource.Priority;
 import org.apache.hadoop.yarn.server.resourcemanager.rmcontainer.RMContainer;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceUsage;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.policy.QueueOrderingPolicy;
-import org.apache.hadoop.yarn.server.scheduler.SchedulerRequestKey;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ContainerPreemptEvent;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ContainerPreemptEventType;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CSQueue;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacitySchedulerConfiguration;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.LeafQueue;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.ParentQueue;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.QueueCapacities;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.preemption.PreemptionManager;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.common.fica.FiCaSchedulerApp;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.common.fica.FiCaSchedulerNode;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.ContainerPreemptEvent;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEvent;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEventType;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.policy.OrderingPolicy;
 import org.apache.hadoop.yarn.util.Clock;
 import org.apache.hadoop.yarn.util.resource.DefaultResourceCalculator;
-import org.apache.hadoop.yarn.util.resource.DominantResourceCalculator;
 import org.apache.hadoop.yarn.util.resource.ResourceCalculator;
 import org.apache.hadoop.yarn.util.resource.Resources;
 import org.junit.Before;
@@ -62,37 +88,7 @@ import org.junit.Test;
 import org.junit.rules.TestName;
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatcher;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.Deque;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.NavigableSet;
-import java.util.Random;
-import java.util.StringTokenizer;
-import java.util.TreeSet;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
-import static org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEventType.MARK_CONTAINER_FOR_KILLABLE;
-import static org.apache.hadoop.yarn.server.resourcemanager.scheduler.event.SchedulerEventType.MARK_CONTAINER_FOR_PREEMPTION;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Matchers.argThat;
-import static org.mockito.Matchers.eq;
-import static org.mockito.Matchers.isA;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
+import org.mortbay.log.Log;
 
 public class TestProportionalCapacityPreemptionPolicy {
 
@@ -104,11 +100,12 @@ public class TestProportionalCapacityPreemptionPolicy {
   float setAMResourcePercent = 0.0f;
   Random rand = null;
   Clock mClock = null;
-  CapacitySchedulerConfiguration conf = null;
+  Configuration conf = null;
   CapacityScheduler mCS = null;
   RMContext rmContext = null;
   RMNodeLabelsManager lm = null;
-  EventHandler<Event> mDisp = null;
+  CapacitySchedulerConfiguration schedConf = null;
+  EventHandler<ContainerPreemptEvent> mDisp = null;
   ResourceCalculator rc = new DefaultResourceCalculator();
   Resource clusterResources = null;
   final ApplicationAttemptId appA = ApplicationAttemptId.newInstance(
@@ -130,7 +127,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     AMCONTAINER(0), CONTAINER(1), LABELEDCONTAINER(2);
     int value;
 
-    priority(int value) {
+    private priority(int value) {
       this.value = value;
     }
 
@@ -144,42 +141,30 @@ public class TestProportionalCapacityPreemptionPolicy {
   @Before
   @SuppressWarnings("unchecked")
   public void setup() {
-    conf = new CapacitySchedulerConfiguration(new Configuration(false));
-    conf.setLong(
-        CapacitySchedulerConfiguration.PREEMPTION_WAIT_TIME_BEFORE_KILL, 10000);
-    conf.setLong(CapacitySchedulerConfiguration.PREEMPTION_MONITORING_INTERVAL,
-        3000);
+    conf = new Configuration(false);
+    conf.setLong(WAIT_TIME_BEFORE_KILL, 10000);
+    conf.setLong(MONITORING_INTERVAL, 3000);
     // report "ideal" preempt
-    conf.setFloat(CapacitySchedulerConfiguration.TOTAL_PREEMPTION_PER_ROUND,
-        1.0f);
-    conf.setFloat(
-        CapacitySchedulerConfiguration.PREEMPTION_NATURAL_TERMINATION_FACTOR,
-        1.0f);
+    conf.setFloat(TOTAL_PREEMPTION_PER_ROUND, (float) 1.0);
+    conf.setFloat(NATURAL_TERMINATION_FACTOR, (float) 1.0);
     conf.set(YarnConfiguration.RM_SCHEDULER_MONITOR_POLICIES,
         ProportionalCapacityPreemptionPolicy.class.getCanonicalName());
     conf.setBoolean(YarnConfiguration.RM_SCHEDULER_ENABLE_MONITORS, true);
     // FairScheduler doesn't support this test,
     // Set CapacityScheduler as the scheduler for this test.
-    conf.set(YarnConfiguration.RM_SCHEDULER, CapacityScheduler.class.getName());
+    conf.set("yarn.resourcemanager.scheduler.class",
+        CapacityScheduler.class.getName());
 
     mClock = mock(Clock.class);
     mCS = mock(CapacityScheduler.class);
     when(mCS.getResourceCalculator()).thenReturn(rc);
     lm = mock(RMNodeLabelsManager.class);
-    try {
-      when(lm.isExclusiveNodeLabel(anyString())).thenReturn(true);
-    } catch (IOException e) {
-      // do nothing
-    }
-    when(mCS.getConfiguration()).thenReturn(conf);
+    schedConf = new CapacitySchedulerConfiguration();
+    when(mCS.getConfiguration()).thenReturn(schedConf);
     rmContext = mock(RMContext.class);
     when(mCS.getRMContext()).thenReturn(rmContext);
-    when(mCS.getPreemptionManager()).thenReturn(new PreemptionManager());
     when(rmContext.getNodeLabelManager()).thenReturn(lm);
     mDisp = mock(EventHandler.class);
-    Dispatcher disp = mock(Dispatcher.class);
-    when(rmContext.getDispatcher()).thenReturn(disp);
-    when(disp.getEventHandler()).thenReturn(mDisp);
     rand = new Random();
     long seed = rand.nextLong();
     System.out.println(name.getMethodName() + " SEED: " + seed);
@@ -221,9 +206,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     };
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
-
-    // A will preempt guaranteed-allocated.
-    verify(mDisp, times(10)).handle(argThat(new IsPreemptionRequestFor(appA)));
+    verify(mDisp, times(16)).handle(argThat(new IsPreemptionRequestFor(appA)));
   }
   
   @Test
@@ -279,9 +262,7 @@ public class TestProportionalCapacityPreemptionPolicy {
       {  -1,  1,  1,  1 },  // req granularity
       {   3,  0,  0,  0 },  // subqueues
     };
-    conf.setLong(
-        CapacitySchedulerConfiguration.PREEMPTION_WAIT_TIME_BEFORE_KILL,
-        killTime);
+    conf.setLong(WAIT_TIME_BEFORE_KILL, killTime);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
 
     // ensure all pending rsrc from A get preempted from other queues
@@ -292,16 +273,16 @@ public class TestProportionalCapacityPreemptionPolicy {
     // requests reiterated
     when(mClock.getTime()).thenReturn(killTime / 2);
     policy.editSchedule();
-    verify(mDisp, times(10)).handle(argThat(new IsPreemptionRequestFor(appC)));
+    verify(mDisp, times(20)).handle(argThat(new IsPreemptionRequestFor(appC)));
 
     // kill req sent
     when(mClock.getTime()).thenReturn(killTime + 1);
     policy.editSchedule();
-    verify(mDisp, times(20)).handle(evtCaptor.capture());
+    verify(mDisp, times(30)).handle(evtCaptor.capture());
     List<ContainerPreemptEvent> events = evtCaptor.getAllValues();
-    for (ContainerPreemptEvent e : events.subList(20, 20)) {
+    for (ContainerPreemptEvent e : events.subList(20, 30)) {
       assertEquals(appC, e.getAppId());
-      assertEquals(MARK_CONTAINER_FOR_KILLABLE, e.getType());
+      assertEquals(KILL_CONTAINER, e.getType());
     }
   }
 
@@ -318,9 +299,7 @@ public class TestProportionalCapacityPreemptionPolicy {
       {  -1,  1,  1,  1 },  // req granularity
       {   3,  0,  0,  0 },  // subqueues
     };
-    conf.setFloat(
-        CapacitySchedulerConfiguration.PREEMPTION_MAX_IGNORED_OVER_CAPACITY,
-        (float) 0.1);
+    conf.setFloat(MAX_IGNORED_OVER_CAPACITY, (float) 0.1);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
     // ignore 10% overcapacity to avoid jitter
@@ -342,7 +321,7 @@ public class TestProportionalCapacityPreemptionPolicy {
         {   3,   0,   0,  0 },  // subqueues
       };
 
-    conf.setPreemptionDisabled("root.queueB", true);
+    schedConf.setPreemptionDisabled("root.queueB", true);
 
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
@@ -355,7 +334,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     // event handler will count only events from the following test and not the
     // previous one.
     setup();
-    conf.setPreemptionDisabled("root.queueB", false);
+    schedConf.setPreemptionDisabled("root.queueB", false);
     ProportionalCapacityPreemptionPolicy policy2 = buildPolicy(qData);
 
     policy2.editSchedule();
@@ -389,12 +368,12 @@ public class TestProportionalCapacityPreemptionPolicy {
             appA.getApplicationId(), appA.getAttemptId());
     assertTrue("appA should be running on queueB",
         mCS.getAppsInQueue("queueB").contains(expectedAttemptOnQueueB));
-    verify(mDisp, times(10)).handle(argThat(new IsPreemptionRequestFor(appA)));
+    verify(mDisp, times(9)).handle(argThat(new IsPreemptionRequestFor(appA)));
 
     // Need to call setup() again to reset mDisp
     setup();
     // Turn off preemption for queueB and it's children
-    conf.setPreemptionDisabled("root.queueA.queueB", true);
+    schedConf.setPreemptionDisabled("root.queueA.queueB", true);
     ProportionalCapacityPreemptionPolicy policy2 = buildPolicy(qData);
     policy2.editSchedule();
     ApplicationAttemptId expectedAttemptOnQueueC = 
@@ -412,7 +391,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     // Resources should have come from queueE (appC) and neither of queueA's
     // children.
     verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appA)));
-    verify(mDisp, times(10)).handle(argThat(new IsPreemptionRequestFor(appC)));
+    verify(mDisp, times(9)).handle(argThat(new IsPreemptionRequestFor(appC)));
   }
 
   @Test
@@ -441,7 +420,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     // Need to call setup() again to reset mDisp
     setup();
     // Turn off preemption for queueB(appA)
-    conf.setPreemptionDisabled("root.queueA.queueB", true);
+    schedConf.setPreemptionDisabled("root.queueA.queueB", true);
     ProportionalCapacityPreemptionPolicy policy2 = buildPolicy(qData);
     policy2.editSchedule();
     // Now that queueB(appA) is not preemptable, verify that resources come
@@ -451,8 +430,8 @@ public class TestProportionalCapacityPreemptionPolicy {
 
     setup();
     // Turn off preemption for two of the 3 queues with over-capacity.
-    conf.setPreemptionDisabled("root.queueD.queueE", true);
-    conf.setPreemptionDisabled("root.queueA.queueB", true);
+    schedConf.setPreemptionDisabled("root.queueD.queueE", true);
+    schedConf.setPreemptionDisabled("root.queueA.queueB", true);
     ProportionalCapacityPreemptionPolicy policy3 = buildPolicy(qData);
     policy3.editSchedule();
 
@@ -487,13 +466,13 @@ public class TestProportionalCapacityPreemptionPolicy {
     // With all queues preemptable, resources should be taken from queueC(appA)
     // and queueD(appB). Resources taken more from queueD(appB) than
     // queueC(appA) because it's over its capacity by a larger percentage.
-    verify(mDisp, times(17)).handle(argThat(new IsPreemptionRequestFor(appA)));
-    verify(mDisp, times(183)).handle(argThat(new IsPreemptionRequestFor(appB)));
+    verify(mDisp, times(16)).handle(argThat(new IsPreemptionRequestFor(appA)));
+    verify(mDisp, times(182)).handle(argThat(new IsPreemptionRequestFor(appB)));
 
     // Turn off preemption for queueA and it's children. queueF(appC)'s request
     // should starve.
     setup(); // Call setup() to reset mDisp
-    conf.setPreemptionDisabled("root.queueA", true);
+    schedConf.setPreemptionDisabled("root.queueA", true);
     ProportionalCapacityPreemptionPolicy policy2 = buildPolicy(qData);
     policy2.editSchedule();
     verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appA))); // queueC
@@ -517,7 +496,7 @@ public class TestProportionalCapacityPreemptionPolicy {
       {   -1,   -1,    1,    1,    1,   -1,    1,    1,    1 },  // req granularity
       {    2,    3,    0,    0,    0,    3,    0,    0,    0 },  // subqueues
     };
-    conf.setPreemptionDisabled("root.queueA.queueC", true);
+    schedConf.setPreemptionDisabled("root.queueA.queueC", true);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
     // Although queueC(appB) is way over capacity and is untouchable,
@@ -541,7 +520,7 @@ public class TestProportionalCapacityPreemptionPolicy {
         {   3,   2,   0,   0,   2,   0,   0,   2,   0,   0 },  // subqueues
    };
 
-    conf.setPreemptionDisabled("root", true);
+    schedConf.setPreemptionDisabled("root", true);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
     // All queues should be non-preemptable, so request should starve.
@@ -568,7 +547,7 @@ public class TestProportionalCapacityPreemptionPolicy {
         {   2,   2,   0,   0,   2,   0,   0 },  // subqueues
     };
     // QueueE inherits non-preemption from QueueD
-    conf.setPreemptionDisabled("root.queueD", true);
+    schedConf.setPreemptionDisabled("root.queueD", true);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
     // appC is running on QueueE. QueueE is over absMaxCap, but is not
@@ -591,8 +570,8 @@ public class TestProportionalCapacityPreemptionPolicy {
     };
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
-    // Will not preempt for over capacity queues
-    verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appA)));
+    // correct imbalance between over-capacity queues
+    verify(mDisp, times(5)).handle(argThat(new IsPreemptionRequestFor(appA)));
   }
 
   @Test
@@ -608,10 +587,7 @@ public class TestProportionalCapacityPreemptionPolicy {
       {  -1,  1,  1,  0 },  // req granularity
       {   3,  0,  0,  0 },  // subqueues
     };
-    conf.setFloat(
-        CapacitySchedulerConfiguration.PREEMPTION_NATURAL_TERMINATION_FACTOR,
-        (float) 0.1);
-
+    conf.setFloat(NATURAL_TERMINATION_FACTOR, (float) 0.1);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
     // ignore 10% imbalance between over-capacity queues
@@ -631,10 +607,7 @@ public class TestProportionalCapacityPreemptionPolicy {
       {  -1,  1,  1,  0 },  // req granularity
       {   3,  0,  0,  0 },  // subqueues
     };
-    conf.setBoolean(CapacitySchedulerConfiguration.PREEMPTION_OBSERVE_ONLY,
-        true);
-    when(mCS.getConfiguration()).thenReturn(
-        new CapacitySchedulerConfiguration(conf));
+    conf.setBoolean(OBSERVE_ONLY, true);
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
     // verify even severe imbalance not affected
@@ -658,27 +631,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     policy.editSchedule();
     // verify capacity taken from A1, not B1 despite B1 being far over
     // its absolute guaranteed capacity
-    verify(mDisp, times(10)).handle(argThat(new IsPreemptionRequestFor(appA)));
-  }
-
-  @Test
-  public void testHierarchicalWithReserved() {
-    int[][] qData = new int[][] {
-        //  /    A   B   C    D   E   F
-        { 200, 100, 50, 50, 100, 10, 90 },  // abs
-        { 200, 200, 200, 200, 200, 200, 200 },  // maxCap
-        { 200, 110, 60, 50,  90, 90,  0 },  // used
-        {  10,   0,  0,  0,  10,  0, 10 },  // pending
-        {  40,  25,  15, 10, 15,  15,  0 },  // reserved
-        {   4,   2,  1,  1,   2,  1,  1 },  // apps
-        {  -1,  -1,  1,  1,  -1,  1,  1 },  // req granularity
-        {   2,   2,  0,  0,   2,  0,  0 },  // subqueues
-    };
-    ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
-    policy.editSchedule();
-    // verify capacity taken from A1, not B1 despite B1 being far over
-    // its absolute guaranteed capacity
-    verify(mDisp, times(10)).handle(argThat(new IsPreemptionRequestFor(appA)));
+    verify(mDisp, times(9)).handle(argThat(new IsPreemptionRequestFor(appA)));
   }
 
   @Test
@@ -705,7 +658,7 @@ public class TestProportionalCapacityPreemptionPolicy {
   public void testZeroGuarOverCap() {
     int[][] qData = new int[][] {
       //  /    A   B   C    D   E   F
-         { 200, 100, 0, 100, 0, 100, 100 },  // abs
+         { 200, 100, 0, 99, 0, 100, 100 },  // abs
         { 200, 200, 200, 200, 200, 200, 200 },  // maxCap
         { 170,  170, 60, 20, 90, 0,  0 },  // used
         {  85,   50,  30,  10,  10,  20, 20 },  // pending
@@ -716,13 +669,13 @@ public class TestProportionalCapacityPreemptionPolicy {
     };
     ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
     policy.editSchedule();
-    // No preemption should happen because zero guaranteed queues should be
-    // treated as always satisfied, they should not preempt from each other.
-    verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appA)));
-    verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appB)));
-    verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appC)));
-    verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appD)));
+    // we verify both that C has priority on B and D (has it has >0 guarantees)
+    // and that B and D are force to share their over capacity fairly (as they
+    // are both zero-guarantees) hence D sees some of its containers preempted
+    verify(mDisp, times(14)).handle(argThat(new IsPreemptionRequestFor(appC)));
   }
+  
+  
   
   @Test
   public void testHierarchicalLarge() {
@@ -746,8 +699,8 @@ public class TestProportionalCapacityPreemptionPolicy {
 
     // XXX note: compensating for rounding error in Resources.multiplyTo
     // which is likely triggered since we use small numbers for readability
-    verify(mDisp, times(9)).handle(argThat(new IsPreemptionRequestFor(appA)));
-    verify(mDisp, times(6)).handle(argThat(new IsPreemptionRequestFor(appE)));
+    verify(mDisp, times(7)).handle(argThat(new IsPreemptionRequestFor(appA)));
+    verify(mDisp, times(5)).handle(argThat(new IsPreemptionRequestFor(appE)));
   }
 
   @Test
@@ -773,7 +726,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     containers.add(rm4);
 
     // sort them
-    FifoCandidatesSelector.sortContainers(containers);
+    ProportionalCapacityPreemptionPolicy.sortContainers(containers);
 
     // verify the "priority"-first, "reverse container-id"-second
     // ordering is enforced correctly
@@ -839,6 +792,50 @@ public class TestProportionalCapacityPreemptionPolicy {
     // has to be preempted.
     verify(mDisp, times(2)).handle(argThat(new IsPreemptionRequestFor(appB)));
     setAMContainer = false;
+  }
+
+  @Test
+  public void testIdealAllocationForLabels() {
+    int[][] qData = new int[][] {
+    // / A B
+        { 80, 40, 40 }, // abs
+        { 80, 80, 80 }, // maxcap
+        { 80, 80, 0 }, // used
+        { 70, 20, 50 }, // pending
+        { 0, 0, 0 }, // reserved
+        { 5, 4, 1 }, // apps
+        { -1, 1, 1 }, // req granularity
+        { 2, 0, 0 }, // subqueues
+    };
+    setAMContainer = true;
+    setLabeledContainer = true;
+    Map<NodeId, Set<String>> labels = new HashMap<NodeId, Set<String>>();
+    NodeId node = NodeId.newInstance("node1", 0);
+    Set<String> labelSet = new HashSet<String>();
+    labelSet.add("x");
+    labels.put(node, labelSet);
+    when(lm.getNodeLabels()).thenReturn(labels);
+    ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
+    // Subtracting Label X resources from cluster resources
+    when(lm.getResourceByLabel(anyString(), any(Resource.class))).thenReturn(
+        Resources.clone(Resource.newInstance(80, 0)));
+    clusterResources.setMemory(100);
+    policy.editSchedule();
+
+    // By skipping AM Container and Labeled container, all other 18 containers
+    // of appD will be
+    // preempted
+    verify(mDisp, times(19)).handle(argThat(new IsPreemptionRequestFor(appD)));
+
+    // By skipping AM Container and Labeled container, all other 18 containers
+    // of appC will be
+    // preempted
+    verify(mDisp, times(19)).handle(argThat(new IsPreemptionRequestFor(appC)));
+
+    // rest 4 containers from appB will be preempted
+    verify(mDisp, times(2)).handle(argThat(new IsPreemptionRequestFor(appB)));
+    setAMContainer = false;
+    setLabeledContainer = false;
   }
 
   @Test
@@ -911,137 +908,15 @@ public class TestProportionalCapacityPreemptionPolicy {
     setAMContainer = false;
   }
 
-  @Test
-  public void testPreemptionWithVCoreResource() {
-    int[][] qData = new int[][]{
-        // / A B
-        {100, 100, 100}, // maxcap
-        {5, 1, 1}, // apps
-        {2, 0, 0}, // subqueues
-    };
-
-    // Resources can be set like memory:vcores
-    String[][] resData = new String[][]{
-        // / A B
-        {"100:100", "50:50", "50:50"}, // abs
-        {"10:100", "10:100", "0"}, // used
-        {"70:20", "70:20", "10:100"}, // pending
-        {"0", "0", "0"}, // reserved
-        {"-1", "1:10", "1:10"}, // req granularity
-    };
-
-    // Passing last param as TRUE to use DominantResourceCalculator
-    ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData, resData,
-        true);
-    policy.editSchedule();
-
-    // 5 containers will be preempted here
-    verify(mDisp, times(5)).handle(argThat(new IsPreemptionRequestFor(appA)));
-  }
-
-  @Test
-  public void testHierarchicalLarge3Levels() {
-    int[][] qData = new int[][] {
-      //  /    A                      F               I
-      //            B    C                  G    H          J    K
-      //                    D    E
-      { 400, 200,  60, 140, 100, 40,  100,  70,  30, 100,  10,  90 },  // abs
-      { 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400 },  // maxCap
-      { 400, 210,  60, 150, 100, 50,  100,  50,  50,  90,  10,   80 },  // used
-      {  10,   0,   0,   0,  0,   0,   0,   0,   0,   0,   0,  10 },  // pending
-      {   0,   0,   0,   0,  0,   0,   0,   0,   0,   0,   0,   0 },  // reserved
-      //          appA     appB appC   appD appE      appF appG
-      {   7,   3,   1,   2,   1,   1,  2,   1,   1,   2,   1,   1 },  // apps
-      {  -1,  -1,   1,   -1,  1,   1,  -1,   1,   1,  -1,   1,   1 },  // req granularity
-      {   3,   2,   0,   2,   0,   0,   2,   0,   0,   2,   0,   0 },  // subqueues
-    };
-    ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
-    policy.editSchedule();
-    // XXX note: compensating for rounding error in Resources.multiplyTo
-    // which is likely triggered since we use small numbers for readability
-    //run with Logger.getRootLogger().setLevel(Level.DEBUG);
-    verify(mDisp, times(9)).handle(argThat(new IsPreemptionRequestFor(appC)));
-    assertEquals(10, policy.getQueuePartitions().get("queueE").get("").preemptableExtra.getMemorySize());
-    //2nd level child(E) preempts 10, but parent A has only 9 extra
-    //check the parent can prempt only the extra from > 2 level child
-    TempQueuePerPartition tempQueueAPartition = policy.getQueuePartitions().get(
-        "queueA").get("");
-    assertEquals(0, tempQueueAPartition.untouchableExtra.getMemorySize());
-    long extraForQueueA =
-        tempQueueAPartition.getUsed().getMemorySize() - tempQueueAPartition
-            .getGuaranteed().getMemorySize();
-    assertEquals(extraForQueueA,
-        tempQueueAPartition.preemptableExtra.getMemorySize());
-  }
-
-  @Test
-  public void testHierarchicalLarge3LevelsWithReserved() {
-    int[][] qData = new int[][] {
-        //  /    A                      F               I
-        //            B    C                  G    H          J    K
-        //                    D    E
-        { 400, 200,  60, 140, 100, 40,  100,  70,  30, 100,  10,  90 },  // abs
-        { 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400, 400 },  // maxCap
-        { 400, 210,  60, 150, 100, 50,  100,  50,  50,  90,  10,   80 },  // used
-        {  10,   0,   0,   0,  0,   0,   0,   0,   0,   0,   0,  10 },  // pending
-        {  50,  30,  20,   10, 5,   5,   0,   0,   0,  10,  10,   0 },  // reserved
-        //          appA     appB appC   appD appE      appF appG
-        {   7,   3,   1,   2,   1,   1,  2,   1,   1,   2,   1,   1 },  // apps
-        {  -1,  -1,   1,   -1,  1,   1,  -1,   1,   1,  -1,   1,   1 },  // req granularity
-        {   3,   2,   0,   2,   0,   0,   2,   0,   0,   2,   0,   0 },  // subqueues
-    };
-    ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
-    policy.editSchedule();
-
-    verify(mDisp, times(9)).handle(argThat(new IsPreemptionRequestFor(appC)));
-    assertEquals(10, policy.getQueuePartitions().get("queueE")
-        .get("").preemptableExtra.getMemorySize());
-    //2nd level child(E) preempts 10, but parent A has only 9 extra
-    //check the parent can prempt only the extra from > 2 level child
-    TempQueuePerPartition tempQueueAPartition = policy.getQueuePartitions().get(
-        "queueA").get("");
-    assertEquals(0, tempQueueAPartition.untouchableExtra.getMemorySize());
-    long extraForQueueA =
-        tempQueueAPartition.getUsed().getMemorySize() - tempQueueAPartition
-            .getGuaranteed().getMemorySize();
-    assertEquals(extraForQueueA,
-        tempQueueAPartition.preemptableExtra.getMemorySize());
-  }
-
-  @Test
-  public void testPreemptionNotHappenForSingleReservedQueue() {
-    /*
-     * Test case to make sure, when reserved > pending, preemption will not
-     * happen if there's only one demanding queue.
-     */
-
-    int[][] qData = new int[][]{
-        //  /   A   B   C
-        { 100, 40, 40, 20 },  // abs
-        { 100, 100, 100, 100 },  // maxCap
-        { 100,  70,  0,  0 },  // used
-        {  10, 30,  0,  0 },  // pending
-        {   0,  50,  0,  0 },  // reserved
-        {   1,  1,  0,  0 },  // apps
-        {  -1,  1,  1,  1 },  // req granularity
-        {   3,  0,  0,  0 },  // subqueues
-    };
-    ProportionalCapacityPreemptionPolicy policy = buildPolicy(qData);
-    policy.editSchedule();
-
-    // No preemption happens
-    verify(mDisp, never()).handle(argThat(new IsPreemptionRequestFor(appA)));
-  }
-
   static class IsPreemptionRequestFor
       extends ArgumentMatcher<ContainerPreemptEvent> {
     private final ApplicationAttemptId appAttId;
-    private final SchedulerEventType type;
+    private final ContainerPreemptEventType type;
     IsPreemptionRequestFor(ApplicationAttemptId appAttId) {
-      this(appAttId, MARK_CONTAINER_FOR_PREEMPTION);
+      this(appAttId, PREEMPT_CONTAINER);
     }
     IsPreemptionRequestFor(ApplicationAttemptId appAttId,
-        SchedulerEventType type) {
+        ContainerPreemptEventType type) {
       this.appAttId = appAttId;
       this.type = type;
     }
@@ -1057,153 +932,60 @@ public class TestProportionalCapacityPreemptionPolicy {
   }
 
   ProportionalCapacityPreemptionPolicy buildPolicy(int[][] qData) {
-    ProportionalCapacityPreemptionPolicy policy = new ProportionalCapacityPreemptionPolicy(
-        rmContext, mCS, mClock);
-    clusterResources = Resource.newInstance(
-        leafAbsCapacities(qData[0], qData[7]), 0);
+    ProportionalCapacityPreemptionPolicy policy =
+      new ProportionalCapacityPreemptionPolicy(conf, mDisp, mCS, mClock);
     ParentQueue mRoot = buildMockRootQueue(rand, qData);
     when(mCS.getRootQueue()).thenReturn(mRoot);
 
-    setResourceAndNodeDetails();
-    return policy;
-  }
-
-  ProportionalCapacityPreemptionPolicy buildPolicy(int[][] qData,
-      String[][] resData, boolean useDominantResourceCalculator) {
-    if (useDominantResourceCalculator) {
-      when(mCS.getResourceCalculator()).thenReturn(
-          new DominantResourceCalculator());
-    }
-    ProportionalCapacityPreemptionPolicy policy =
-        new ProportionalCapacityPreemptionPolicy(rmContext, mCS, mClock);
-    clusterResources = leafAbsCapacities(parseResourceDetails(resData[0]),
-        qData[2]);
-    ParentQueue mRoot = buildMockRootQueue(rand, resData, qData);
-    when(mCS.getRootQueue()).thenReturn(mRoot);
-
-    setResourceAndNodeDetails();
-    return policy;
-  }
-
-  private void setResourceAndNodeDetails() {
+    clusterResources =
+      Resource.newInstance(leafAbsCapacities(qData[0], qData[7]), 0);
     when(mCS.getClusterResource()).thenReturn(clusterResources);
-    when(lm.getResourceByLabel(anyString(), any(Resource.class))).thenReturn(
-        clusterResources);
-
-    FiCaSchedulerNode mNode = mock(FiCaSchedulerNode.class);
-    when(mNode.getPartition()).thenReturn(RMNodeLabelsManager.NO_LABEL);
-    when(mCS.getSchedulerNode(any(NodeId.class))).thenReturn(mNode);
+    return policy;
   }
 
   ParentQueue buildMockRootQueue(Random r, int[]... queueData) {
-    Resource[] abs = generateResourceList(queueData[0]);
-    Resource[] used = generateResourceList(queueData[2]);
-    Resource[] pending = generateResourceList(queueData[3]);
-    Resource[] reserved = generateResourceList(queueData[4]);
-    Resource[] gran = generateResourceList(queueData[6]);
-    int[] maxCap = queueData[1];
-    int[] apps = queueData[5];
-    int[] queues = queueData[7];
+    int[] abs      = queueData[0];
+    int[] maxCap   = queueData[1];
+    int[] used     = queueData[2];
+    int[] pending  = queueData[3];
+    int[] reserved = queueData[4];
+    int[] apps     = queueData[5];
+    int[] gran     = queueData[6];
+    int[] queues   = queueData[7];
 
-    return mockNested(abs, maxCap, used, pending, reserved, apps, gran, queues);
+    return mockNested(abs, maxCap, used, pending,  reserved, apps, gran, queues);
   }
 
-  ParentQueue buildMockRootQueue(Random r, String[][] resData,
-      int[]... queueData) {
-    Resource[] abs = parseResourceDetails(resData[0]);
-    Resource[] used = parseResourceDetails(resData[1]);
-    Resource[] pending = parseResourceDetails(resData[2]);
-    Resource[] reserved = parseResourceDetails(resData[3]);
-    Resource[] gran = parseResourceDetails(resData[4]);
-    int[] maxCap = queueData[0];
-    int[] apps = queueData[1];
-    int[] queues = queueData[2];
-
-    return mockNested(abs, maxCap, used, pending, reserved, apps, gran, queues);
-  }
-
-  Resource[] parseResourceDetails(String[] resData) {
-    List<Resource> resourceList = new ArrayList<Resource>();
-    for (int i = 0; i < resData.length; i++) {
-      String[] resource = resData[i].split(":");
-      if (resource.length == 1) {
-        resourceList.add(Resource.newInstance(Integer.parseInt(resource[0]), 0));
-      } else {
-        resourceList.add(Resource.newInstance(Integer.parseInt(resource[0]),
-            Integer.parseInt(resource[1])));
-      }
-    }
-    return resourceList.toArray(new Resource[resourceList.size()]);
-  }
-
-  Resource[] generateResourceList(int[] qData) {
-    List<Resource> resourceList = new ArrayList<Resource>();
-    for (int i = 0; i < qData.length; i++) {
-      resourceList.add(Resource.newInstance(qData[i], 0));
-    }
-    return resourceList.toArray(new Resource[resourceList.size()]);
-  }
-
-  ParentQueue mockNested(Resource[] abs, int[] maxCap, Resource[] used,
-      Resource[] pending, Resource[] reserved, int[] apps, Resource[] gran,
-      int[] queues) {
-    ResourceCalculator rc = mCS.getResourceCalculator();
-    Resource tot = leafAbsCapacities(abs, queues);
+  ParentQueue mockNested(int[] abs, int[] maxCap, int[] used,
+      int[] pending, int[] reserved, int[] apps, int[] gran, int[] queues) {
+    float tot = leafAbsCapacities(abs, queues);
     Deque<ParentQueue> pqs = new LinkedList<ParentQueue>();
     ParentQueue root = mockParentQueue(null, queues[0], pqs);
-    ResourceUsage resUsage = new ResourceUsage();
-    resUsage.setUsed(used[0]);
-    resUsage.setReserved(reserved[0]);
-    when(root.getQueueName()).thenReturn(CapacitySchedulerConfiguration.ROOT);
-    when(root.getAbsoluteUsedCapacity()).thenReturn(
-        Resources.divide(rc, tot, used[0], tot));
-    when(root.getAbsoluteCapacity()).thenReturn(
-        Resources.divide(rc, tot, abs[0], tot));
-    when(root.getAbsoluteMaximumCapacity()).thenReturn(
-        maxCap[0] / (float) tot.getMemorySize());
-    when(root.getQueueResourceUsage()).thenReturn(resUsage);
-    QueueCapacities rootQc = new QueueCapacities(true);
-    rootQc.setAbsoluteUsedCapacity(Resources.divide(rc, tot, used[0], tot));
-    rootQc.setAbsoluteCapacity(Resources.divide(rc, tot, abs[0], tot));
-    rootQc.setAbsoluteMaximumCapacity(maxCap[0] / (float) tot.getMemorySize());
-    when(root.getQueueCapacities()).thenReturn(rootQc);
-    when(root.getQueuePath()).thenReturn(CapacitySchedulerConfiguration.ROOT);
+    when(root.getQueueName()).thenReturn("/");
+    when(root.getAbsoluteUsedCapacity()).thenReturn(used[0] / tot);
+    when(root.getAbsoluteCapacity()).thenReturn(abs[0] / tot);
+    when(root.getAbsoluteMaximumCapacity()).thenReturn(maxCap[0] / tot);
+    when(root.getQueuePath()).thenReturn("root");
     boolean preemptionDisabled = mockPreemptionStatus("root");
     when(root.getPreemptionDisabled()).thenReturn(preemptionDisabled);
 
     for (int i = 1; i < queues.length; ++i) {
       final CSQueue q;
       final ParentQueue p = pqs.removeLast();
-      final String queueName = "queue" + ((char) ('A' + i - 1));
+      final String queueName = "queue" + ((char)('A' + i - 1));
       if (queues[i] > 0) {
         q = mockParentQueue(p, queues[i], pqs);
-        ResourceUsage resUsagePerQueue = new ResourceUsage();
-        resUsagePerQueue.setUsed(used[i]);
-        resUsagePerQueue.setReserved(reserved[i]);
-        when(q.getQueueResourceUsage()).thenReturn(resUsagePerQueue);
       } else {
         q = mockLeafQueue(p, tot, i, abs, used, pending, reserved, apps, gran);
       }
       when(q.getParent()).thenReturn(p);
       when(q.getQueueName()).thenReturn(queueName);
-      when(q.getAbsoluteUsedCapacity()).thenReturn(
-          Resources.divide(rc, tot, used[i], tot));
-      when(q.getAbsoluteCapacity()).thenReturn(
-          Resources.divide(rc, tot, abs[i], tot));
-      when(q.getAbsoluteMaximumCapacity()).thenReturn(
-          maxCap[i] / (float) tot.getMemorySize());
-
-      // We need to make these fields to QueueCapacities
-      QueueCapacities qc = new QueueCapacities(false);
-      qc.setAbsoluteUsedCapacity(Resources.divide(rc, tot, used[i], tot));
-      qc.setAbsoluteCapacity(Resources.divide(rc, tot, abs[i], tot));
-      qc.setAbsoluteMaximumCapacity(maxCap[i] / (float) tot.getMemorySize());
-      when(q.getQueueCapacities()).thenReturn(qc);
-
+      when(q.getAbsoluteUsedCapacity()).thenReturn(used[i] / tot);
+      when(q.getAbsoluteCapacity()).thenReturn(abs[i] / tot);
+      when(q.getAbsoluteMaximumCapacity()).thenReturn(maxCap[i] / tot);
       String parentPathName = p.getQueuePath();
       parentPathName = (parentPathName == null) ? "root" : parentPathName;
-      String queuePathName = (parentPathName + "." + queueName).replace("/",
-          "root");
+      String queuePathName = (parentPathName+"."+queueName).replace("/","root");
       when(q.getQueuePath()).thenReturn(queuePathName);
       preemptionDisabled = mockPreemptionStatus(queuePathName);
       when(q.getPreemptionDisabled()).thenReturn(preemptionDisabled);
@@ -1222,7 +1004,7 @@ public class TestProportionalCapacityPreemptionPolicy {
     String qName = "";
     while(tokenizer.hasMoreTokens()) {
       qName += tokenizer.nextToken();
-      preemptionDisabled = conf.getPreemptionDisabled(qName, preemptionDisabled);
+      preemptionDisabled = schedConf.getPreemptionDisabled(qName, preemptionDisabled);
       qName += ".";
     }
     return preemptionDisabled;
@@ -1233,15 +1015,6 @@ public class TestProportionalCapacityPreemptionPolicy {
     ParentQueue pq = mock(ParentQueue.class);
     List<CSQueue> cqs = new ArrayList<CSQueue>();
     when(pq.getChildQueues()).thenReturn(cqs);
-    ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    when(pq.getReadLock()).thenReturn(lock.readLock());
-
-    // Ordering policy
-    QueueOrderingPolicy policy = mock(QueueOrderingPolicy.class);
-    when(policy.getConfigName()).thenReturn(
-        CapacitySchedulerConfiguration.QUEUE_PRIORITY_UTILIZATION_ORDERING_POLICY);
-    when(pq.getQueueOrderingPolicy()).thenReturn(policy);
-    when(pq.getPriority()).thenReturn(Priority.newInstance(0));
     for (int i = 0; i < subqueues; ++i) {
       pqs.add(pq);
     }
@@ -1251,31 +1024,15 @@ public class TestProportionalCapacityPreemptionPolicy {
     return pq;
   }
 
-  @SuppressWarnings("rawtypes")
-  LeafQueue mockLeafQueue(ParentQueue p, Resource tot, int i, Resource[] abs,
-      Resource[] used, Resource[] pending, Resource[] reserved, int[] apps,
-      Resource[] gran) {
+  LeafQueue mockLeafQueue(ParentQueue p, float tot, int i, int[] abs, 
+      int[] used, int[] pending, int[] reserved, int[] apps, int[] gran) {
     LeafQueue lq = mock(LeafQueue.class);
-    ResourceCalculator rc = mCS.getResourceCalculator();
     List<ApplicationAttemptId> appAttemptIdList = 
         new ArrayList<ApplicationAttemptId>();
-    when(lq.getTotalPendingResourcesConsideringUserLimit(isA(Resource.class),
-        isA(String.class), eq(false))).thenReturn(pending[i]);
-
-    when(lq.getTotalPendingResourcesConsideringUserLimit(isA(Resource.class),
-        isA(String.class), eq(true))).thenReturn(Resources.componentwiseMax(
-        Resources.subtract(pending[i],
-            reserved[i] == null ? Resources.none() : reserved[i]),
-        Resources.none()));
-
-    // need to set pending resource in resource usage as well
-    ResourceUsage ru = new ResourceUsage();
-    ru.setPending(pending[i]);
-    ru.setUsed(used[i]);
-    ru.setReserved(reserved[i]);
-    when(lq.getQueueResourceUsage()).thenReturn(ru);
+    when(lq.getTotalResourcePending()).thenReturn(
+        Resource.newInstance(pending[i], 0));
     // consider moving where CapacityScheduler::comparator accessible
-    final NavigableSet<FiCaSchedulerApp> qApps = new TreeSet<FiCaSchedulerApp>(
+    NavigableSet<FiCaSchedulerApp> qApps = new TreeSet<FiCaSchedulerApp>(
       new Comparator<FiCaSchedulerApp>() {
         @Override
         public int compare(FiCaSchedulerApp a1, FiCaSchedulerApp a2) {
@@ -1285,9 +1042,9 @@ public class TestProportionalCapacityPreemptionPolicy {
       });
     // applications are added in global L->R order in queues
     if (apps[i] != 0) {
-      Resource aUsed = Resources.divideAndCeil(rc, used[i], apps[i]);
-      Resource aPending = Resources.divideAndCeil(rc, pending[i], apps[i]);
-      Resource aReserve = Resources.divideAndCeil(rc, reserved[i], apps[i]);
+      int aUsed    = used[i] / apps[i];
+      int aPending = pending[i] / apps[i];
+      int aReserve = reserved[i] / apps[i];
       for (int a = 0; a < apps[i]; ++a) {
         FiCaSchedulerApp mockFiCaApp =
             mockApp(i, appAlloc, aUsed, aPending, aReserve, gran[i]);
@@ -1299,28 +1056,16 @@ public class TestProportionalCapacityPreemptionPolicy {
               .thenReturn(appAttemptIdList);
     }
     when(lq.getApplications()).thenReturn(qApps);
-    @SuppressWarnings("unchecked")
-    OrderingPolicy<FiCaSchedulerApp> so = mock(OrderingPolicy.class);
-    when(so.getPreemptionIterator()).thenAnswer(new Answer() {
-     public Object answer(InvocationOnMock invocation) {
-         return qApps.descendingIterator();
-       }
-     });
-    when(lq.getOrderingPolicy()).thenReturn(so);
     if(setAMResourcePercent != 0.0f){
       when(lq.getMaxAMResourcePerQueuePercent()).thenReturn(setAMResourcePercent);
     }
-    ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-    when(lq.getReadLock()).thenReturn(lock.readLock());
-    when(lq.getPriority()).thenReturn(Priority.newInstance(0));
     p.getChildQueues().add(lq);
     return lq;
   }
 
-  FiCaSchedulerApp mockApp(int qid, int id, Resource used, Resource pending,
-      Resource reserved, Resource gran) {
+  FiCaSchedulerApp mockApp(int qid, int id, int used, int pending, int reserved,
+      int gran) {
     FiCaSchedulerApp app = mock(FiCaSchedulerApp.class);
-    ResourceCalculator rc = mCS.getResourceCalculator();
 
     ApplicationId appId = ApplicationId.newInstance(TS, id);
     ApplicationAttemptId appAttId = ApplicationAttemptId.newInstance(appId, 0);
@@ -1328,35 +1073,30 @@ public class TestProportionalCapacityPreemptionPolicy {
     when(app.getApplicationAttemptId()).thenReturn(appAttId);
 
     int cAlloc = 0;
-    Resource unit = gran;
+    Resource unit = Resource.newInstance(gran, 0);
     List<RMContainer> cReserved = new ArrayList<RMContainer>();
-    Resource resIter = Resource.newInstance(0, 0);
-    for (; Resources.lessThan(rc, clusterResources, resIter, reserved); Resources
-        .addTo(resIter, gran)) {
-      cReserved.add(mockContainer(appAttId, cAlloc, unit,
-          priority.CONTAINER.getValue()));
+    for (int i = 0; i < reserved; i += gran) {
+      cReserved.add(mockContainer(appAttId, cAlloc, unit, priority.CONTAINER
+          .getValue()));
       ++cAlloc;
     }
     when(app.getReservedContainers()).thenReturn(cReserved);
 
     List<RMContainer> cLive = new ArrayList<RMContainer>();
-    Resource usedIter = Resource.newInstance(0, 0);
-    int i = 0;
-    for (; Resources.lessThan(rc, clusterResources, usedIter, used); Resources
-        .addTo(usedIter, gran)) {
-      if (setAMContainer && i == 0) {
-        cLive.add(mockContainer(appAttId, cAlloc, unit,
-            priority.AMCONTAINER.getValue()));
-      } else if (setLabeledContainer && i == 1) {
+    for (int i = 0; i < used; i += gran) {
+      if(setAMContainer && i == 0){
+        cLive.add(mockContainer(appAttId, cAlloc, unit, priority.AMCONTAINER
+            .getValue()));
+      }else if(setLabeledContainer && i ==1){
         cLive.add(mockContainer(appAttId, cAlloc, unit,
             priority.LABELEDCONTAINER.getValue()));
-        Resources.addTo(used, Resource.newInstance(1, 1));
-      } else {
-        cLive.add(mockContainer(appAttId, cAlloc, unit,
-            priority.CONTAINER.getValue()));
+        ++used;
+      }
+      else{
+        cLive.add(mockContainer(appAttId, cAlloc, unit, priority.CONTAINER
+            .getValue()));
       }
       ++cAlloc;
-      ++i;
     }
     when(app.getLiveContainers()).thenReturn(cLive);
     return app;
@@ -1367,14 +1107,11 @@ public class TestProportionalCapacityPreemptionPolicy {
     ContainerId cId = ContainerId.newContainerId(appAttId, id);
     Container c = mock(Container.class);
     when(c.getResource()).thenReturn(r);
-    when(c.getPriority()).thenReturn(Priority.newInstance(cpriority));
-    SchedulerRequestKey sk = SchedulerRequestKey.extractFrom(c);
+    when(c.getPriority()).thenReturn(Priority.create(cpriority));
     RMContainer mC = mock(RMContainer.class);
     when(mC.getContainerId()).thenReturn(cId);
-    when(mC.getAllocatedSchedulerKey()).thenReturn(sk);
     when(mC.getContainer()).thenReturn(c);
     when(mC.getApplicationAttemptId()).thenReturn(appAttId);
-    when(mC.getAllocatedResource()).thenReturn(r);
     if (priority.AMCONTAINER.getValue() == cpriority) {
       when(mC.isAMContainer()).thenReturn(true);
     }
@@ -1394,14 +1131,25 @@ public class TestProportionalCapacityPreemptionPolicy {
     return ret;
   }
 
-  static Resource leafAbsCapacities(Resource[] abs, int[] subqueues) {
-    Resource ret = Resource.newInstance(0, 0);
-    for (int i = 0; i < abs.length; ++i) {
-      if (0 == subqueues[i]) {
-        Resources.addTo(ret, abs[i]);
+  void printString(CSQueue nq, String indent) {
+    if (nq instanceof ParentQueue) {
+      System.out.println(indent + nq.getQueueName()
+          + " cur:" + nq.getAbsoluteUsedCapacity()
+          + " guar:" + nq.getAbsoluteCapacity()
+          );
+      for (CSQueue q : ((ParentQueue)nq).getChildQueues()) {
+        printString(q, indent + "  ");
+      }
+    } else {
+      System.out.println(indent + nq.getQueueName()
+          + " pen:" + ((LeafQueue) nq).getTotalResourcePending()
+          + " cur:" + nq.getAbsoluteUsedCapacity()
+          + " guar:" + nq.getAbsoluteCapacity()
+          );
+      for (FiCaSchedulerApp a : ((LeafQueue)nq).getApplications()) {
+        System.out.println(indent + "  " + a.getApplicationId());
       }
     }
-    return ret;
   }
 
 }

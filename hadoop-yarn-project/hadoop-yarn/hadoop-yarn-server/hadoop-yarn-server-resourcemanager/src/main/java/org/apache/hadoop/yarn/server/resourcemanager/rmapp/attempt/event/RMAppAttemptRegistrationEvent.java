@@ -24,6 +24,7 @@ import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttemptE
 
 public class RMAppAttemptRegistrationEvent extends RMAppAttemptEvent {
 
+  private final ApplicationAttemptId appAttemptId;
   private final String host;
   private int rpcport;
   private String trackingurl;
@@ -31,6 +32,7 @@ public class RMAppAttemptRegistrationEvent extends RMAppAttemptEvent {
   public RMAppAttemptRegistrationEvent(ApplicationAttemptId appAttemptId,
       String host, int rpcPort, String trackingUrl) {
     super(appAttemptId, RMAppAttemptEventType.REGISTERED);
+    this.appAttemptId = appAttemptId;
     this.host = host;
     this.rpcport = rpcPort;
     this.trackingurl = trackingUrl;

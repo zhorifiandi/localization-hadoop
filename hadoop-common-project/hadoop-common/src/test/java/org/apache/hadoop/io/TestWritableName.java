@@ -24,12 +24,14 @@ import java.io.IOException;
 import java.util.Random;
 
 import org.apache.hadoop.conf.Configuration;
-import org.junit.Test;
 
-import static org.junit.Assert.assertTrue;
+import junit.framework.TestCase;
 
 /** Unit tests for WritableName. */
-public class TestWritableName {
+public class TestWritableName extends TestCase {
+  public TestWritableName(String name) { 
+    super(name); 
+  }
 
   /** Example class used in test cases below. */
   public static class SimpleWritable implements Writable {
@@ -65,14 +67,12 @@ public class TestWritableName {
 
   private static final String testName = "mystring";
 
-  @Test
   public void testGoodName() throws Exception {
     Configuration conf = new Configuration();
     Class<?> test = WritableName.getClass("long",conf);
     assertTrue(test != null);
   }
 
-  @Test
   public void testSetName() throws Exception {
     Configuration conf = new Configuration();
     WritableName.setName(SimpleWritable.class, testName);
@@ -81,7 +81,7 @@ public class TestWritableName {
     assertTrue(test.equals(SimpleWritable.class));
   }
 
-  @Test
+
   public void testAddName() throws Exception {
     Configuration conf = new Configuration();
     String altName = testName + ".alt";
@@ -98,7 +98,6 @@ public class TestWritableName {
 
   }
 
-  @Test
   public void testBadName() throws Exception {
     Configuration conf = new Configuration();
     try {

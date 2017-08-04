@@ -17,17 +17,10 @@
  */
 package org.apache.hadoop.yarn.server.resourcemanager.monitor;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.service.AbstractService;
-import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.PreemptableResourceScheduler;
 
@@ -38,10 +31,9 @@ public class SchedulingMonitor extends AbstractService {
   private final SchedulingEditPolicy scheduleEditPolicy;
   private static final Log LOG = LogFactory.getLog(SchedulingMonitor.class);
 
-  // ScheduledExecutorService which schedules the PreemptionChecker to run
-  // periodically.
-  private ScheduledExecutorService ses;
-  private ScheduledFuture<?> handler;
+  //thread which runs periodically to see the last time since a heartbeat is
+  //received.
+  private Thread checkerThread;
   private volatile boolean stopped;
   private long monitorInterval;
   private RMContext rmContext;
@@ -53,13 +45,18 @@ public class SchedulingMonitor extends AbstractService {
     this.rmContext = rmContext;
   }
 
+  public long getMonitorInterval() {
+    return monitorInterval;
+  }
+  
   @VisibleForTesting
   public synchronized SchedulingEditPolicy getSchedulingEditPolicy() {
     return scheduleEditPolicy;
   }
 
+  @SuppressWarnings("unchecked")
   public void serviceInit(Configuration conf) throws Exception {
-    scheduleEditPolicy.init(conf, rmContext,
+    scheduleEditPolicy.init(conf, rmContext.getDispatcher().getEventHandler(),
         (PreemptableResourceScheduler) rmContext.getScheduler());
     this.monitorInterval = scheduleEditPolicy.getMonitoringInterval();
     super.serviceInit(conf);
@@ -68,25 +65,17 @@ public class SchedulingMonitor extends AbstractService {
   @Override
   public void serviceStart() throws Exception {
     assert !stopped : "starting when already stopped";
-    ses = Executors.newSingleThreadScheduledExecutor(new ThreadFactory() {
-      public Thread newThread(Runnable r) {
-        Thread t = new Thread(r);
-        t.setName(getName());
-        return t;
-      }
-    });
-    handler = ses.scheduleAtFixedRate(new PreemptionChecker(),
-        0, monitorInterval, TimeUnit.MILLISECONDS);
+    checkerThread = new Thread(new PreemptionChecker());
+    checkerThread.setName(getName());
+    checkerThread.start();
     super.serviceStart();
   }
 
   @Override
   public void serviceStop() throws Exception {
     stopped = true;
-    if (handler != null) {
-      LOG.info("Stop " + getName());
-      handler.cancel(true);
-      ses.shutdown();
+    if (checkerThread != null) {
+      checkerThread.interrupt();
     }
     super.serviceStop();
   }
@@ -99,12 +88,17 @@ public class SchedulingMonitor extends AbstractService {
   private class PreemptionChecker implements Runnable {
     @Override
     public void run() {
-      try {
-        //invoke the preemption policy
+      while (!stopped && !Thread.currentThread().isInterrupted()) {
+        //invoke the preemption policy at a regular pace
+        //the policy will generate preemption or kill events
+        //managed by the dispatcher
         invokePolicy();
-      } catch (YarnRuntimeException e) {
-        LOG.error("YarnRuntimeException raised while executing preemption"
-            + " checker, skip this run..., exception=", e);
+        try {
+          Thread.sleep(monitorInterval);
+        } catch (InterruptedException e) {
+          LOG.info(getName() + " thread interrupted");
+          break;
+        }
       }
     }
   }

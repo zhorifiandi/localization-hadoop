@@ -26,17 +26,15 @@ import static org.mockito.Mockito.spy;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
@@ -49,14 +47,9 @@ import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.JournalSet.JournalAndStream;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
-import org.apache.hadoop.ipc.RemoteException;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Time;
 import org.apache.log4j.Level;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
-import org.junit.runners.Parameterized.Parameters;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
@@ -64,27 +57,15 @@ import org.mockito.stubbing.Answer;
  * This class tests various synchronization bugs in FSEditLog rolling
  * and namespace saving.
  */
-@RunWith(Parameterized.class)
 public class TestEditLogRace {
   static {
-    GenericTestUtils.setLogLevel(FSEditLog.LOG, Level.ALL);
-  }
-
-  @Parameters
-  public static Collection<Object[]> data() {
-    Collection<Object[]> params = new ArrayList<Object[]>();
-    params.add(new Object[]{ false });
-    params.add(new Object[]{ true });
-    return params;
-  }
-
-  private static boolean useAsyncEditLog;
-
-  public TestEditLogRace(boolean useAsyncEditLog) {
-    TestEditLogRace.useAsyncEditLog = useAsyncEditLog;
+    ((Log4JLogger)FSEditLog.LOG).getLogger().setLevel(Level.ALL);
   }
 
   private static final Log LOG = LogFactory.getLog(TestEditLogRace.class);
+
+  private static final String NAME_DIR =
+    MiniDFSCluster.getBaseDirectory() + "name1";
 
   // This test creates NUM_THREADS threads and each thread continuously writes
   // transactions
@@ -113,29 +94,21 @@ public class TestEditLogRace {
    * This value needs to be significantly longer than the average
    * time for an fsync() or enterSafeMode().
    */
-  private static final int BLOCK_TIME = 4; // 4 sec pretty generous
-
+  private static final int BLOCK_TIME = 10;
+  
   //
   // an object that does a bunch of transactions
   //
   static class Transactions implements Runnable {
     final NamenodeProtocols nn;
-    final MiniDFSCluster cluster;
-    FileSystem fs;
     short replication = 3;
     long blockSize = 64;
     volatile boolean stopped = false;
     volatile Thread thr;
     final AtomicReference<Throwable> caught;
 
-    Transactions(MiniDFSCluster cluster, AtomicReference<Throwable> caught) {
-      this.cluster = cluster;
-      this.nn = cluster.getNameNodeRpc();
-      try {
-        this.fs = cluster.getFileSystem();
-      } catch (IOException e) {
-        caught.set(e);
-      }
+    Transactions(NamenodeProtocols ns, AtomicReference<Throwable> caught) {
+      nn = ns;
       this.caught = caught;
     }
 
@@ -149,23 +122,11 @@ public class TestEditLogRace {
       while (!stopped) {
         try {
           String dirname = "/thr-" + thr.getId() + "-dir-" + i; 
-          if (i % 2 == 0) {
-            Path dirnamePath = new Path(dirname);
-            fs.mkdirs(dirnamePath);
-            fs.delete(dirnamePath, true);
-          } else {
-            nn.mkdirs(dirname, p, true);
-            nn.delete(dirname, true);
-          }
+          nn.mkdirs(dirname, p, true);
+          nn.delete(dirname, true);
         } catch (SafeModeException sme) {
           // This is OK - the tests will bring NN in and out of safemode
         } catch (Throwable e) {
-          // This is OK - the tests will bring NN in and out of safemode
-          if (e instanceof RemoteException &&
-              ((RemoteException)e).getClassName()
-              .contains("SafeModeException")) {
-            return;
-          }
           LOG.warn("Got error in transaction thread", e);
           caught.compareAndSet(null, e);
           break;
@@ -183,11 +144,11 @@ public class TestEditLogRace {
     }
   }
 
-  private void startTransactionWorkers(MiniDFSCluster cluster,
+  private void startTransactionWorkers(NamenodeProtocols namesystem,
                                        AtomicReference<Throwable> caughtErr) {
     // Create threads and make them run transactions concurrently.
     for (int i = 0; i < NUM_THREADS; i++) {
-      Transactions trans = new Transactions(cluster, caughtErr);
+      Transactions trans = new Transactions(namesystem, caughtErr);
       new Thread(trans, "TransactionThread-" + i).start();
       workers.add(trans);
     }
@@ -213,21 +174,21 @@ public class TestEditLogRace {
   @Test
   public void testEditLogRolling() throws Exception {
     // start a cluster 
-    Configuration conf = getConf();
-    final MiniDFSCluster cluster =
-        new MiniDFSCluster.Builder(conf).numDataNodes(NUM_DATA_NODES).build();
+    Configuration conf = new HdfsConfiguration();
+    MiniDFSCluster cluster = null;
     FileSystem fileSys = null;
 
 
     AtomicReference<Throwable> caughtErr = new AtomicReference<Throwable>();
     try {
+      cluster = new MiniDFSCluster.Builder(conf).numDataNodes(NUM_DATA_NODES).build();
       cluster.waitActive();
       fileSys = cluster.getFileSystem();
       final NamenodeProtocols nn = cluster.getNameNode().getRpcServer();
       FSImage fsimage = cluster.getNamesystem().getFSImage();
       StorageDirectory sd = fsimage.getStorage().getStorageDir(0);
 
-      startTransactionWorkers(cluster, caughtErr);
+      startTransactionWorkers(nn, caughtErr);
 
       long previousLogTxId = 1;
 
@@ -295,7 +256,7 @@ public class TestEditLogRace {
   @Test
   public void testSaveNamespace() throws Exception {
     // start a cluster 
-    Configuration conf = getConf();
+    Configuration conf = new HdfsConfiguration();
     MiniDFSCluster cluster = null;
     FileSystem fileSys = null;
 
@@ -305,11 +266,12 @@ public class TestEditLogRace {
       cluster.waitActive();
       fileSys = cluster.getFileSystem();
       final FSNamesystem namesystem = cluster.getNamesystem();
+      final NamenodeProtocols nn = cluster.getNameNodeRpc();
 
       FSImage fsimage = namesystem.getFSImage();
       FSEditLog editLog = fsimage.getEditLog();
 
-      startTransactionWorkers(cluster, caughtErr);
+      startTransactionWorkers(nn, caughtErr);
 
       for (int i = 0; i < NUM_SAVE_IMAGE && caughtErr.get() == null; i++) {
         try {
@@ -329,7 +291,7 @@ public class TestEditLogRace {
 
 
         LOG.info("Save " + i + ": saving namespace");
-        namesystem.saveNamespace(0, 0);
+        namesystem.saveNamespace();
         LOG.info("Save " + i + ": leaving safemode");
 
         long savedImageTxId = fsimage.getStorage().getMostRecentCheckpointTxId();
@@ -344,7 +306,7 @@ public class TestEditLogRace {
         assertEquals(fsimage.getStorage().getMostRecentCheckpointTxId(),
                      editLog.getLastWrittenTxId() - 1);
 
-        namesystem.leaveSafeMode(false);
+        namesystem.leaveSafeMode();
         LOG.info("Save " + i + ": complete");
       }
     } finally {
@@ -359,13 +321,11 @@ public class TestEditLogRace {
  
   private Configuration getConf() {
     Configuration conf = new HdfsConfiguration();
-    conf.setBoolean(DFSConfigKeys.DFS_NAMENODE_EDITS_ASYNC_LOGGING,
-        useAsyncEditLog);
     FileSystem.setDefaultUri(conf, "hdfs://localhost:0");
     conf.set(DFSConfigKeys.DFS_NAMENODE_HTTP_ADDRESS_KEY, "0.0.0.0:0");
-    //conf.set(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY, NAME_DIR);
-    //conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY, NAME_DIR);
-    conf.setBoolean(DFSConfigKeys.DFS_PERMISSIONS_ENABLED_KEY, false);
+    conf.set(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY, NAME_DIR);
+    conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY, NAME_DIR);
+    conf.setBoolean(DFSConfigKeys.DFS_PERMISSIONS_ENABLED_KEY, false); 
     return conf;
   }
 
@@ -429,7 +389,7 @@ public class TestEditLogRace {
         @Override
         public Void answer(InvocationOnMock invocation) throws Throwable {
           LOG.info("Flush called");
-          if (useAsyncEditLog || Thread.currentThread() == doAnEditThread) {
+          if (Thread.currentThread() == doAnEditThread) {
             LOG.info("edit thread: Telling main thread we made it to flush section...");
             // Signal to main thread that the edit thread is in the racy section
             waitToEnterFlush.countDown();
@@ -461,7 +421,7 @@ public class TestEditLogRace {
       assertTrue(et - st > (BLOCK_TIME - 1)*1000);
 
       // Once we're in safe mode, save namespace.
-      namesystem.saveNamespace(0, 0);
+      namesystem.saveNamespace();
 
       LOG.info("Joining on edit thread...");
       doAnEditThread.join();
@@ -497,55 +457,65 @@ public class TestEditLogRace {
 
     try {
       FSImage fsimage = namesystem.getFSImage();
-      final FSEditLog editLog = fsimage.getEditLog();
+      FSEditLog editLog = spy(fsimage.getEditLog());
+      DFSTestUtil.setEditLogForTesting(namesystem, editLog);
 
       final AtomicReference<Throwable> deferredException =
           new AtomicReference<Throwable>();
-      final CountDownLatch sleepingBeforeSync = new CountDownLatch(1);
-
+      final CountDownLatch waitToEnterSync = new CountDownLatch(1);
+      
       final Thread doAnEditThread = new Thread() {
         @Override
         public void run() {
           try {
-            LOG.info("Starting setOwner");
-            namesystem.writeLock();
-            try {
-              editLog.logSetOwner("/","test","test");
-            } finally {
-              namesystem.writeUnlock();
-            }
-            sleepingBeforeSync.countDown();
-            LOG.info("edit thread: sleeping for " + BLOCK_TIME + "secs");
-            Thread.sleep(BLOCK_TIME*1000);
-            editLog.logSync();
-            LOG.info("edit thread: logSync complete");
+            LOG.info("Starting mkdirs");
+            namesystem.mkdirs("/test",
+                new PermissionStatus("test","test", new FsPermission((short)00755)),
+                true);
+            LOG.info("mkdirs complete");
           } catch (Throwable ioe) {
             LOG.fatal("Got exception", ioe);
             deferredException.set(ioe);
-            sleepingBeforeSync.countDown();
+            waitToEnterSync.countDown();
           }
         }
       };
-      doAnEditThread.setDaemon(true);
+      
+      Answer<Void> blockingSync = new Answer<Void>() {
+        @Override
+        public Void answer(InvocationOnMock invocation) throws Throwable {
+          LOG.info("logSync called");
+          if (Thread.currentThread() == doAnEditThread) {
+            LOG.info("edit thread: Telling main thread we made it just before logSync...");
+            waitToEnterSync.countDown();
+            LOG.info("edit thread: sleeping for " + BLOCK_TIME + "secs");
+            Thread.sleep(BLOCK_TIME*1000);
+            LOG.info("Going through to logSync. This will allow the main thread to continue.");
+          }
+          invocation.callRealMethod();
+          LOG.info("logSync complete");
+          return null;
+        }
+      };
+      doAnswer(blockingSync).when(editLog).logSync();
+      
       doAnEditThread.start();
       LOG.info("Main thread: waiting to just before logSync...");
-      sleepingBeforeSync.await(200, TimeUnit.MILLISECONDS);
+      waitToEnterSync.await();
       assertNull(deferredException.get());
       LOG.info("Main thread: detected that logSync about to be called.");
       LOG.info("Trying to enter safe mode.");
-
+      LOG.info("This should block for " + BLOCK_TIME + "sec, since we have pending edits");
+      
       long st = Time.now();
       namesystem.setSafeMode(SafeModeAction.SAFEMODE_ENTER);
       long et = Time.now();
-      LOG.info("Entered safe mode after "+(et-st)+"ms");
-
-      // Make sure we didn't wait for the thread that did a logEdit but
-      // not logSync.  Going into safemode does a logSyncAll that will flush
-      // its edit.
-      assertTrue(et - st < (BLOCK_TIME/2)*1000);
+      LOG.info("Entered safe mode");
+      // Make sure we really waited for the flush to complete!
+      assertTrue(et - st > (BLOCK_TIME - 1)*1000);
 
       // Once we're in safe mode, save namespace.
-      namesystem.saveNamespace(0, 0);
+      namesystem.saveNamespace();
 
       LOG.info("Joining on edit thread...");
       doAnEditThread.join();

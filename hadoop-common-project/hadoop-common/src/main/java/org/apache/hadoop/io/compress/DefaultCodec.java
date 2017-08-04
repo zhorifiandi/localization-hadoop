@@ -22,22 +22,19 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.compress.zlib.ZlibDecompressor;
 import org.apache.hadoop.io.compress.zlib.ZlibFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
 
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
 public class DefaultCodec implements Configurable, CompressionCodec, DirectDecompressionCodec {
-  private static final Logger LOG = LoggerFactory.getLogger(DefaultCodec.class);
+  private static final Log LOG = LogFactory.getLog(DefaultCodec.class);
   
   Configuration conf;
 
@@ -63,8 +60,7 @@ public class DefaultCodec implements Configurable, CompressionCodec, DirectDecom
                                                     Compressor compressor) 
   throws IOException {
     return new CompressorStream(out, compressor, 
-                                conf.getInt(IO_FILE_BUFFER_SIZE_KEY,
-                                        IO_FILE_BUFFER_SIZE_DEFAULT));
+                                conf.getInt("io.file.buffer.size", 4*1024));
   }
 
   @Override
@@ -89,8 +85,7 @@ public class DefaultCodec implements Configurable, CompressionCodec, DirectDecom
                                                   Decompressor decompressor) 
   throws IOException {
     return new DecompressorStream(in, decompressor, 
-                                  conf.getInt(IO_FILE_BUFFER_SIZE_KEY,
-                                      IO_FILE_BUFFER_SIZE_DEFAULT));
+                                  conf.getInt("io.file.buffer.size", 4*1024));
   }
 
   @Override

@@ -89,7 +89,8 @@ public class LoadTypedBytes implements Tool {
   }
 
   private void printUsage() {
-    System.out.println("Usage: mapred streaming loadtb <path>");
+    System.out.println("Usage: $HADOOP_PREFIX/bin/hadoop jar hadoop-streaming.jar"
+        + " loadtb <path>");
     System.out.println("  Reads typed bytes from standard input" +
     " and stores them in a sequence file in");
     System.out.println("  the specified path");

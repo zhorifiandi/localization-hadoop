@@ -27,8 +27,6 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.tools.util.DistCpUtils;
 import org.apache.hadoop.security.Credentials;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -48,7 +46,7 @@ import com.google.common.collect.Sets;
 public abstract class CopyListing extends Configured {
 
   private Credentials credentials;
-  static final Log LOG = LogFactory.getLog(DistCp.class);
+
   /**
    * Build listing function creates the input listing that distcp uses to
    * perform the copy.
@@ -77,41 +75,40 @@ public abstract class CopyListing extends Configured {
    * TARGET IS DIR        : Key-"/file1", Value-FileStatus(/tmp/file1)  
    *
    * @param pathToListFile - Output file where the listing would be stored
-   * @param distCpContext - distcp context associated with input options
+   * @param options - Input options to distcp
    * @throws IOException - Exception if any
    */
   public final void buildListing(Path pathToListFile,
-      DistCpContext distCpContext) throws IOException {
-    validatePaths(distCpContext);
-    doBuildListing(pathToListFile, distCpContext);
+                                 DistCpOptions options) throws IOException {
+    validatePaths(options);
+    doBuildListing(pathToListFile, options);
     Configuration config = getConf();
 
     config.set(DistCpConstants.CONF_LABEL_LISTING_FILE_PATH, pathToListFile.toString());
     config.setLong(DistCpConstants.CONF_LABEL_TOTAL_BYTES_TO_BE_COPIED, getBytesToCopy());
     config.setLong(DistCpConstants.CONF_LABEL_TOTAL_NUMBER_OF_RECORDS, getNumberOfPaths());
 
-    validateFinalListing(pathToListFile, distCpContext);
-    LOG.info("Number of paths in the copy list: " + this.getNumberOfPaths());
+    validateFinalListing(pathToListFile, options);
   }
 
   /**
    * Validate input and output paths
    *
-   * @param distCpContext - Distcp context
+   * @param options - Input options
    * @throws InvalidInputException If inputs are invalid
    * @throws IOException any Exception with FS
    */
-  protected abstract void validatePaths(DistCpContext distCpContext)
+  protected abstract void validatePaths(DistCpOptions options)
       throws IOException, InvalidInputException;
 
   /**
    * The interface to be implemented by sub-classes, to create the source/target file listing.
    * @param pathToListFile Path on HDFS where the listing file is written.
-   * @param distCpContext - Distcp context
+   * @param options Input Options for DistCp (indicating source/target paths.)
    * @throws IOException Thrown on failure to create the listing file.
    */
   protected abstract void doBuildListing(Path pathToListFile,
-      DistCpContext distCpContext) throws IOException;
+                                         DistCpOptions options) throws IOException;
 
   /**
    * Return the total bytes that distCp should copy for the source paths
@@ -135,60 +132,36 @@ public abstract class CopyListing extends Configured {
    * If preserving XAttrs, checks that file system can support XAttrs.
    *
    * @param pathToListFile - path listing build by doBuildListing
-   * @param context - Distcp context with associated input options
+   * @param options - Input options to distcp
    * @throws IOException - Any issues while checking for duplicates and throws
    * @throws DuplicateFileException - if there are duplicates
    */
-  private void validateFinalListing(Path pathToListFile, DistCpContext context)
+  private void validateFinalListing(Path pathToListFile, DistCpOptions options)
       throws DuplicateFileException, IOException {
 
     Configuration config = getConf();
     FileSystem fs = pathToListFile.getFileSystem(config);
 
-    final boolean splitLargeFile = context.splitLargeFile();
-
-    // When splitLargeFile is enabled, we don't randomize the copylist
-    // earlier, so we don't do the sorting here. For a file that has
-    // multiple entries due to split, we check here that their
-    // <chunkOffset, chunkLength> is continuous.
-    //
-    Path checkPath = splitLargeFile?
-        pathToListFile : DistCpUtils.sortListing(fs, config, pathToListFile);
+    Path sortedList = DistCpUtils.sortListing(fs, config, pathToListFile);
 
     SequenceFile.Reader reader = new SequenceFile.Reader(
-                          config, SequenceFile.Reader.file(checkPath));
+                          config, SequenceFile.Reader.file(sortedList));
     try {
       Text lastKey = new Text("*"); //source relative path can never hold *
-      long lastChunkOffset = -1;
-      long lastChunkLength = -1;
       CopyListingFileStatus lastFileStatus = new CopyListingFileStatus();
 
       Text currentKey = new Text();
       Set<URI> aclSupportCheckFsSet = Sets.newHashSet();
       Set<URI> xAttrSupportCheckFsSet = Sets.newHashSet();
-      long idx = 0;
       while (reader.next(currentKey)) {
         if (currentKey.equals(lastKey)) {
           CopyListingFileStatus currentFileStatus = new CopyListingFileStatus();
           reader.getCurrentValue(currentFileStatus);
-          if (!splitLargeFile) {
-            throw new DuplicateFileException("File " + lastFileStatus.getPath()
-                + " and " + currentFileStatus.getPath()
-                + " would cause duplicates. Aborting");
-          } else {
-            if (lastChunkOffset + lastChunkLength !=
-                currentFileStatus.getChunkOffset()) {
-              throw new InvalidInputException("File " + lastFileStatus.getPath()
-                  + " " + lastChunkOffset + "," + lastChunkLength
-                  + " and " + currentFileStatus.getPath()
-                  + " " + currentFileStatus.getChunkOffset() + ","
-                  + currentFileStatus.getChunkLength()
-                  + " are not continuous. Aborting");
-            }
-          }
+          throw new DuplicateFileException("File " + lastFileStatus.getPath() + " and " +
+              currentFileStatus.getPath() + " would cause duplicates. Aborting");
         }
         reader.getCurrentValue(lastFileStatus);
-        if (context.shouldPreserve(DistCpOptions.FileAttribute.ACL)) {
+        if (options.shouldPreserve(DistCpOptions.FileAttribute.ACL)) {
           FileSystem lastFs = lastFileStatus.getPath().getFileSystem(config);
           URI lastFsUri = lastFs.getUri();
           if (!aclSupportCheckFsSet.contains(lastFsUri)) {
@@ -196,7 +169,7 @@ public abstract class CopyListing extends Configured {
             aclSupportCheckFsSet.add(lastFsUri);
           }
         }
-        if (context.shouldPreserve(DistCpOptions.FileAttribute.XATTR)) {
+        if (options.shouldPreserve(DistCpOptions.FileAttribute.XATTR)) {
           FileSystem lastFs = lastFileStatus.getPath().getFileSystem(config);
           URI lastFsUri = lastFs.getUri();
           if (!xAttrSupportCheckFsSet.contains(lastFsUri)) {
@@ -204,17 +177,7 @@ public abstract class CopyListing extends Configured {
             xAttrSupportCheckFsSet.add(lastFsUri);
           }
         }
-
         lastKey.set(currentKey);
-        if (splitLargeFile) {
-          lastChunkOffset = lastFileStatus.getChunkOffset();
-          lastChunkLength = lastFileStatus.getChunkLength();
-        }
-        if (context.shouldUseDiff() && LOG.isDebugEnabled()) {
-          LOG.debug("Copy list entry " + idx + ": " +
-                  lastFileStatus.getPath().toUri().getPath());
-          idx++;
-        }
       }
     } finally {
       IOUtils.closeStream(reader);
@@ -253,12 +216,17 @@ public abstract class CopyListing extends Configured {
    * Public Factory method with which the appropriate CopyListing implementation may be retrieved.
    * @param configuration The input configuration.
    * @param credentials Credentials object on which the FS delegation tokens are cached
-   * @param context Distcp context with associated input options
+   * @param options The input Options, to help choose the appropriate CopyListing Implementation.
    * @return An instance of the appropriate CopyListing implementation.
    * @throws java.io.IOException - Exception if any
    */
   public static CopyListing getCopyListing(Configuration configuration,
-      Credentials credentials, DistCpContext context) throws IOException {
+                                           Credentials credentials,
+                                           DistCpOptions options)
+      throws IOException {
+    if (options.shouldUseDiff()) {
+      return new GlobbedCopyListing(configuration, credentials);
+    }
     String copyListingClassName = configuration.get(DistCpConstants.
         CONF_LABEL_COPY_LISTING_CLASS, "");
     Class<? extends CopyListing> copyListingClass;
@@ -268,7 +236,7 @@ public abstract class CopyListing extends Configured {
             CONF_LABEL_COPY_LISTING_CLASS, GlobbedCopyListing.class,
             CopyListing.class);
       } else {
-        if (context.getSourceFileListing() == null) {
+        if (options.getSourceFileListing() == null) {
             copyListingClass = GlobbedCopyListing.class;
         } else {
             copyListingClass = FileBasedCopyListing.class;
@@ -292,10 +260,6 @@ public abstract class CopyListing extends Configured {
   static class InvalidInputException extends RuntimeException {
     public InvalidInputException(String message) {
       super(message);
-    }
-
-    public InvalidInputException(String message, Throwable cause) {
-      super(message, cause);
     }
   }
 

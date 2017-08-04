@@ -19,12 +19,8 @@ package org.apache.hadoop.hdfs.server.namenode;
 
 import static org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption.IMPORT;
 import static org.apache.hadoop.hdfs.server.common.Util.fileAsURI;
-import static org.hamcrest.CoreMatchers.allOf;
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertThat;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -33,15 +29,16 @@ import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
 import java.net.URI;
-import java.nio.file.Paths;
-import java.util.Collection;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Random;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
@@ -49,29 +46,22 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSTestUtil;
-import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.LogVerificationAppender;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.hdfs.StripedFileTestUtil;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
-import org.apache.hadoop.hdfs.protocol.ErasureCodingPolicy;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants.DatanodeReportType;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockManagerTestUtil;
-import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
-import org.apache.hadoop.hdfs.util.HostsFileWriter;
 import org.apache.hadoop.hdfs.util.MD5FileUtils;
 import org.apache.hadoop.io.MD5Hash;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.test.PathUtils;
-import org.apache.hadoop.util.ExitUtil.ExitException;
-import org.apache.hadoop.util.ExitUtil;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.log4j.Logger;
 import org.junit.After;
@@ -97,10 +87,22 @@ public class TestStartup {
   static final int fileSize = 8192;
   private long editsLength=0, fsimageLength=0;
 
+
+  private void writeFile(FileSystem fileSys, Path name, int repl)
+  throws IOException {
+    FSDataOutputStream stm = fileSys.create(name, true, fileSys.getConf()
+        .getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY, 4096),
+        (short) repl, blockSize);
+    byte[] buffer = new byte[fileSize];
+    Random rand = new Random(seed);
+    rand.nextBytes(buffer);
+    stm.write(buffer);
+    stm.close();
+  }
+
+
   @Before
   public void setUp() throws Exception {
-    ExitUtil.disableSystemExit();
-    ExitUtil.resetFirstExitException();
     config = new HdfsConfiguration();
     hdfsDir = new File(MiniDFSCluster.getBaseDirectory());
 
@@ -119,7 +121,7 @@ public class TestStartup {
         fileAsURI(new File(hdfsDir, "secondary")).toString());
     config.set(DFSConfigKeys.DFS_NAMENODE_SECONDARY_HTTP_ADDRESS_KEY,
 	       WILDCARD_HTTP_HOST + "0");
-
+    
     FileSystem.setDefaultUri(config, "hdfs://"+NAME_NODE_HOST + "0");
   }
 
@@ -161,8 +163,7 @@ public class TestStartup {
         // create a file
         FileSystem fileSys = cluster.getFileSystem();
         Path p = new Path("t" + i);
-        DFSTestUtil.createFile(fileSys, p, fileSize, fileSize,
-            blockSize, (short) 1, seed);
+        this.writeFile(fileSys, p, 1);
         LOG.info("--file " + p.toString() + " created");
         LOG.info("--doing checkpoint");
         sn.doCheckpoint();  // this shouldn't fail
@@ -417,20 +418,7 @@ public class TestStartup {
         cluster.shutdown();
     }
   }
-
-  @Test(timeout = 30000)
-  public void testSNNStartupWithRuntimeException() throws Exception {
-    String[] argv = new String[] { "-checkpoint" };
-    try {
-      SecondaryNameNode.main(argv);
-      fail("Failed to handle runtime exceptions during SNN startup!");
-    } catch (ExitException ee) {
-      GenericTestUtils.assertExceptionContains(
-          ExitUtil.EXIT_EXCEPTION_MESSAGE, ee);
-      assertTrue("Didn't terminate properly ", ExitUtil.terminateCalled());
-    }
-  }
-
+  
   @Test
   public void testCompression() throws IOException {
     LOG.info("Test compressing image.");
@@ -452,10 +440,9 @@ public class TestStartup {
     NamenodeProtocols nnRpc = namenode.getRpcServer();
     assertTrue(nnRpc.getFileInfo("/test").isDir());
     nnRpc.setSafeMode(SafeModeAction.SAFEMODE_ENTER, false);
-    nnRpc.saveNamespace(0, 0);
+    nnRpc.saveNamespace();
     namenode.stop();
     namenode.join();
-    namenode.joinHttpServer();
 
     // compress image using default codec
     LOG.info("Read an uncomressed image and store it compressed using default codec.");
@@ -483,10 +470,9 @@ public class TestStartup {
     NamenodeProtocols nnRpc = namenode.getRpcServer();
     assertTrue(nnRpc.getFileInfo("/test").isDir());
     nnRpc.setSafeMode(SafeModeAction.SAFEMODE_ENTER, false);
-    nnRpc.saveNamespace(0, 0);
+    nnRpc.saveNamespace();
     namenode.stop();
     namenode.join();
-    namenode.joinHttpServer();
   }
   
   @Test
@@ -539,7 +525,7 @@ public class TestStartup {
           fail("Should not have successfully started with corrupt image");
         } catch (IOException ioe) {
           GenericTestUtils.assertExceptionContains(
-              "Failed to load FSImage file", ioe);
+              "Failed to load an FSImage file!", ioe);
           int md5failures = appender.countExceptionsWithMessage(
               " is corrupt with MD5 checksum of ");
           // Two namedirs, so should have seen two failures
@@ -569,58 +555,7 @@ public class TestStartup {
     } finally {
       cluster.shutdown();
     }
-  }
-
-  @Test(timeout=30000)
-  public void testCorruptImageFallbackLostECPolicy() throws IOException {
-    final ErasureCodingPolicy defaultPolicy = StripedFileTestUtil
-        .getDefaultECPolicy();
-    final String policy = defaultPolicy.getName();
-    final Path f1 = new Path("/f1");
-    config.set(DFSConfigKeys.DFS_NAMENODE_EC_POLICIES_ENABLED_KEY, policy);
-
-    MiniDFSCluster cluster = new MiniDFSCluster.Builder(config)
-        .numDataNodes(0)
-        .format(true)
-        .build();
-    try {
-      cluster.waitActive();
-      DistributedFileSystem fs = cluster.getFileSystem();
-      // set root directory to use the default ec policy
-      Path srcECDir = new Path("/");
-      fs.setErasureCodingPolicy(srcECDir,
-          defaultPolicy.getName());
-
-      // create a file which will use the default ec policy
-      fs.create(f1);
-      FileStatus fs1 = fs.getFileStatus(f1);
-      assertTrue(fs1.isErasureCoded());
-      ErasureCodingPolicy fs1Policy = fs.getErasureCodingPolicy(f1);
-      assertEquals(fs1Policy, defaultPolicy);
-    } finally {
-      cluster.close();
-    }
-
-    // Delete a single md5sum
-    corruptFSImageMD5(false);
-    // Should still be able to start
-    cluster = new MiniDFSCluster.Builder(config)
-        .numDataNodes(0)
-        .format(false)
-        .build();
-    try {
-      cluster.waitActive();
-      ErasureCodingPolicy[] ecPolicies = cluster.getNameNode()
-          .getNamesystem().getErasureCodingPolicyManager().getEnabledPolicies();
-      DistributedFileSystem fs = cluster.getFileSystem();
-      // make sure the ec policy of the file is still correct
-      assertEquals(fs.getErasureCodingPolicy(f1), defaultPolicy);
-      // make sure after fsimage fallback, enabled ec policies are not cleared.
-      assertTrue(ecPolicies.length == 1);
-    } finally {
-      cluster.shutdown();
-    }
-  }
+}
 
   /**
    * This test tests hosts include list contains host names.  After namenode
@@ -630,15 +565,27 @@ public class TestStartup {
   @Test
   public void testNNRestart() throws IOException, InterruptedException {
     MiniDFSCluster cluster = null;
+    FileSystem localFileSys;
+    Path hostsFile;
+    Path excludeFile;
     int HEARTBEAT_INTERVAL = 1; // heartbeat interval in seconds
+    // Set up the hosts/exclude files.
+    localFileSys = FileSystem.getLocal(config);
+    Path workingDir = localFileSys.getWorkingDirectory();
+    Path dir = new Path(workingDir, "build/test/data/work-dir/restartnn");
+    hostsFile = new Path(dir, "hosts");
+    excludeFile = new Path(dir, "exclude");
 
-    HostsFileWriter hostsFileWriter = new HostsFileWriter();
-    hostsFileWriter.initialize(config, "work-dir/restartnn");
-
+    // Setup conf
+    config.set(DFSConfigKeys.DFS_HOSTS_EXCLUDE, excludeFile.toUri().getPath());
+    writeConfigFile(localFileSys, excludeFile, null);
+    config.set(DFSConfigKeys.DFS_HOSTS, hostsFile.toUri().getPath());
+    // write into hosts file
+    ArrayList<String>list = new ArrayList<String>();
     byte b[] = {127, 0, 0, 1};
     InetAddress inetAddress = InetAddress.getByAddress(b);
-    hostsFileWriter.initIncludeHosts(new String[] {inetAddress.getHostName()});
-
+    list.add(inetAddress.getHostName());
+    writeConfigFile(localFileSys, hostsFile, list);
     int numDatanodes = 1;
     
     try {
@@ -663,12 +610,37 @@ public class TestStartup {
       fail(StringUtils.stringifyException(e));
       throw e;
     } finally {
+      cleanupFile(localFileSys, excludeFile.getParent());
       if (cluster != null) {
         cluster.shutdown();
       }
-      hostsFileWriter.cleanup();
     }
   }
+  
+  private void writeConfigFile(FileSystem localFileSys, Path name,
+      ArrayList<String> nodes) throws IOException {
+    // delete if it already exists
+    if (localFileSys.exists(name)) {
+      localFileSys.delete(name, true);
+    }
+
+    FSDataOutputStream stm = localFileSys.create(name);
+    if (nodes != null) {
+      for (Iterator<String> it = nodes.iterator(); it.hasNext();) {
+        String node = it.next();
+        stm.writeBytes(node);
+        stm.writeBytes("\n");
+      }
+    }
+    stm.close();
+  }
+  
+  private void cleanupFile(FileSystem fileSys, Path name) throws IOException {
+    assertTrue(fileSys.exists(name));
+    fileSys.delete(name, true);
+    assertTrue(!fileSys.exists(name));
+  }
+
 
   @Test(timeout = 120000)
   public void testXattrConfiguration() throws Exception {
@@ -682,7 +654,7 @@ public class TestStartup {
       fail("Expected exception with negative xattr size");
     } catch (IllegalArgumentException e) {
       GenericTestUtils.assertExceptionContains(
-          "The maximum size of an xattr should be > 0", e);
+          "Cannot set a negative value for the maximum size of an xattr", e);
     } finally {
       conf.setInt(DFSConfigKeys.DFS_NAMENODE_MAX_XATTR_SIZE_KEY,
           DFSConfigKeys.DFS_NAMENODE_MAX_XATTR_SIZE_DEFAULT);
@@ -706,54 +678,33 @@ public class TestStartup {
         cluster.shutdown();
       }
     }
-  }
 
-  @Test(timeout = 30000)
-  public void testNNFailToStartOnReadOnlyNNDir() throws Exception {
-    /* set NN dir */
-    final String nnDirStr = Paths.get(
-        hdfsDir.toString(),
-        GenericTestUtils.getMethodName(), "name").toString();
-    config.set(DFSConfigKeys.DFS_NAMENODE_NAME_DIR_KEY, nnDirStr);
+    try {
+      // Set up a logger to check log message
+      final LogVerificationAppender appender = new LogVerificationAppender();
+      final Logger logger = Logger.getRootLogger();
+      logger.addAppender(appender);
+      int count = appender.countLinesWithMessage(
+          "Maximum size of an xattr: 0 (unlimited)");
+      assertEquals("Expected no messages about unlimited xattr size", 0, count);
 
-    try(MiniDFSCluster cluster = new MiniDFSCluster.Builder(config)
-        .numDataNodes(1)
-        .manageNameDfsDirs(false)
-        .build()) {
-      cluster.waitActive();
+      conf.setInt(DFSConfigKeys.DFS_NAMENODE_MAX_XATTR_SIZE_KEY, 0);
+      cluster =
+          new MiniDFSCluster.Builder(conf).numDataNodes(0).format(true).build();
 
-      /* get and verify NN dir */
-      final Collection<URI> nnDirs = FSNamesystem.getNamespaceDirs(config);
-      assertNotNull(nnDirs);
-      assertTrue(nnDirs.iterator().hasNext());
-      assertEquals(
-          "NN dir should be created after NN startup.",
-          nnDirStr,
-          nnDirs.iterator().next().getPath());
-      final File nnDir = new File(nnDirStr);
-      assertTrue(nnDir.exists());
-      assertTrue(nnDir.isDirectory());
-
-      try {
-        /* set read only */
-        assertTrue(
-            "Setting NN dir read only should succeed.",
-            nnDir.setReadOnly());
-        cluster.restartNameNodes();
-        fail("Restarting NN should fail on read only NN dir.");
-      } catch (InconsistentFSStateException e) {
-        assertThat(e.toString(), is(allOf(
-            containsString("InconsistentFSStateException"),
-            containsString(nnDirStr),
-            containsString("in an inconsistent state"),
-            containsString(
-                "storage directory does not exist or is not accessible."))));
-      } finally {
-        /* set back to writable in order to clean it */
-        assertTrue("Setting NN dir should succeed.", nnDir.setWritable(true));
+      count = appender.countLinesWithMessage(
+          "Maximum size of an xattr: 0 (unlimited)");
+      // happens twice because we format then run
+      assertEquals("Expected unlimited xattr size", 2, count);
+    } finally {
+      conf.setInt(DFSConfigKeys.DFS_NAMENODE_MAX_XATTR_SIZE_KEY,
+          DFSConfigKeys.DFS_NAMENODE_MAX_XATTR_SIZE_DEFAULT);
+      if (cluster != null) {
+        cluster.shutdown();
       }
     }
   }
+
 
   /**
    * Verify the following scenario.

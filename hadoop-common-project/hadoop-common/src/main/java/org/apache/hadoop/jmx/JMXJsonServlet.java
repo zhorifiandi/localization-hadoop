@@ -17,11 +17,11 @@
 
 package org.apache.hadoop.jmx;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonGenerator;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.http.HttpServer2;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.codehaus.jackson.JsonFactory;
+import org.codehaus.jackson.JsonGenerator;
 
 import javax.management.AttributeNotFoundException;
 import javax.management.InstanceNotFoundException;
@@ -38,7 +38,6 @@ import javax.management.RuntimeMBeanException;
 import javax.management.openmbean.CompositeData;
 import javax.management.openmbean.CompositeType;
 import javax.management.openmbean.TabularData;
-import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
@@ -116,8 +115,7 @@ import java.util.Set;
  *
  */
 public class JMXJsonServlet extends HttpServlet {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(JMXJsonServlet.class);
+  private static final Log LOG = LogFactory.getLog(JMXJsonServlet.class);
   static final String ACCESS_CONTROL_ALLOW_METHODS =
       "Access-Control-Allow-Methods";
   static final String ACCESS_CONTROL_ALLOW_ORIGIN =
@@ -128,12 +126,9 @@ public class JMXJsonServlet extends HttpServlet {
   /**
    * MBean server.
    */
-  protected transient MBeanServer mBeanServer;
+  protected transient MBeanServer mBeanServer = null;
 
-  /**
-   * Json Factory to create Json generators for write objects in json format
-   */
-  protected transient JsonFactory jsonFactory;
+  // --------------------------------------------------------- Public Methods
   /**
    * Initialize this servlet.
    */
@@ -141,22 +136,12 @@ public class JMXJsonServlet extends HttpServlet {
   public void init() throws ServletException {
     // Retrieve the MBean server
     mBeanServer = ManagementFactory.getPlatformMBeanServer();
-    jsonFactory = new JsonFactory();
   }
 
-  protected boolean isInstrumentationAccessAllowed(HttpServletRequest request, 
+  protected boolean isInstrumentationAccessAllowed(HttpServletRequest request,
       HttpServletResponse response) throws IOException {
     return HttpServer2.isInstrumentationAccessAllowed(getServletContext(),
         request, response);
-  }
-
-  /**
-   * Disable TRACE method to avoid TRACE vulnerability.
-   */
-  @Override
-  protected void doTrace(HttpServletRequest req, HttpServletResponse resp)
-      throws ServletException, IOException {
-    resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
   }
 
   /**
@@ -169,17 +154,14 @@ public class JMXJsonServlet extends HttpServlet {
    */
   @Override
   public void doGet(HttpServletRequest request, HttpServletResponse response) {
+    String jsonpcb = null;
+    PrintWriter writer = null;
     try {
-      // If user is a static user and auth Type is null, that means
-      // there is a non-security environment and no need authorization,
-      // otherwise, do the authorization.
-      final ServletContext servletContext = getServletContext();
-      if (!HttpServer2.isStaticUserAndNoneAuthType(servletContext, request) &&
-          !isInstrumentationAccessAllowed(request, response)) {
+      if (!isInstrumentationAccessAllowed(request, response)) {
         return;
       }
+      
       JsonGenerator jg = null;
-      PrintWriter writer = null;
       try {
         writer = response.getWriter();
  
@@ -187,26 +169,38 @@ public class JMXJsonServlet extends HttpServlet {
         response.setHeader(ACCESS_CONTROL_ALLOW_METHODS, "GET");
         response.setHeader(ACCESS_CONTROL_ALLOW_ORIGIN, "*");
 
-        jg = jsonFactory.createGenerator(writer);
-        jg.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
-        jg.useDefaultPrettyPrinter();
-        jg.writeStartObject();
+      JsonFactory jsonFactory = new JsonFactory();
+      jg = jsonFactory.createJsonGenerator(writer);
+      jg.disable(JsonGenerator.Feature.AUTO_CLOSE_TARGET);
+      jg.useDefaultPrettyPrinter();
+      jg.writeStartObject();
 
-        // query per mbean attribute
-        String getmethod = request.getParameter("get");
-        if (getmethod != null) {
-          String[] splitStrings = getmethod.split("\\:\\:");
-          if (splitStrings.length != 2) {
-            jg.writeStringField("result", "ERROR");
-            jg.writeStringField("message", "query format is not as expected.");
-            jg.flush();
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            return;
-          }
-          listBeans(jg, new ObjectName(splitStrings[0]), splitStrings[1],
-              response);
+      if (mBeanServer == null) {
+        jg.writeStringField("result", "ERROR");
+        jg.writeStringField("message", "No MBeanServer could be found");
+        jg.close();
+        LOG.error("No MBeanServer could be found.");
+        response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+        return;
+      }
+      
+      // query per mbean attribute
+      String getmethod = request.getParameter("get");
+      if (getmethod != null) {
+        String[] splitStrings = getmethod.split("\\:\\:");
+        if (splitStrings.length != 2) {
+          jg.writeStringField("result", "ERROR");
+          jg.writeStringField("message", "query format is not as expected.");
+          jg.close();
+          response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
           return;
         }
+        listBeans(jg, new ObjectName(splitStrings[0]), splitStrings[1],
+            response);
+        jg.close();
+        return;
+        
+      }
 
         // query per mbean
         String qry = request.getParameter("qry");
@@ -222,12 +216,16 @@ public class JMXJsonServlet extends HttpServlet {
           writer.close();
         }
       }
-    } catch (IOException e) {
+    } catch ( IOException e ) {
       LOG.error("Caught an exception while processing JMX request", e);
       response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-    } catch (MalformedObjectNameException e) {
+    } catch ( MalformedObjectNameException e ) {
       LOG.error("Caught an exception while processing JMX request", e);
       response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+    } finally {
+      if (writer != null) {
+        writer.close();
+      }
     }
   }
 

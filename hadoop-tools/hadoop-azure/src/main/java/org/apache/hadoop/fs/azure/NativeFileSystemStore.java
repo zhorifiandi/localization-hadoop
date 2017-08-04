@@ -18,9 +18,9 @@
 
 package org.apache.hadoop.fs.azure;
 
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.util.Date;
 
@@ -46,9 +46,9 @@ interface NativeFileSystemStore {
 
   FileMetadata retrieveMetadata(String key) throws IOException;
 
-  InputStream retrieve(String key) throws IOException;
+  DataInputStream retrieve(String key) throws IOException;
 
-  InputStream retrieve(String key, long byteRangeStart) throws IOException;
+  DataInputStream retrieve(String key, long byteRangeStart) throws IOException;
 
   DataOutputStream storefile(String key, PermissionStatus permissionStatus)
       throws AzureException;
@@ -74,16 +74,7 @@ interface NativeFileSystemStore {
   void changePermissionStatus(String key, PermissionStatus newPermission)
       throws AzureException;
 
-  /**
-   * API to delete a blob in the back end azure storage.
-   * @param key - key to the blob being deleted.
-   * @return return true when delete is successful, false if
-   * blob cannot be found or delete is not possible without
-   * exception.
-   * @throws IOException Exception encountered while deleting in
-   * azure storage.
-   */
-  boolean delete(String key) throws IOException;
+  void delete(String key) throws IOException;
 
   void rename(String srcKey, String dstKey) throws IOException;
 
@@ -93,8 +84,7 @@ interface NativeFileSystemStore {
   /**
    * Delete all keys with the given prefix. Used for testing.
    *
-   * @param prefix prefix of objects to be deleted.
-   * @throws IOException Exception encountered while deleting keys.
+   * @throws IOException
    */
   @VisibleForTesting
   void purge(String prefix) throws IOException;
@@ -102,7 +92,7 @@ interface NativeFileSystemStore {
   /**
    * Diagnostic method to dump state to the console.
    *
-   * @throws IOException Exception encountered while dumping to console.
+   * @throws IOException
    */
   void dump() throws IOException;
 
@@ -114,21 +104,7 @@ interface NativeFileSystemStore {
   void updateFolderLastModifiedTime(String key, Date lastModified,
       SelfRenewingLease folderLease) throws AzureException;
 
-  /**
-   * API to delete a blob in the back end azure storage.
-   * @param key - key to the blob being deleted.
-   * @param lease - Active lease on the blob.
-   * @return return true when delete is successful, false if
-   * blob cannot be found or delete is not possible without
-   * exception.
-   * @throws IOException Exception encountered while deleting in
-   * azure storage.
-   */
-  boolean delete(String key, SelfRenewingLease lease) throws IOException;
+  void delete(String key, SelfRenewingLease lease) throws IOException;
       
   SelfRenewingLease acquireLease(String key) throws AzureException;
-
-  DataOutputStream retrieveAppendStream(String key, int bufferSize) throws IOException;
-
-  boolean explicitFileExists(String key) throws AzureException;
 }

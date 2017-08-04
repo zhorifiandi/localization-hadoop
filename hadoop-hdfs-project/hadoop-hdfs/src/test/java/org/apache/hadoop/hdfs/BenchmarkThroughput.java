@@ -33,7 +33,6 @@ import org.apache.hadoop.fs.ChecksumFileSystem;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalDirAllocator;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Time;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
@@ -174,7 +173,7 @@ public class BenchmarkThroughput extends Configured implements Tool {
     // silence the minidfs cluster
     Log hadoopLog = LogFactory.getLog("org");
     if (hadoopLog instanceof Log4JLogger) {
-      GenericTestUtils.setLogLevel(hadoopLog, Level.WARN);
+      ((Log4JLogger) hadoopLog).getLogger().setLevel(Level.WARN);
     }
     int reps = 1;
     if (args.length == 1) {

@@ -20,8 +20,6 @@ package org.apache.hadoop.mapreduce.v2.api.records;
 
 import java.util.List;
 
-import org.apache.hadoop.yarn.api.records.Priority;
-
 public interface JobReport {
   public abstract JobId getJobId();
   public abstract JobState getJobState();
@@ -39,8 +37,6 @@ public interface JobReport {
   public abstract String getJobFile();
   public abstract List<AMInfo> getAMInfos();
   public abstract boolean isUber();
-  public abstract Priority getJobPriority();
-  public abstract String getHistoryFile();
 
   public abstract void setJobId(JobId jobId);
   public abstract void setJobState(JobState jobState);
@@ -58,6 +54,4 @@ public interface JobReport {
   public abstract void setJobFile(String jobFile);
   public abstract void setAMInfos(List<AMInfo> amInfos);
   public abstract void setIsUber(boolean isUber);
-  public abstract void setJobPriority(Priority priority);
-  public abstract void setHistoryFile(String historyFile);
 }

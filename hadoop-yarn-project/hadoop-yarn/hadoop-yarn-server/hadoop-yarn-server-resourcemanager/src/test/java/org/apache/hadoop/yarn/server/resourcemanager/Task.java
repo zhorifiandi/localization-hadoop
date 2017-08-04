@@ -31,9 +31,6 @@ import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.ResourceRequest;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.NodeType;
-import org.apache.hadoop.yarn.server.scheduler.SchedulerRequestKey;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity
-    .TestUtils;
 
 public class Task {
   private static final Log LOG = LogFactory.getLog(Task.class);
@@ -43,7 +40,6 @@ public class Task {
   final private ApplicationId applicationId;
   final private int taskId;
   final private Priority priority;
-  final private SchedulerRequestKey schedulerKey;
   
   final private Set<String> hosts = new HashSet<String>();
   final private Set<String> racks = new HashSet<String>();
@@ -52,7 +48,7 @@ public class Task {
   private org.apache.hadoop.yarn.server.resourcemanager.NodeManager nodeManager;
   
   private State state;
-
+  
   public Task(Application application, Priority priority, String[] hosts) {
     this.applicationId = application.getApplicationId();
     this.priority = priority;
@@ -68,7 +64,6 @@ public class Task {
         this.racks.add(Application.resolve(host));
       }
     }
-    this.schedulerKey = TestUtils.toSchedulerKey(priority.getPriority());
     LOG.info("Task " + taskId + " added to application " + this.applicationId + 
         " with " + this.hosts.size() + " hosts, " + racks.size() + " racks");
   }
@@ -79,10 +74,6 @@ public class Task {
 
   public Priority getPriority() {
     return priority;
-  }
-
-  public SchedulerRequestKey getSchedulerKey() {
-    return schedulerKey;
   }
   
   public org.apache.hadoop.yarn.server.resourcemanager.NodeManager getNodeManager() {

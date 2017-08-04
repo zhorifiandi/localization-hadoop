@@ -21,16 +21,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.spy;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import com.google.common.base.Supplier;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -45,28 +43,25 @@ import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
-import org.apache.hadoop.hdfs.server.namenode.FSEditLog;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.server.namenode.LeaseManager;
 import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.UserGroupInformation;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
-import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Assert;
-import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 public class TestLeaseRecovery2 {
   
   public static final Log LOG = LogFactory.getLog(TestLeaseRecovery2.class);
   
   {
-    GenericTestUtils.setLogLevel(DataNode.LOG, Level.ALL);
-    GenericTestUtils.setLogLevel(LeaseManager.LOG, Level.ALL);
-    GenericTestUtils.setLogLevel(FSNamesystem.LOG, Level.ALL);
+    ((Log4JLogger)DataNode.LOG).getLogger().setLevel(Level.ALL);
+    ((Log4JLogger)LeaseManager.LOG).getLogger().setLevel(Level.ALL);
+    ((Log4JLogger)LogFactory.getLog(FSNamesystem.class)).getLogger().setLevel(Level.ALL);
   }
 
   static final private long BLOCK_SIZE = 1024;
@@ -90,15 +85,12 @@ public class TestLeaseRecovery2 {
    * 
    * @throws IOException
    */
-  @Before
-  public void startUp() throws IOException {
+  @BeforeClass
+  public static void startUp() throws IOException {
     conf.setLong(DFSConfigKeys.DFS_BLOCK_SIZE_KEY, BLOCK_SIZE);
     conf.setInt(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
 
-    cluster = new MiniDFSCluster.Builder(conf)
-        .numDataNodes(5)
-        .checkExitOnShutdown(false)
-        .build();
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(5).build();
     cluster.waitActive();
     dfs = cluster.getFileSystem();
   }
@@ -107,12 +99,10 @@ public class TestLeaseRecovery2 {
    * stop the cluster
    * @throws IOException
    */
-  @After
-  public void tearDown() throws IOException {
-    if (cluster != null) {
-      IOUtils.closeStream(dfs);
-      cluster.shutdown();
-    }
+  @AfterClass
+  public static void tearDown() throws IOException {
+    IOUtils.closeStream(dfs);
+    if (cluster != null) {cluster.shutdown();}
   }
 
   /**
@@ -344,7 +334,7 @@ public class TestLeaseRecovery2 {
 
     // Reset default lease periods
     cluster.setLeasePeriod(HdfsConstants.LEASE_SOFTLIMIT_PERIOD,
-                           HdfsConstants.LEASE_HARDLIMIT_PERIOD);
+        HdfsConstants.LEASE_HARDLIMIT_PERIOD);
     //create a file
     // create a random file name
     String filestr = "/foo" + AppendTestUtil.nextInt();
@@ -427,17 +417,17 @@ public class TestLeaseRecovery2 {
    * 
    * @throws Exception
    */
-  @Test(timeout = 30000)
+  @Test
   public void testHardLeaseRecoveryAfterNameNodeRestart() throws Exception {
     hardLeaseRecoveryRestartHelper(false, -1);
   }
 
-  @Test(timeout = 30000)
+  @Test
   public void testHardLeaseRecoveryAfterNameNodeRestart2() throws Exception {
     hardLeaseRecoveryRestartHelper(false, 1535);
   }
 
-  @Test(timeout = 30000)
+  @Test
   public void testHardLeaseRecoveryWithRenameAfterNameNodeRestart()
       throws Exception {
     hardLeaseRecoveryRestartHelper(true, -1);
@@ -465,8 +455,7 @@ public class TestLeaseRecovery2 {
         cluster.getNameNode(), fileStr);
     
     assertFalse("original lease holder should not be the NN",
-        originalLeaseHolder.startsWith(
-        HdfsServerConstants.NAMENODE_LEASE_HOLDER));
+        originalLeaseHolder.equals(HdfsServerConstants.NAMENODE_LEASE_HOLDER));
 
     // hflush file
     AppendTestUtil.LOG.info("hflush");
@@ -498,23 +487,10 @@ public class TestLeaseRecovery2 {
     cluster.setLeasePeriod(LONG_LEASE_PERIOD, SHORT_LEASE_PERIOD);
     
     // Make sure lease recovery begins.
-    final String path = fileStr;
-    GenericTestUtils.waitFor(new Supplier<Boolean>() {
-      @Override
-      public Boolean get() {
-        String holder =
-            NameNodeAdapter.getLeaseHolderForPath(cluster.getNameNode(), path);
-        return holder.startsWith(HdfsServerConstants.NAMENODE_LEASE_HOLDER);
-      }
-    }, (int)SHORT_LEASE_PERIOD, (int)SHORT_LEASE_PERIOD * 10);
-
-    // Normally, the in-progress edit log would be finalized by
-    // FSEditLog#endCurrentLogSegment.  For testing purposes, we
-    // disable that here.
-    FSEditLog spyLog = spy(cluster.getNameNode().getFSImage().getEditLog());
-    doNothing().when(spyLog).endCurrentLogSegment(Mockito.anyBoolean());
-    DFSTestUtil.setEditLogForTesting(cluster.getNamesystem(), spyLog);
-
+    Thread.sleep(HdfsServerConstants.NAMENODE_LEASE_RECHECK_INTERVAL * 2);
+    
+    checkLease(fileStr, size);
+    
     cluster.restartNameNode(false);
     
     checkLease(fileStr, size);
@@ -565,8 +541,8 @@ public class TestLeaseRecovery2 {
     if (size == 0) {
       assertEquals("lease holder should null, file is closed", null, holder);
     } else {
-      assertTrue("lease holder should now be the NN",
-          holder.startsWith(HdfsServerConstants.NAMENODE_LEASE_HOLDER));
+      assertEquals("lease holder should now be the NN",
+          HdfsServerConstants.NAMENODE_LEASE_HOLDER, holder);
     }
     
   }

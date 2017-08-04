@@ -40,7 +40,6 @@ public abstract class NFS3Request {
   
   /**
    * Subclass should implement. Usually handle is the first to be serialized
-   * @param xdr XDR message
    */
   public abstract void serialize(XDR xdr);
 }

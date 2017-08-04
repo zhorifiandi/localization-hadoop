@@ -26,7 +26,6 @@ import org.apache.commons.lang.RandomStringUtils;
 import org.apache.hadoop.fs.Options.CreateOpts;
 import org.apache.hadoop.fs.Options.CreateOpts.BlockSize;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.Assert;
 
 /**
@@ -40,10 +39,11 @@ public final class FileContextTestHelper {
   private String absTestRootDir = null;
 
   /**
-   * Create a context with test root relative to the test directory
+   * Create a context with test root relative to the <wd>/build/test/data
    */
   public FileContextTestHelper() {
-    this(GenericTestUtils.getRandomizedTestDir().getAbsolutePath());
+    this(System.getProperty("test.build.data", "target/test/data") + "/" +
+        RandomStringUtils.randomAlphanumeric(10));
   }
 
   /**
@@ -216,7 +216,7 @@ public final class FileContextTestHelper {
     return containsPath(fc, new Path(path), dirList);
   }
   
-  public enum fileType {isDir, isFile, isSymlink};
+  public static enum fileType {isDir, isFile, isSymlink};
   
   public static void checkFileStatus(FileContext aFc, String path,
       fileType expectedType) throws IOException {

@@ -15,8 +15,6 @@
 Hadoop: Pluggable Shuffle and Pluggable Sort
 ============================================
 
-<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
-
 Introduction
 ------------
 

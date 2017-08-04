@@ -39,7 +39,10 @@ import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 
+import static org.apache.hadoop.util.ExitUtil.terminate;
+
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.Lists;
@@ -51,23 +54,32 @@ import com.google.common.collect.Sets;
  * assumed that FSEditLog methods, that use this class, use proper
  * synchronization.
  */
-@InterfaceAudience.Private
 public class JournalSet implements JournalManager {
 
   static final Log LOG = LogFactory.getLog(FSEditLog.class);
 
-  // we want local logs to be ordered earlier in the collection, and true
-  // is considered larger than false, so reverse the comparator
   private static final Comparator<EditLogInputStream>
-      LOCAL_LOG_PREFERENCE_COMPARATOR = Comparator
-      .comparing(EditLogInputStream::isLocalLog)
-      .reversed();
-
-  public static final Comparator<EditLogInputStream>
-      EDIT_LOG_INPUT_STREAM_COMPARATOR = Comparator
-      .comparing(EditLogInputStream::getFirstTxId)
-      .thenComparing(EditLogInputStream::getLastTxId);
-
+    LOCAL_LOG_PREFERENCE_COMPARATOR = new Comparator<EditLogInputStream>() {
+    @Override
+    public int compare(EditLogInputStream elis1, EditLogInputStream elis2) {
+      // we want local logs to be ordered earlier in the collection, and true
+      // is considered larger than false, so we want to invert the booleans here
+      return ComparisonChain.start().compare(!elis1.isLocalLog(),
+          !elis2.isLocalLog()).result();
+    }
+  };
+  
+  static final public Comparator<EditLogInputStream>
+    EDIT_LOG_INPUT_STREAM_COMPARATOR = new Comparator<EditLogInputStream>() {
+      @Override
+      public int compare(EditLogInputStream a, EditLogInputStream b) {
+        return ComparisonChain.start().
+          compare(a.getFirstTxId(), b.getFirstTxId()).
+          compare(b.getLastTxId(), a.getLastTxId()).
+          result();
+      }
+    };
+  
   /**
    * Container for a JournalManager paired with its currently
    * active stream.
@@ -250,13 +262,10 @@ public class JournalSet implements JournalManager {
    *                         may not be sorted-- this is up to the caller.
    * @param fromTxId         The transaction ID to start looking for streams at
    * @param inProgressOk     Should we consider unfinalized streams?
-   * @param onlyDurableTxns  Set to true if streams are bounded by the durable
-   *                         TxId. A durable TxId is the committed txid in QJM
-   *                         or the largest txid written into file in FJM
    */
   @Override
   public void selectInputStreams(Collection<EditLogInputStream> streams,
-      long fromTxId, boolean inProgressOk, boolean onlyDurableTxns) {
+      long fromTxId, boolean inProgressOk) throws IOException {
     final PriorityQueue<EditLogInputStream> allStreams = 
         new PriorityQueue<EditLogInputStream>(64,
             EDIT_LOG_INPUT_STREAM_COMPARATOR);
@@ -266,8 +275,7 @@ public class JournalSet implements JournalManager {
         continue;
       }
       try {
-        jas.getManager().selectInputStreams(allStreams, fromTxId,
-            inProgressOk, onlyDurableTxns);
+        jas.getManager().selectInputStreams(allStreams, fromTxId, inProgressOk);
       } catch (IOException ioe) {
         LOG.warn("Unable to determine input streams from " + jas.getManager() +
             ". Skipping.", ioe);
@@ -674,8 +682,7 @@ public class JournalSet implements JournalManager {
       // And then start looking from after that point
       curStartTxId = bestLog.getEndTxId() + 1;
     }
-    RemoteEditLogManifest ret = new RemoteEditLogManifest(logs,
-        curStartTxId - 1);
+    RemoteEditLogManifest ret = new RemoteEditLogManifest(logs);
     
     if (LOG.isDebugEnabled()) {
       LOG.debug("Generated manifest for logs since " + fromTxId + ":"
@@ -696,6 +703,12 @@ public class JournalSet implements JournalManager {
       }
     }
     return buf.toString();
+  }
+
+  @Override
+  public void discardSegments(long startTxId) throws IOException {
+    // This operation is handled by FSEditLog directly.
+    throw new UnsupportedOperationException();
   }
 
   @Override
@@ -724,12 +737,6 @@ public class JournalSet implements JournalManager {
 
   @Override
   public void doRollback() throws IOException {
-    // This operation is handled by FSEditLog directly.
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public void discardSegments(long startTxId) throws IOException {
     // This operation is handled by FSEditLog directly.
     throw new UnsupportedOperationException();
   }

@@ -99,7 +99,7 @@ public class AggregatedLogDeletionService extends AbstractService {
           if(appDir.isDirectory() && 
               appDir.getModificationTime() < cutoffMillis) {
             boolean appTerminated =
-                isApplicationTerminated(ApplicationId.fromString(appDir
+                isApplicationTerminated(ConverterUtils.toApplicationId(appDir
                   .getPath().getName()), rmClient);
             if(appTerminated && shouldDeleteLogDir(appDir, cutoffMillis, fs)) {
               try {

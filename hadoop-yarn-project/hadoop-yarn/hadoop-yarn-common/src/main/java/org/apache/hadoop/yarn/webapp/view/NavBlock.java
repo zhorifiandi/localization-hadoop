@@ -30,12 +30,12 @@ public class NavBlock extends HtmlBlock {
         ul().
           li("Item 1").
           li("Item 2").
-          li("...").__().
+          li("...")._().
         h3("Tools").
         ul().
-          li().a("/conf", "Configuration").__().
-          li().a("/stacks", "Thread dump").__().
-          li().a("/logs", "Logs").__().
-          li().a("/jmx?qry=Hadoop:*", "Metrics").__().__().__();
+          li().a("/conf", "Configuration")._().
+          li().a("/stacks", "Thread dump")._().
+          li().a("/logs", "Logs")._().
+          li().a("/jmx?qry=Hadoop:*", "Metrics")._()._()._();
   }
 }

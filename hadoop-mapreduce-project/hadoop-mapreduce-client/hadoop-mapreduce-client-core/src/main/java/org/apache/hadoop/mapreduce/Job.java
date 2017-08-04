@@ -75,11 +75,11 @@ import org.apache.hadoop.yarn.api.records.ReservationId;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public class Job extends JobContextImpl implements JobContext, AutoCloseable {
+public class Job extends JobContextImpl implements JobContext {  
   private static final Log LOG = LogFactory.getLog(Job.class);
 
   @InterfaceStability.Evolving
-  public enum JobState {DEFINE, RUNNING};
+  public static enum JobState {DEFINE, RUNNING};
   private static final long MAX_JOBSTATUS_AGE = 1000 * 2;
   public static final String OUTPUT_FILTER = "mapreduce.client.output.filter";
   /** Key in mapred-*.xml that sets completionPollInvervalMillis */
@@ -95,16 +95,13 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
   static final int DEFAULT_MONITOR_POLL_INTERVAL = 1000;
 
   public static final String USED_GENERIC_PARSER = 
-      "mapreduce.client.genericoptionsparser.used";
+    "mapreduce.client.genericoptionsparser.used";
   public static final String SUBMIT_REPLICATION = 
-      "mapreduce.client.submit.file.replication";
+    "mapreduce.client.submit.file.replication";
   public static final int DEFAULT_SUBMIT_REPLICATION = 10;
-  public static final String USE_WILDCARD_FOR_LIBJARS =
-      "mapreduce.client.libjars.wildcard";
-  public static final boolean DEFAULT_USE_WILDCARD_FOR_LIBJARS = true;
 
   @InterfaceStability.Evolving
-  public enum TaskStatusFilter { NONE, KILLED, FAILED, SUCCEEDED, ALL }
+  public static enum TaskStatusFilter { NONE, KILLED, FAILED, SUCCEEDED, ALL }
 
   static {
     ConfigUtil.loadResources();
@@ -323,7 +320,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
       this.status = ugi.doAs(new PrivilegedExceptionAction<JobStatus>() {
         @Override
         public JobStatus run() throws IOException, InterruptedException {
-          return cluster.getClient().getJobStatus(getJobID());
+          return cluster.getClient().getJobStatus(status.getJobID());
         }
       });
     }
@@ -410,7 +407,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
   /**
    * Get scheduling info of the job.
    * 
-   * @return the priority info of the job
+   * @return the scheduling info of the job
    */
   public JobPriority getPriority() throws IOException, InterruptedException {
     ensureState(JobState.RUNNING);
@@ -422,7 +419,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
    * The user-specified job name.
    */
   public String getJobName() {
-    if (state == JobState.DEFINE || status == null) {
+    if (state == JobState.DEFINE) {
       return super.getJobName();
     }
     ensureState(JobState.RUNNING);
@@ -638,76 +635,25 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
 
   /**
    * Set the priority of a running job.
-   * @param jobPriority the new priority for the job.
+   * @param priority the new priority for the job.
    * @throws IOException
    */
-  public void setPriority(JobPriority jobPriority) throws IOException,
-      InterruptedException {
+  public void setPriority(JobPriority priority) 
+      throws IOException, InterruptedException {
     if (state == JobState.DEFINE) {
-      if (jobPriority == JobPriority.UNDEFINED_PRIORITY) {
-        conf.setJobPriorityAsInteger(convertPriorityToInteger(jobPriority));
-      } else {
-        conf.setJobPriority(org.apache.hadoop.mapred.JobPriority
-            .valueOf(jobPriority.name()));
-      }
+      conf.setJobPriority(
+        org.apache.hadoop.mapred.JobPriority.valueOf(priority.name()));
     } else {
       ensureState(JobState.RUNNING);
-      final int tmpPriority = convertPriorityToInteger(jobPriority);
+      final JobPriority tmpPriority = priority;
       ugi.doAs(new PrivilegedExceptionAction<Object>() {
         @Override
         public Object run() throws IOException, InterruptedException {
-          cluster.getClient()
-              .setJobPriority(getJobID(), Integer.toString(tmpPriority));
+          cluster.getClient().setJobPriority(getJobID(), tmpPriority.toString());
           return null;
         }
       });
     }
-  }
-
-  /**
-   * Set the priority of a running job.
-   *
-   * @param jobPriority
-   *          the new priority for the job.
-   * @throws IOException
-   */
-  public void setPriorityAsInteger(int jobPriority) throws IOException,
-      InterruptedException {
-    if (state == JobState.DEFINE) {
-      conf.setJobPriorityAsInteger(jobPriority);
-    } else {
-      ensureState(JobState.RUNNING);
-      final int tmpPriority = jobPriority;
-      ugi.doAs(new PrivilegedExceptionAction<Object>() {
-        @Override
-        public Object run() throws IOException, InterruptedException {
-          cluster.getClient()
-              .setJobPriority(getJobID(), Integer.toString(tmpPriority));
-          return null;
-        }
-      });
-    }
-  }
-
-  private int convertPriorityToInteger(JobPriority jobPriority) {
-    switch (jobPriority) {
-    case VERY_HIGH :
-      return 5;
-    case HIGH :
-      return 4;
-    case NORMAL :
-      return 3;
-    case LOW :
-      return 2;
-    case VERY_LOW :
-      return 1;
-    case DEFAULT :
-      return 0;
-    default:
-      break;
-    }
-    // For UNDEFINED_PRIORITY, we can set it to default for better handling
-    return 0;
   }
 
   /**
@@ -1261,7 +1207,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
   /**
    * Default to the new APIs unless they are explicitly set or the old mapper or
    * reduce attributes are used.
-   * @throws IOException if the configuration is inconsistent
+   * @throws IOException if the configuration is inconsistant
    */
   private void setUseNewAPI() throws IOException {
     int numReduces = conf.getNumReduceTasks();
@@ -1279,7 +1225,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
         ensureNotSet("mapred.output.format.class", mode);
       }      
     } else {
-      String mode = "map compatibility";
+      String mode = "map compatability";
       ensureNotSet(INPUT_FORMAT_CLASS_ATTR, mode);
       ensureNotSet(MAP_CLASS_ATTR, mode);
       if (numReduces != 0) {
@@ -1296,7 +1242,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
         ensureNotSet("mapred.output.format.class", mode);
         ensureNotSet(oldReduceClass, mode);   
       } else {
-        String mode = "reduce compatibility";
+        String mode = "reduce compatability";
         ensureNotSet(OUTPUT_FORMAT_CLASS_ATTR, mode);
         ensureNotSet(REDUCE_CLASS_ATTR, mode);   
       }
@@ -1375,7 +1321,6 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
         }
       }
     }
-
     LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done, Finish Time at at"+ getFinishTime() +".....");
     LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Started at "+getStartTime() +" ...");
     return isSuccessful();
@@ -1557,15 +1502,4 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
     this.reservationId = reservationId;
   }
   
-  /**
-   * Close the <code>Job</code>.
-   * @throws IOException if fail to close.
-   */
-  @Override
-  public void close() throws IOException {
-    if (cluster != null) {
-      cluster.close();
-      cluster = null;
-    }
-  }
 }

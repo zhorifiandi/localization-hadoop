@@ -39,15 +39,16 @@ import org.apache.hadoop.mapreduce.v2.util.MRApps;
 import org.apache.hadoop.mapreduce.v2.util.MRWebAppUtil;
 import org.apache.hadoop.yarn.util.Times;
 import org.apache.hadoop.yarn.webapp.SubView;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TFOOT;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.THEAD;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TR;
-import org.apache.hadoop.yarn.webapp.hamlet2.HamletSpec.InputType;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TFOOT;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.THEAD;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TR;
+import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec.InputType;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
+import com.google.common.base.Joiner;
 import com.google.inject.Inject;
 
 /**
@@ -109,7 +110,7 @@ public class HsTaskPage extends HsView {
       headRow.th("Elapsed Time").
               th(".note", "Note");
       
-       TBODY<TABLE<Hamlet>> tbody = headRow.__().__().tbody();
+       TBODY<TABLE<Hamlet>> tbody = headRow._()._().tbody();
        // Write all the data into a JavaScript array of arrays for JQuery
        // DataTables to display
        StringBuilder attemptsTableData = new StringBuilder("[\n");
@@ -142,10 +143,11 @@ public class HsTaskPage extends HsView {
         }
         long attemptElapsed =
             Times.elapsed(attemptStartTime, attemptFinishTime, false);
-        TaskId taskId = attempt.getID().getTaskId();
+        int sortId = attempt.getID().getId()
+                   + (attempt.getID().getTaskId().getId() * 10000);
 
         attemptsTableData.append("[\"")
-        .append(getAttemptId(taskId, ta)).append("\",\"")
+        .append(sortId + " ").append(taid).append("\",\"")
         .append(ta.getState()).append("\",\"")
         .append(StringEscapeUtils.escapeJavaScript(
               StringEscapeUtils.escapeHtml(ta.getStatus()))).append("\",\"")
@@ -181,59 +183,55 @@ public class HsTaskPage extends HsView {
        }
        attemptsTableData.append("]");
        html.script().$type("text/javascript").
-           __("var attemptsTableData=" + attemptsTableData).__();
+       _("var attemptsTableData=" + attemptsTableData)._();
 
-      TR<TFOOT<TABLE<Hamlet>>> footRow = tbody.__().tfoot().tr();
+      TR<TFOOT<TABLE<Hamlet>>> footRow = tbody._().tfoot().tr();
       footRow.
           th().input("search_init").$type(InputType.text).
-              $name("attempt_name").$value("Attempt").__().__().
+              $name("attempt_name").$value("Attempt")._()._().
           th().input("search_init").$type(InputType.text).
-              $name("attempt_state").$value("State").__().__().
+              $name("attempt_state").$value("State")._()._().
           th().input("search_init").$type(InputType.text).
-              $name("attempt_status").$value("Status").__().__().
+              $name("attempt_status").$value("Status")._()._().
           th().input("search_init").$type(InputType.text).
-              $name("attempt_node").$value("Node").__().__().
+              $name("attempt_node").$value("Node")._()._().
           th().input("search_init").$type(InputType.text).
-              $name("attempt_node").$value("Logs").__().__().
+              $name("attempt_node").$value("Logs")._()._().
           th().input("search_init").$type(InputType.text).
-              $name("attempt_start_time").$value("Start Time").__().__();
+              $name("attempt_start_time").$value("Start Time")._()._();
       
       if(type == TaskType.REDUCE) {
         footRow.
         th().input("search_init").$type(InputType.text).
-            $name("shuffle_time").$value("Shuffle Time").__().__();
+            $name("shuffle_time").$value("Shuffle Time")._()._();
         footRow.
         th().input("search_init").$type(InputType.text).
-            $name("merge_time").$value("Merge Time").__().__();
+            $name("merge_time").$value("Merge Time")._()._();
       }
       
       footRow.
         th().input("search_init").$type(InputType.text).
-            $name("attempt_finish").$value("Finish Time").__().__();
+            $name("attempt_finish").$value("Finish Time")._()._();
       
       if(type == TaskType.REDUCE) {
         footRow.
         th().input("search_init").$type(InputType.text).
-            $name("elapsed_shuffle_time").$value("Elapsed Shuffle Time").__().__();
+            $name("elapsed_shuffle_time").$value("Elapsed Shuffle Time")._()._();
         footRow.
         th().input("search_init").$type(InputType.text).
-            $name("elapsed_merge_time").$value("Elapsed Merge Time").__().__();
+            $name("elapsed_merge_time").$value("Elapsed Merge Time")._()._();
         footRow.
         th().input("search_init").$type(InputType.text).
-            $name("elapsed_reduce_time").$value("Elapsed Reduce Time").__().__();
+            $name("elapsed_reduce_time").$value("Elapsed Reduce Time")._()._();
       }
 
       footRow.
         th().input("search_init").$type(InputType.text).
-            $name("attempt_elapsed").$value("Elapsed Time").__().__().
+            $name("attempt_elapsed").$value("Elapsed Time")._()._().
         th().input("search_init").$type(InputType.text).
-            $name("note").$value("Note").__().__();
+            $name("note").$value("Note")._()._();
       
-      footRow.__().__().__();
-    }
-
-    protected String getAttemptId(TaskId taskId, TaskAttemptInfo ta) {
-      return ta.getId();
+      footRow._()._()._();
     }
 
     /**
@@ -255,7 +253,7 @@ public class HsTaskPage extends HsView {
    * (non-Javadoc)
    * @see org.apache.hadoop.mapreduce.v2.hs.webapp.HsView#preHead(org.apache.hadoop.yarn.webapp.hamlet.Hamlet.HTML)
    */
-  @Override protected void preHead(Page.HTML<__> html) {
+  @Override protected void preHead(Page.HTML<_> html) {
     commonPreHead(html);
     //override the nav config from commonPReHead
     set(initID(ACCORDION, "nav"), "{autoHeight:false, active:2}");
@@ -297,8 +295,8 @@ public class HsTaskPage extends HsView {
       .append("\n{'aTargets': [ 4 ]")
       .append(", 'bSearchable': false }")
 
-      .append("\n, {'sType':'natural', 'aTargets': [ 0 ]")
-      .append(", 'mRender': parseHadoopID }")
+      .append("\n, {'sType':'numeric', 'aTargets': [ 0 ]")
+      .append(", 'mRender': parseHadoopAttemptID }")
 
       .append("\n, {'sType':'numeric', 'aTargets': [ 5, 6")
       //Column numbers are different for maps and reduces

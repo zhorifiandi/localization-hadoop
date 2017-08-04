@@ -25,9 +25,9 @@ import static org.apache.hadoop.yarn.webapp.view.JQueryUI._PROGRESSBAR_VALUE;
 import org.apache.hadoop.mapreduce.v2.app.AppContext;
 import org.apache.hadoop.mapreduce.v2.app.job.Job;
 import org.apache.hadoop.mapreduce.v2.app.webapp.dao.JobInfo;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -53,34 +53,34 @@ public class JobsBlock extends HtmlBlock {
             th("Maps Completed").
             th("Reduce Progress").
             th("Reduces Total").
-            th("Reduces Completed").__().__().
+            th("Reduces Completed")._()._().
         tbody();
     for (Job j : appContext.getAllJobs().values()) {
       JobInfo job = new JobInfo(j, false);
       tbody.
         tr().
           td().
-            span().$title(String.valueOf(job.getId())).__(). // for sorting
-            a(url("job", job.getId()), job.getId()).__().
+            span().$title(String.valueOf(job.getId()))._(). // for sorting
+            a(url("job", job.getId()), job.getId())._().
           td(job.getName()).
           td(job.getState()).
           td().
-            span().$title(job.getMapProgressPercent()).__(). // for sorting
+            span().$title(job.getMapProgressPercent())._(). // for sorting
             div(_PROGRESSBAR).
               $title(join(job.getMapProgressPercent(), '%')). // tooltip
               div(_PROGRESSBAR_VALUE).
-                $style(join("width:", job.getMapProgressPercent(), '%')).__().__().__().
+                $style(join("width:", job.getMapProgressPercent(), '%'))._()._()._().
           td(String.valueOf(job.getMapsTotal())).
           td(String.valueOf(job.getMapsCompleted())).
           td().
-            span().$title(job.getReduceProgressPercent()).__(). // for sorting
+            span().$title(job.getReduceProgressPercent())._(). // for sorting
             div(_PROGRESSBAR).
               $title(join(job.getReduceProgressPercent(), '%')). // tooltip
               div(_PROGRESSBAR_VALUE).
-                $style(join("width:", job.getReduceProgressPercent(), '%')).__().__().__().
+                $style(join("width:", job.getReduceProgressPercent(), '%'))._()._()._().
           td(String.valueOf(job.getReducesTotal())).
-          td(String.valueOf(job.getReducesCompleted())).__();
+          td(String.valueOf(job.getReducesCompleted()))._();
     }
-    tbody.__().__();
+    tbody._()._();
   }
 }

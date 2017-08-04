@@ -26,8 +26,9 @@ import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.configuration2.SubsetConfiguration;
-import org.apache.commons.configuration2.convert.DefaultListDelimiterHandler;
+import org.apache.commons.configuration.SubsetConfiguration;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.metrics2.AbstractMetric;
 import org.apache.hadoop.metrics2.MetricsException;
@@ -36,8 +37,6 @@ import org.apache.hadoop.metrics2.MetricsTag;
 import org.apache.hadoop.metrics2.impl.MsInfo;
 import org.apache.hadoop.metrics2.util.MetricsCache;
 import org.apache.hadoop.metrics2.util.MetricsCache.Record;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This code supports Ganglia 3.0
@@ -45,7 +44,7 @@ import org.slf4j.LoggerFactory;
  */
 public class GangliaSink30 extends AbstractGangliaSink {
 
-  public final Logger LOG = LoggerFactory.getLogger(this.getClass());
+  public final Log LOG = LogFactory.getLog(this.getClass());
 
   private static final String TAGS_FOR_PREFIX_PROPERTY_PREFIX = "tagsForPrefix.";
   
@@ -59,7 +58,7 @@ public class GangliaSink30 extends AbstractGangliaSink {
   public void init(SubsetConfiguration conf) {
     super.init(conf);
 
-    conf.setListDelimiterHandler(new DefaultListDelimiterHandler(','));
+    conf.setListDelimiter(',');
     Iterator<String> it = (Iterator<String>) conf.getKeys();
     while (it.hasNext()) {
       String propertyName = it.next();
@@ -67,16 +66,19 @@ public class GangliaSink30 extends AbstractGangliaSink {
         String contextName = propertyName.substring(TAGS_FOR_PREFIX_PROPERTY_PREFIX.length());
         String[] tags = conf.getStringArray(propertyName);
         boolean useAllTags = false;
-        Set<String> set = new HashSet<>();
-        for (String tag : tags) {
-          tag = tag.trim();
-          useAllTags |= tag.equals("*");
-          if (tag.length() > 0) {
-            set.add(tag);
+        Set<String> set = null;
+        if (tags.length > 0) {
+          set = new HashSet<String>();
+          for (String tag : tags) {
+            tag = tag.trim();
+            useAllTags |= tag.equals("*");
+            if (tag.length() > 0) {
+              set.add(tag);
+            }
           }
-        }
-        if (useAllTags) {
-          set = null;
+          if (useAllTags) {
+            set = null;
+          }
         }
         useTagsMap.put(contextName, set);
       }

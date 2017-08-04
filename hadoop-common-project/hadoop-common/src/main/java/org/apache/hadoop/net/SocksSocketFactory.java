@@ -31,8 +31,6 @@ import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_SOCKS_SERVER_KEY;
-
 /**
  * Specialized SocketFactory to create sockets with a SOCKS proxy
  */
@@ -135,7 +133,7 @@ public class SocksSocketFactory extends SocketFactory implements
   @Override
   public void setConf(Configuration conf) {
     this.conf = conf;
-    String proxyStr = conf.get(HADOOP_SOCKS_SERVER_KEY);
+    String proxyStr = conf.get("hadoop.socks.server");
     if ((proxyStr != null) && (proxyStr.length() > 0)) {
       setProxy(proxyStr);
     }

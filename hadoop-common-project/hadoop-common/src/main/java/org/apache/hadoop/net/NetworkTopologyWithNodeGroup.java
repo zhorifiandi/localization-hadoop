@@ -36,7 +36,7 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
   public final static String DEFAULT_NODEGROUP = "/default-nodegroup";
 
   public NetworkTopologyWithNodeGroup() {
-    clusterMap = new InnerNodeWithNodeGroup(NodeBase.ROOT);
+    clusterMap = new InnerNodeWithNodeGroup(InnerNode.ROOT);
   }
 
   @Override
@@ -58,7 +58,7 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
   public String getRack(String loc) {
     netlock.readLock().lock();
     try {
-      loc = NodeBase.normalize(loc);
+      loc = InnerNode.normalize(loc);
       Node locNode = getNode(loc);
       if (locNode instanceof InnerNodeWithNodeGroup) {
         InnerNodeWithNodeGroup node = (InnerNodeWithNodeGroup) locNode;
@@ -90,7 +90,7 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
   public String getNodeGroup(String loc) {
     netlock.readLock().lock();
     try {
-      loc = NodeBase.normalize(loc);
+      loc = InnerNode.normalize(loc);
       Node locNode = getNode(loc);
       if (locNode instanceof InnerNodeWithNodeGroup) {
         InnerNodeWithNodeGroup node = (InnerNodeWithNodeGroup) locNode;
@@ -101,12 +101,7 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
           return null;
         } else {
           // may be a leaf node
-          if(!(node.getNetworkLocation() == null ||
-              node.getNetworkLocation().isEmpty())) {
-            return getNodeGroup(node.getNetworkLocation());
-          } else {
-            return NodeBase.ROOT;
-          }
+          return getNodeGroup(node.getNetworkLocation());
         }
       } else {
         // not in cluster map, don't handle it
@@ -210,7 +205,7 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
         LOG.info("Adding a new node: " + NodeBase.getPath(node));
         if (rack == null) {
           // We only track rack number here
-          incrementRacks();
+          numOfRacks++;
         }
       }
       if(LOG.isDebugEnabled()) {
@@ -238,7 +233,7 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
       if (clusterMap.remove(node)) {
         Node nodeGroup = getNode(node.getNetworkLocation());
         if (nodeGroup == null) {
-          nodeGroup = factory.newInnerNode(node.getNetworkLocation());
+          nodeGroup = new InnerNode(node.getNetworkLocation());
         }
         InnerNode rack = (InnerNode)getNode(nodeGroup.getNetworkLocation());
         if (rack == null) {
@@ -302,22 +297,31 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
   /** InnerNodeWithNodeGroup represents a switch/router of a data center, rack
    * or physical host. Different from a leaf node, it has non-null children.
    */
-  static class InnerNodeWithNodeGroup extends InnerNodeImpl {
+  static class InnerNodeWithNodeGroup extends InnerNode {
+    public InnerNodeWithNodeGroup(String name, String location, 
+        InnerNode parent, int level) {
+      super(name, location, parent, level);
+    }
+
+    public InnerNodeWithNodeGroup(String name, String location) {
+      super(name, location);
+    }
+
     public InnerNodeWithNodeGroup(String path) {
       super(path);
     }
 
     @Override
-    public boolean isRack() {
+    boolean isRack() {
       // it is node group
       if (getChildren().isEmpty()) {
         return false;
       }
 
-      Node firstChild = getChildren().get(0);
+      Node firstChild = children.get(0);
 
       if (firstChild instanceof InnerNode) {
-        Node firstGrandChild = (((InnerNode) firstChild).getChildren()).get(0);
+        Node firstGrandChild = (((InnerNode) firstChild).children).get(0);
         if (firstGrandChild instanceof InnerNode) {
           // it is datacenter
           return false;
@@ -334,15 +338,31 @@ public class NetworkTopologyWithNodeGroup extends NetworkTopology {
      * @return true if it has no child or its children are not InnerNodes
      */
     boolean isNodeGroup() {
-      if (getChildren().isEmpty()) {
+      if (children.isEmpty()) {
         return true;
       }
-      Node firstChild = getChildren().get(0);
+      Node firstChild = children.get(0);
       if (firstChild instanceof InnerNode) {
         // it is rack or datacenter
         return false;
       }
       return true;
+    }
+    
+    @Override
+    protected boolean isLeafParent() {
+      return isNodeGroup();
+    }
+
+    @Override
+    protected InnerNode createParentNode(String parentName) {
+      return new InnerNodeWithNodeGroup(parentName, getPath(this), this,
+          this.getLevel() + 1);
+    }
+
+    @Override
+    protected boolean areChildrenLeaves() {
+      return isNodeGroup();
     }
   }
 }

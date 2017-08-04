@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs.server.namenode.ha;
 import com.google.common.util.concurrent.Uninterruptibles;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -73,7 +74,7 @@ public class TestHAStateTransitions {
       RequestSource.REQUEST_BY_USER_FORCED);
   
   static {
-    GenericTestUtils.setLogLevel(EditLogTailer.LOG, Level.ALL);
+    ((Log4JLogger)EditLogTailer.LOG).getLogger().setLevel(Level.ALL);
   }
 
   /**

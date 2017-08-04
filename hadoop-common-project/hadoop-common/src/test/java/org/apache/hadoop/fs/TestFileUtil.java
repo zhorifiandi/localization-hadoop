@@ -17,26 +17,16 @@
  */
 package org.apache.hadoop.fs;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
+import org.junit.Before;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.PrintWriter;
-import java.net.InetAddress;
 import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.UnknownHostException;
+import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -47,23 +37,24 @@ import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.test.GenericTestUtils;
+import org.apache.hadoop.util.Shell;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.tools.tar.TarEntry;
 import org.apache.tools.tar.TarOutputStream;
 import org.junit.After;
 import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.Assert.*;
 
 public class TestFileUtil {
-  private static final Logger LOG = LoggerFactory.getLogger(TestFileUtil.class);
+  private static final Log LOG = LogFactory.getLog(TestFileUtil.class);
 
-  private static final File TEST_DIR = GenericTestUtils.getTestDir("fu");
+  private static final String TEST_ROOT_DIR = System.getProperty(
+      "test.build.data", "/tmp") + "/fu";
+  private static final File TEST_DIR = new File(TEST_ROOT_DIR);
   private static final String FILE = "x";
   private static final String LINK = "y";
   private static final String DIR = "dir";
@@ -72,25 +63,6 @@ public class TestFileUtil {
   private final File dir1 = new File(del, DIR + "1");
   private final File dir2 = new File(del, DIR + "2");
   private final File partitioned = new File(TEST_DIR, "partitioned");
-
-  private InetAddress inet1;
-  private InetAddress inet2;
-  private InetAddress inet3;
-  private InetAddress inet4;
-  private InetAddress inet5;
-  private InetAddress inet6;
-  private URI uri1;
-  private URI uri2;
-  private URI uri3;
-  private URI uri4;
-  private URI uri5;
-  private URI uri6;
-  private FileSystem fs1;
-  private FileSystem fs2;
-  private FileSystem fs3;
-  private FileSystem fs4;
-  private FileSystem fs5;
-  private FileSystem fs6;
 
   /**
    * Creates multiple directories for testing.
@@ -108,7 +80,6 @@ public class TestFileUtil {
    *   file: part-r-00000, contents: "foo"
    *   file: part-r-00001, contents: "bar"
    */
-  @Ignore
   private void setupDirs() throws IOException {
     Assert.assertFalse(del.exists());
     Assert.assertFalse(tmp.exists());
@@ -430,8 +401,10 @@ public class TestFileUtil {
 
   @Test (timeout = 30000)
   public void testFailFullyDelete() throws IOException {
-    // Windows Dir.setWritable(false) does not work for directories
-    assumeNotWindows();
+    if(Shell.WINDOWS) {
+      // windows Dir.setWritable(false) does not work for directories
+      return;
+    }
     LOG.info("Running test to verify failure of fullyDelete()");
     setupDirsAndNonWritablePermissions();
     boolean ret = FileUtil.fullyDelete(new MyFile(del));
@@ -509,8 +482,10 @@ public class TestFileUtil {
 
   @Test (timeout = 30000)
   public void testFailFullyDeleteContents() throws IOException {
-    // Windows Dir.setWritable(false) does not work for directories
-    assumeNotWindows();
+    if(Shell.WINDOWS) {
+      // windows Dir.setWritable(false) does not work for directories
+      return;
+    }
     LOG.info("Running test to verify failure of fullyDeleteContents()");
     setupDirsAndNonWritablePermissions();
     boolean ret = FileUtil.fullyDeleteContents(new MyFile(del));
@@ -525,6 +500,60 @@ public class TestFileUtil {
     validateAndSetWritablePermissions(false, ret);
   }
   
+  @Test (timeout = 30000)
+  public void testCopyMergeSingleDirectory() throws IOException {
+    setupDirs();
+    boolean copyMergeResult = copyMerge("partitioned", "tmp/merged");
+    Assert.assertTrue("Expected successful copyMerge result.", copyMergeResult);
+    File merged = new File(TEST_DIR, "tmp/merged");
+    Assert.assertTrue("File tmp/merged must exist after copyMerge.",
+        merged.exists());
+    BufferedReader rdr = new BufferedReader(new FileReader(merged));
+
+    try {
+      Assert.assertEquals("Line 1 of merged file must contain \"foo\".",
+          "foo", rdr.readLine());
+      Assert.assertEquals("Line 2 of merged file must contain \"bar\".",
+          "bar", rdr.readLine());
+      Assert.assertNull("Expected end of file reading merged file.",
+          rdr.readLine());
+    }
+    finally {
+      rdr.close();
+    }
+  }
+
+  /**
+   * Calls FileUtil.copyMerge using the specified source and destination paths.
+   * Both source and destination are assumed to be on the local file system.
+   * The call will not delete source on completion and will not add an
+   * additional string between files.
+   * @param src String non-null source path.
+   * @param dst String non-null destination path.
+   * @return boolean true if the call to FileUtil.copyMerge was successful.
+   * @throws IOException if an I/O error occurs.
+   */
+  private boolean copyMerge(String src, String dst)
+      throws IOException {
+    Configuration conf = new Configuration();
+    FileSystem fs = FileSystem.getLocal(conf);
+    final boolean result;
+
+    try {
+      Path srcPath = new Path(TEST_ROOT_DIR, src);
+      Path dstPath = new Path(TEST_ROOT_DIR, dst);
+      boolean deleteSource = false;
+      String addString = null;
+      result = FileUtil.copyMerge(fs, srcPath, fs, dstPath, deleteSource, conf,
+          addString);
+    }
+    finally {
+      fs.close();
+    }
+
+    return result;
+  }
+
   /**
    * Test that getDU is able to handle cycles caused due to symbolic links
    * and that directory sizes are not added to the final calculated size
@@ -928,7 +957,13 @@ public class TestFileUtil {
     file.delete();
     Assert.assertFalse(file.exists());
 
-    Assert.assertEquals(0, link.length());
+    if (Shell.WINDOWS && !Shell.isJava7OrAbove()) {
+      // On Java6 on Windows, we copied the file
+      Assert.assertEquals(data.length, link.length());
+    } else {
+      // Otherwise, the target file size is zero
+      Assert.assertEquals(0, link.length());
+    }
 
     link.delete();
     Assert.assertFalse(link.exists());
@@ -964,10 +999,10 @@ public class TestFileUtil {
   @Test (timeout = 30000)
   public void testUntar() throws IOException {
     String tarGzFileName = System.getProperty("test.cache.data",
-        "target/test/cache") + "/test-untar.tgz";
+        "build/test/cache") + "/test-untar.tgz";
     String tarFileName = System.getProperty("test.cache.data",
         "build/test/cache") + "/test-untar.tar";
-    File dataDir = GenericTestUtils.getTestDir();
+    String dataDir = System.getProperty("test.build.data", "build/test/data");
     File untarDir = new File(dataDir, "untarDir");
 
     doUntarAndVerify(new File(tarGzFileName), untarDir);
@@ -1060,117 +1095,5 @@ public class TestFileUtil {
         }
       }
     }
-  }
-
-  @Test
-  public void testGetJarsInDirectory() throws Exception {
-    List<Path> jars = FileUtil.getJarsInDirectory("/foo/bar/bogus/");
-    assertTrue("no jars should be returned for a bogus path",
-        jars.isEmpty());
-
-    // setup test directory for files
-    assertFalse(tmp.exists());
-    assertTrue(tmp.mkdirs());
-
-    // create jar files to be returned
-    File jar1 = new File(tmp, "wildcard1.jar");
-    File jar2 = new File(tmp, "wildcard2.JAR");
-    List<File> matches = Arrays.asList(jar1, jar2);
-    for (File match: matches) {
-      assertTrue("failure creating file: " + match, match.createNewFile());
-    }
-
-    // create non-jar files, which we expect to not be included in the result
-    assertTrue(new File(tmp, "text.txt").createNewFile());
-    assertTrue(new File(tmp, "executable.exe").createNewFile());
-    assertTrue(new File(tmp, "README").createNewFile());
-
-    // pass in the directory
-    String directory = tmp.getCanonicalPath();
-    jars = FileUtil.getJarsInDirectory(directory);
-    assertEquals("there should be 2 jars", 2, jars.size());
-    for (Path jar: jars) {
-      URL url = jar.toUri().toURL();
-      assertTrue("the jar should match either of the jars",
-          url.equals(jar1.toURI().toURL()) || url.equals(jar2.toURI().toURL()));
-    }
-  }
-
-  @Ignore
-  public void setupCompareFs() {
-    // Set up Strings
-    String host1 = "1.2.3.4";
-    String host2 = "2.3.4.5";
-    int port1 = 7000;
-    int port2 = 7001;
-    String uris1 = "hdfs://" + host1 + ":" + Integer.toString(port1) + "/tmp/foo";
-    String uris2 = "hdfs://" + host1 + ":" + Integer.toString(port2) + "/tmp/foo";
-    String uris3 = "hdfs://" + host2 + ":" + Integer.toString(port2) + "/tmp/foo";
-    String uris4 = "hdfs://" + host2 + ":" + Integer.toString(port2) + "/tmp/foo";
-    String uris5 = "file:///" + host1 + ":" + Integer.toString(port1) + "/tmp/foo";
-    String uris6 = "hdfs:///" + host1 + "/tmp/foo";
-    // Set up URI objects
-    try {
-      uri1 = new URI(uris1);
-      uri2 = new URI(uris2);
-      uri3 = new URI(uris3);
-      uri4 = new URI(uris4);
-      uri5 = new URI(uris5);
-      uri6 = new URI(uris6);
-    } catch (URISyntaxException use) {
-    }
-    // Set up InetAddress
-    inet1 = mock(InetAddress.class);
-    when(inet1.getCanonicalHostName()).thenReturn(host1);
-    inet2 = mock(InetAddress.class);
-    when(inet2.getCanonicalHostName()).thenReturn(host1);
-    inet3 = mock(InetAddress.class);
-    when(inet3.getCanonicalHostName()).thenReturn(host2);
-    inet4 = mock(InetAddress.class);
-    when(inet4.getCanonicalHostName()).thenReturn(host2);
-    inet5 = mock(InetAddress.class);
-    when(inet5.getCanonicalHostName()).thenReturn(host1);
-    inet6 = mock(InetAddress.class);
-    when(inet6.getCanonicalHostName()).thenReturn(host1);
-
-    // Link of InetAddress to corresponding URI
-    try {
-      when(InetAddress.getByName(uris1)).thenReturn(inet1);
-      when(InetAddress.getByName(uris2)).thenReturn(inet2);
-      when(InetAddress.getByName(uris3)).thenReturn(inet3);
-      when(InetAddress.getByName(uris4)).thenReturn(inet4);
-      when(InetAddress.getByName(uris5)).thenReturn(inet5);
-    } catch (UnknownHostException ue) {
-    }
-
-    fs1 = mock(FileSystem.class);
-    when(fs1.getUri()).thenReturn(uri1);
-    fs2 = mock(FileSystem.class);
-    when(fs2.getUri()).thenReturn(uri2);
-    fs3 = mock(FileSystem.class);
-    when(fs3.getUri()).thenReturn(uri3);
-    fs4 = mock(FileSystem.class);
-    when(fs4.getUri()).thenReturn(uri4);
-    fs5 = mock(FileSystem.class);
-    when(fs5.getUri()).thenReturn(uri5);
-    fs6 = mock(FileSystem.class);
-    when(fs6.getUri()).thenReturn(uri6);
-  }
-
-  @Test
-  public void testCompareFsNull() throws Exception {
-    setupCompareFs();
-    assertEquals(FileUtil.compareFs(null,fs1),false);
-    assertEquals(FileUtil.compareFs(fs1,null),false);
-  }
-
-  @Test
-  public void testCompareFsDirectories() throws Exception {
-    setupCompareFs();
-    assertEquals(FileUtil.compareFs(fs1,fs1),true);
-    assertEquals(FileUtil.compareFs(fs1,fs2),false);
-    assertEquals(FileUtil.compareFs(fs1,fs5),false);
-    assertEquals(FileUtil.compareFs(fs3,fs4),true);
-    assertEquals(FileUtil.compareFs(fs1,fs6),false);
   }
 }

@@ -18,44 +18,31 @@
 
 package org.apache.hadoop.yarn.server.api.protocolrecords;
 
-import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.server.api.records.MasterKey;
 import org.apache.hadoop.yarn.server.api.records.NodeAction;
 
-/**
- * Node Manager's register response.
- */
-public abstract class RegisterNodeManagerResponse {
-  public abstract MasterKey getContainerTokenMasterKey();
+public interface RegisterNodeManagerResponse {
+  MasterKey getContainerTokenMasterKey();
 
-  public abstract void setContainerTokenMasterKey(MasterKey secretKey);
+  void setContainerTokenMasterKey(MasterKey secretKey);
 
-  public abstract MasterKey getNMTokenMasterKey();
+  MasterKey getNMTokenMasterKey();
 
-  public abstract void setNMTokenMasterKey(MasterKey secretKey);
+  void setNMTokenMasterKey(MasterKey secretKey);
 
-  public abstract NodeAction getNodeAction();
+  NodeAction getNodeAction();
 
-  public abstract void setNodeAction(NodeAction nodeAction);
+  void setNodeAction(NodeAction nodeAction);
 
-  public abstract long getRMIdentifier();
+  long getRMIdentifier();
 
-  public abstract void setRMIdentifier(long rmIdentifier);
+  void setRMIdentifier(long rmIdentifier);
 
-  public abstract String getDiagnosticsMessage();
+  String getDiagnosticsMessage();
 
-  public abstract void setDiagnosticsMessage(String diagnosticsMessage);
+  void setDiagnosticsMessage(String diagnosticsMessage);
 
-  public abstract void setRMVersion(String version);
+  void setRMVersion(String version);
 
-  public abstract String getRMVersion();
-
-  public abstract Resource getResource();
-
-  public abstract void setResource(Resource resource);
-
-  public abstract boolean getAreNodeLabelsAcceptedByRM();
-
-  public abstract void setAreNodeLabelsAcceptedByRM(
-      boolean areNodeLabelsAcceptedByRM);
+  String getRMVersion();
 }

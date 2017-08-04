@@ -37,7 +37,7 @@ import static org.junit.Assert.*;
 
 public class TestDFVariations {
   private static final String TEST_ROOT_DIR =
-      GenericTestUtils.getTestDir("testdfvariations").getAbsolutePath();
+      System.getProperty("test.build.data","build/test/data") + "/TestDFVariations";
   private static File test_root = null;
 
   @Before
@@ -65,7 +65,6 @@ public class TestDFVariations {
     }
   }
 
-  @Test(timeout=5000)
   public void testMount() throws Exception {
     XXDF df = new XXDF();
     String expectedMount =

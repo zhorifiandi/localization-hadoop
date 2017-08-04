@@ -17,8 +17,6 @@
  */
 package org.apache.hadoop.hdfs.qjournal.server;
 
-import static org.apache.hadoop.util.ExitUtil.terminate;
-
 import java.io.File;
 import java.io.FileFilter;
 import java.io.IOException;
@@ -45,13 +43,11 @@ import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.metrics2.source.JvmMetrics;
 import org.apache.hadoop.metrics2.util.MBeans;
 import org.apache.hadoop.security.SecurityUtil;
-import org.apache.hadoop.tracing.TraceUtils;
 import org.apache.hadoop.util.DiskChecker;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
-import org.apache.htrace.core.Tracer;
-import org.eclipse.jetty.util.ajax.JSON;
+import org.mortbay.util.ajax.JSON;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -70,12 +66,9 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
   private JournalNodeRpcServer rpcServer;
   private JournalNodeHttpServer httpServer;
   private final Map<String, Journal> journalsById = Maps.newHashMap();
-  private final Map<String, JournalNodeSyncer> journalSyncersById = Maps
-      .newHashMap();
   private ObjectName journalNodeInfoBeanName;
   private String httpServerURI;
   private File localDir;
-  Tracer tracer;
 
   static {
     HdfsConfiguration.init();
@@ -96,22 +89,9 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
       LOG.info("Initializing journal in directory " + logDir);      
       journal = new Journal(conf, logDir, jid, startOpt, new ErrorReporter());
       journalsById.put(jid, journal);
-
-      // Start SyncJouranl thread, if JournalNode Sync is enabled
-      if (conf.getBoolean(
-          DFSConfigKeys.DFS_JOURNALNODE_ENABLE_SYNC_KEY,
-          DFSConfigKeys.DFS_JOURNALNODE_ENABLE_SYNC_DEFAULT)) {
-        startSyncer(journal, jid);
-      }
     }
-
+    
     return journal;
-  }
-
-  private void startSyncer(Journal journal, String jid) {
-    JournalNodeSyncer jSyncer = new JournalNodeSyncer(this, journal, jid, conf);
-    journalSyncersById.put(jid, jSyncer);
-    jSyncer.start();
   }
 
   @VisibleForTesting
@@ -125,11 +105,6 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
     this.localDir = new File(
         conf.get(DFSConfigKeys.DFS_JOURNALNODE_EDITS_DIR_KEY,
         DFSConfigKeys.DFS_JOURNALNODE_EDITS_DIR_DEFAULT).trim());
-    if (this.tracer == null) {
-      this.tracer = new Tracer.Builder("JournalNode").
-          conf(TraceUtils.wrapHadoopConf("journalnode.htrace", conf)).
-          build();
-    }
   }
 
   private static void validateAndCreateJournalDir(File dir) throws IOException {
@@ -207,11 +182,7 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
    */
   public void stop(int rc) {
     this.resultCode = rc;
-
-    for (JournalNodeSyncer jSyncer : journalSyncersById.values()) {
-      jSyncer.stopSync();
-    }
-
+    
     if (rpcServer != null) { 
       rpcServer.stop();
     }
@@ -228,15 +199,9 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
       IOUtils.cleanup(LOG, j);
     }
 
-    DefaultMetricsSystem.shutdown();
-
     if (journalNodeInfoBeanName != null) {
       MBeans.unregister(journalNodeInfoBeanName);
       journalNodeInfoBeanName = null;
-    }
-    if (tracer != null) {
-      tracer.close();
-      tracer = null;
     }
   }
 
@@ -328,12 +293,12 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
 
   public static void main(String[] args) throws Exception {
     StringUtils.startupShutdownMessage(JournalNode.class, args, LOG);
-    try {
-      System.exit(ToolRunner.run(new JournalNode(), args));
-    } catch (Throwable e) {
-      LOG.error("Failed to start journalnode.", e);
-      terminate(-1, e);
-    }
+    System.exit(ToolRunner.run(new JournalNode(), args));
+  }
+
+  public void discardSegments(String journalId, long startTxId)
+      throws IOException {
+    getOrCreateJournal(journalId).discardSegments(startTxId);
   }
 
   public void doPreUpgrade(String journalId) throws IOException {
@@ -358,12 +323,8 @@ public class JournalNode implements Tool, Configurable, JournalNodeMXBean {
     getOrCreateJournal(journalId, StartupOption.ROLLBACK).doRollback();
   }
 
-  public void discardSegments(String journalId, long startTxId)
-      throws IOException {
-    getOrCreateJournal(journalId).discardSegments(startTxId);
-  }
-
   public Long getJournalCTime(String journalId) throws IOException {
     return getOrCreateJournal(journalId).getJournalCTime();
   }
+
 }

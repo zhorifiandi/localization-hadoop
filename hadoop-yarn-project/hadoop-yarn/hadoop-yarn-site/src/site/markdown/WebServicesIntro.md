@@ -15,7 +15,18 @@
 Hadoop YARN - Introduction to the web services REST API's
 ==========================================================
 
-<!-- MACRO{toc|fromDepth=0|toDepth=2} -->
+* [Overview](#Overview)
+* [URI's](#URIs)
+* [HTTP Requests](#HTTP_Requests)
+    * [Summary of HTTP operations](#Summary_of_HTTP_operations)
+    * [Security](#Security)
+    * [Headers Supported](#Headers_Supported)
+* [HTTP Responses](#HTTP_Responses)
+    * [Compression](#Compression)
+    * [Response Formats](#Response_Formats)
+    * [Response Errors](#Response_Errors)
+    * [Response Examples](#Response_Examples)
+* [Sample Usage](#Sample_Usage)
 
 Overview
 --------
@@ -86,7 +97,7 @@ After calling an HTTP request, an application should check the response status c
 
 #### JSON response with single resource
 
-HTTP Request: GET http://rmhost.domain:8088/ws/v1/cluster/apps/application\_1324057493980\_0001
+HTTP Request: GET http://rmhost.domain:8088/ws/v1/cluster/app/application\_1324057493980\_0001
 
 Response Status Line: HTTP/1.1 200 OK
 
@@ -126,7 +137,7 @@ Response Body:
 
 Here we request information about an application that doesn't exist yet.
 
-HTTP Request: GET http://rmhost.domain:8088/ws/v1/cluster/apps/application\_1324057493980\_9999
+HTTP Request: GET http://rmhost.domain:8088/ws/v1/cluster/app/application\_1324057493980\_9999
 
 Response Status Line: HTTP/1.1 404 Not Found
 

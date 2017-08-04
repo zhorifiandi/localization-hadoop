@@ -19,8 +19,8 @@ package org.apache.hadoop.http;
 
 
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.Log;
 
 import java.io.FileNotFoundException;
 
@@ -28,8 +28,7 @@ import java.io.FileNotFoundException;
  * Test webapp loading
  */
 public class TestHttpServerWebapps extends HttpServerFunctionalTest {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestHttpServerWebapps.class);
+  private static final Log log = LogFactory.getLog(TestHttpServerWebapps.class);
 
   /**
    * Test that the test server is loadable on the classpath
@@ -59,7 +58,7 @@ public class TestHttpServerWebapps extends HttpServerFunctionalTest {
       stop(server);
       fail("Expected an exception, got " + serverDescription);
     } catch (FileNotFoundException expected) {
-      LOG.debug("Expected exception " + expected, expected);
+      log.debug("Expected exception " + expected, expected);
     }
   }
 

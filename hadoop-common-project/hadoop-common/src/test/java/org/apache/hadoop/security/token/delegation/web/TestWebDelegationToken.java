@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.security.token.delegation.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.commons.io.IOUtils;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.minikdc.MiniKdc;
@@ -31,24 +30,22 @@ import org.apache.hadoop.security.authentication.server.KerberosAuthenticationHa
 import org.apache.hadoop.security.authentication.server.PseudoAuthenticationHandler;
 import org.apache.hadoop.security.authentication.util.KerberosUtil;
 import org.apache.hadoop.security.token.delegation.AbstractDelegationTokenSecretManager;
-import org.apache.hadoop.test.GenericTestUtils;
-import org.eclipse.jetty.server.Server;
-import org.eclipse.jetty.server.ServerConnector;
-import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.codehaus.jackson.map.ObjectMapper;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.eclipse.jetty.servlet.FilterHolder;
-import org.eclipse.jetty.servlet.ServletHolder;
-import org.slf4j.event.Level;
+import org.mortbay.jetty.Connector;
+import org.mortbay.jetty.Server;
+import org.mortbay.jetty.servlet.Context;
+import org.mortbay.jetty.servlet.FilterHolder;
+import org.mortbay.jetty.servlet.ServletHolder;
 
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.auth.login.Configuration;
 import javax.security.auth.login.LoginContext;
-import javax.servlet.DispatcherType;
 import javax.servlet.Filter;
 import javax.servlet.FilterConfig;
 import javax.servlet.ServletException;
@@ -62,11 +59,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.Writer;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.URL;
 import java.security.Principal;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -177,8 +175,13 @@ public class TestWebDelegationToken {
 
   protected Server createJettyServer() {
     try {
+      InetAddress localhost = InetAddress.getLocalHost();
+      ServerSocket ss = new ServerSocket(0, 50, localhost);
+      int port = ss.getLocalPort();
+      ss.close();
       jetty = new Server(0);
-      ((ServerConnector)jetty.getConnectors()[0]).setHost("localhost");
+      jetty.getConnectors()[0].setHost("localhost");
+      jetty.getConnectors()[0].setPort(port);
       return jetty;
     } catch (Exception ex) {
       throw new RuntimeException("Could not setup Jetty: " + ex.getMessage(),
@@ -187,8 +190,8 @@ public class TestWebDelegationToken {
   }
 
   protected String getJettyURL() {
-    ServerConnector c = (ServerConnector)jetty.getConnectors()[0];
-    return "http://" + c.getHost() + ":" + c.getLocalPort();
+    Connector c = jetty.getConnectors()[0];
+    return "http://" + c.getHost() + ":" + c.getPort();
   }
 
   @Before
@@ -199,8 +202,6 @@ public class TestWebDelegationToken {
     UserGroupInformation.setConfiguration(conf);
 
     jetty = createJettyServer();
-    GenericTestUtils.setLogLevel(KerberosAuthenticationHandler.LOG,
-        Level.TRACE);
   }
 
   @After
@@ -220,11 +221,10 @@ public class TestWebDelegationToken {
   @Test
   public void testRawHttpCalls() throws Exception {
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(AFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(AFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(PingServlet.class), "/bar");
     try {
       jetty.start();
@@ -341,11 +341,10 @@ public class TestWebDelegationToken {
   private void testDelegationTokenAuthenticatorCalls(final boolean useQS)
       throws Exception {
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(AFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(AFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(PingServlet.class), "/bar");
 
     try {
@@ -451,11 +450,10 @@ public class TestWebDelegationToken {
     DummyDelegationTokenSecretManager secretMgr
         = new DummyDelegationTokenSecretManager();
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(AFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(AFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(PingServlet.class), "/bar");
     try {
       secretMgr.startThreads();
@@ -531,11 +529,10 @@ public class TestWebDelegationToken {
   private void testDelegationTokenAuthenticatedURLWithNoDT(
       Class<? extends Filter> filterClass)  throws Exception {
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(filterClass), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(filterClass), "/*", 0);
     context.addServlet(new ServletHolder(UserServlet.class), "/bar");
 
     try {
@@ -601,11 +598,10 @@ public class TestWebDelegationToken {
   public void testFallbackToPseudoDelegationTokenAuthenticator()
       throws Exception {
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(PseudoDTAFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(PseudoDTAFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(UserServlet.class), "/bar");
 
     try {
@@ -662,7 +658,7 @@ public class TestWebDelegationToken {
       org.apache.hadoop.conf.Configuration conf =
           new org.apache.hadoop.conf.Configuration(false);
       conf.set("proxyuser.client.users", OK_USER);
-      conf.set("proxyuser.client.hosts", "127.0.0.1");
+      conf.set("proxyuser.client.hosts", "localhost");
       return conf;
     }
   }
@@ -753,11 +749,10 @@ public class TestWebDelegationToken {
     Assert.assertTrue(testDir.mkdirs());
     MiniKdc kdc = new MiniKdc(MiniKdc.createConf(), testDir);
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(KDTAFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(KDTAFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(UserServlet.class), "/bar");
     try {
       kdc.start();
@@ -832,11 +827,10 @@ public class TestWebDelegationToken {
   @Test
   public void testProxyUser() throws Exception {
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(PseudoDTAFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(PseudoDTAFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(UserServlet.class), "/bar");
 
     try {
@@ -930,11 +924,10 @@ public class TestWebDelegationToken {
   @Test
   public void testHttpUGI() throws Exception {
     final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/foo");
     jetty.setHandler(context);
-    context.addFilter(new FilterHolder(PseudoDTAFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
+    context.addFilter(new FilterHolder(PseudoDTAFilter.class), "/*", 0);
     context.addServlet(new ServletHolder(UGIServlet.class), "/bar");
 
     try {
@@ -966,58 +959,6 @@ public class TestWebDelegationToken {
           ret = IOUtils.readLines(conn.getInputStream());
           Assert.assertEquals(1, ret.size());
           Assert.assertEquals("realugi=" + FOO_USER +":remoteuser=" + OK_USER + 
-                  ":ugi=" + OK_USER, ret.get(0));
-
-          return null;
-        }
-      });
-    } finally {
-      jetty.stop();
-    }
-  }
-
-  public static class IpAddressBasedPseudoDTAFilter extends PseudoDTAFilter {
-    @Override
-    protected org.apache.hadoop.conf.Configuration getProxyuserConfiguration
-            (FilterConfig filterConfig) throws ServletException {
-      org.apache.hadoop.conf.Configuration configuration = super
-              .getProxyuserConfiguration(filterConfig);
-      configuration.set("proxyuser.foo.hosts", "127.0.0.1");
-      return configuration;
-    }
-  }
-
-  @Test
-  public void testIpaddressCheck() throws Exception {
-    final Server jetty = createJettyServer();
-    ServletContextHandler context = new ServletContextHandler();
-    context.setContextPath("/foo");
-    jetty.setHandler(context);
-
-    context.addFilter(new FilterHolder(IpAddressBasedPseudoDTAFilter.class), "/*",
-        EnumSet.of(DispatcherType.REQUEST));
-    context.addServlet(new ServletHolder(UGIServlet.class), "/bar");
-
-    try {
-      jetty.start();
-      final URL url = new URL(getJettyURL() + "/foo/bar");
-
-      UserGroupInformation ugi = UserGroupInformation.createRemoteUser(FOO_USER);
-      ugi.doAs(new PrivilegedExceptionAction<Void>() {
-        @Override
-        public Void run() throws Exception {
-          DelegationTokenAuthenticatedURL.Token token =
-                  new DelegationTokenAuthenticatedURL.Token();
-          DelegationTokenAuthenticatedURL aUrl =
-                  new DelegationTokenAuthenticatedURL();
-
-          // user ok-user via proxyuser foo
-          HttpURLConnection conn = aUrl.openConnection(url, token, OK_USER);
-          Assert.assertEquals(HttpURLConnection.HTTP_OK,
-                  conn.getResponseCode());
-          List<String> ret = IOUtils.readLines(conn.getInputStream());
-          Assert.assertEquals(1, ret.size());
-          Assert.assertEquals("realugi=" + FOO_USER +":remoteuser=" + OK_USER +
                   ":ugi=" + OK_USER, ret.get(0));
 
           return null;

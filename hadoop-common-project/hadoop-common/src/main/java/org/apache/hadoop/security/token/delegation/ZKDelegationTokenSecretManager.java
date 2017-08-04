@@ -56,7 +56,6 @@ import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.delegation.web.DelegationTokenManager;
 import org.apache.zookeeper.CreateMode;
 import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.KeeperException.NoNodeException;
 import org.apache.zookeeper.ZooDefs.Perms;
 import org.apache.zookeeper.client.ZooKeeperSaslClient;
 import org.apache.zookeeper.data.ACL;
@@ -141,7 +140,7 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
         conf.getLong(DelegationTokenManager.MAX_LIFETIME,
             DelegationTokenManager.MAX_LIFETIME_DEFAULT) * 1000,
         conf.getLong(DelegationTokenManager.RENEW_INTERVAL,
-            DelegationTokenManager.RENEW_INTERVAL_DEFAULT) * 1000,
+            DelegationTokenManager.RENEW_INTERVAL_DEFAULT * 1000),
         conf.getLong(DelegationTokenManager.REMOVAL_SCAN_INTERVAL,
             DelegationTokenManager.REMOVAL_SCAN_INTERVAL_DEFAULT) * 1000);
     shutdownTimeout = conf.getLong(ZK_DTSM_ZK_SHUTDOWN_TIMEOUT,
@@ -242,8 +241,6 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
   public static class JaasConfiguration extends
       javax.security.auth.login.Configuration {
 
-    private final javax.security.auth.login.Configuration baseConfig =
-        javax.security.auth.login.Configuration.getConfiguration();
     private static AppConfigurationEntry[] entry;
     private String entryName;
 
@@ -279,8 +276,7 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
 
     @Override
     public AppConfigurationEntry[] getAppConfigurationEntry(String name) {
-      return (entryName.equals(name)) ? entry : ((baseConfig != null)
-        ? baseConfig.getAppConfigurationEntry(name) : null);
+      return (entryName.equals(name)) ? entry : null;
     }
 
     private String getKrb5LoginModuleName() {
@@ -361,7 +357,6 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
             }
           }
         }, listenerThreadPool);
-        loadFromZKCache(false);
       }
     } catch (Exception e) {
       throw new IOException("Could not start PathChildrenCache for keys", e);
@@ -390,49 +385,11 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
             }
           }
         }, listenerThreadPool);
-        loadFromZKCache(true);
       }
     } catch (Exception e) {
       throw new IOException("Could not start PathChildrenCache for tokens", e);
     }
     super.startThreads();
-  }
-
-  /**
-   * Load the PathChildrenCache into the in-memory map. Possible caches to be
-   * loaded are keyCache and tokenCache.
-   *
-   * @param isTokenCache true if loading tokenCache, false if loading keyCache.
-   */
-  private void loadFromZKCache(final boolean isTokenCache) {
-    final String cacheName = isTokenCache ? "token" : "key";
-    LOG.info("Starting to load {} cache.", cacheName);
-    final List<ChildData> children;
-    if (isTokenCache) {
-      children = tokenCache.getCurrentData();
-    } else {
-      children = keyCache.getCurrentData();
-    }
-
-    int count = 0;
-    for (ChildData child : children) {
-      try {
-        if (isTokenCache) {
-          processTokenAddOrUpdate(child);
-        } else {
-          processKeyAddOrUpdate(child.getData());
-        }
-      } catch (Exception e) {
-        LOG.info("Ignoring node {} because it failed to load.",
-            child.getPath());
-        LOG.debug("Failure exception:", e);
-        ++count;
-      }
-    }
-    if (count > 0) {
-      LOG.warn("Ignored {} nodes while loading {} cache.", count, cacheName);
-    }
-    LOG.info("Loaded {} cache.", cacheName);
   }
 
   private void processKeyAddOrUpdate(byte[] data) throws IOException {
@@ -670,26 +627,6 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
     return tokenInfo;
   }
 
-  /**
-   * This method synchronizes the state of a delegation token information in
-   * local cache with its actual value in Zookeeper.
-   *
-   * @param ident Identifier of the token
-   */
-  private synchronized void syncLocalCacheWithZk(TokenIdent ident) {
-    try {
-      DelegationTokenInformation tokenInfo = getTokenInfoFromZK(ident);
-      if (tokenInfo != null && !currentTokens.containsKey(ident)) {
-        currentTokens.put(ident, tokenInfo);
-      } else if (tokenInfo == null && currentTokens.containsKey(ident)) {
-        currentTokens.remove(ident);
-      }
-    } catch (IOException e) {
-      LOG.error("Error retrieving tokenInfo [" + ident.getSequenceNumber()
-          + "] from ZK", e);
-    }
-  }
-
   private DelegationTokenInformation getTokenInfoFromZK(TokenIdent ident)
       throws IOException {
     return getTokenInfoFromZK(ident, false);
@@ -784,15 +721,7 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
     try {
       if (zkClient.checkExists().forPath(nodeRemovePath) != null) {
         while(zkClient.checkExists().forPath(nodeRemovePath) != null){
-          try {
-            zkClient.delete().guaranteed().forPath(nodeRemovePath);
-          } catch (NoNodeException nne) {
-            // It is possible that the node might be deleted between the
-            // check and the actual delete.. which might lead to an
-            // exception that can bring down the daemon running this
-            // SecretManager
-            LOG.debug("Node already deleted by peer " + nodeRemovePath);
-          }
+          zkClient.delete().guaranteed().forPath(nodeRemovePath);
         }
       } else {
         LOG.debug("Attempted to delete a non-existing znode " + nodeRemovePath);
@@ -844,15 +773,7 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
     try {
       if (zkClient.checkExists().forPath(nodeRemovePath) != null) {
         while(zkClient.checkExists().forPath(nodeRemovePath) != null){
-          try {
-            zkClient.delete().guaranteed().forPath(nodeRemovePath);
-          } catch (NoNodeException nne) {
-            // It is possible that the node might be deleted between the
-            // check and the actual delete.. which might lead to an
-            // exception that can bring down the daemon running this
-            // SecretManager
-            LOG.debug("Node already deleted by peer " + nodeRemovePath);
-          }
+          zkClient.delete().guaranteed().forPath(nodeRemovePath);
         }
       } else {
         LOG.debug("Attempted to remove a non-existing znode " + nodeRemovePath);
@@ -871,9 +792,16 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
     DataInputStream in = new DataInputStream(buf);
     TokenIdent id = createIdentifier();
     id.readFields(in);
-
-    syncLocalCacheWithZk(id);
-    return super.cancelToken(token, canceller);
+    try {
+      if (!currentTokens.containsKey(id)) {
+        // See if token can be retrieved and placed in currentTokens
+        getTokenInfo(id);
+      }
+      return super.cancelToken(token, canceller);
+    } catch (Exception e) {
+      LOG.error("Exception while checking if token exist !!", e);
+      return id;
+    }
   }
 
   private void addOrUpdateToken(TokenIdent ident,
@@ -881,9 +809,11 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
     String nodeCreatePath =
         getNodePath(ZK_DTSM_TOKENS_ROOT, DELEGATION_TOKEN_PREFIX
             + ident.getSequenceNumber());
+    ByteArrayOutputStream tokenOs = new ByteArrayOutputStream();
+    DataOutputStream tokenOut = new DataOutputStream(tokenOs);
+    ByteArrayOutputStream seqOs = new ByteArrayOutputStream();
 
-    try (ByteArrayOutputStream tokenOs = new ByteArrayOutputStream();
-         DataOutputStream tokenOut = new DataOutputStream(tokenOs)) {
+    try {
       ident.write(tokenOut);
       tokenOut.writeLong(info.getRenewDate());
       tokenOut.writeInt(info.getPassword().length);
@@ -900,6 +830,8 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
         zkClient.create().withMode(CreateMode.PERSISTENT)
             .forPath(nodeCreatePath, tokenOs.toByteArray());
       }
+    } finally {
+      seqOs.close();
     }
   }
 
@@ -937,10 +869,5 @@ public abstract class ZKDelegationTokenSecretManager<TokenIdent extends Abstract
   @VisibleForTesting
   public ExecutorService getListenerThreadPool() {
     return listenerThreadPool;
-  }
-
-  @VisibleForTesting
-  DelegationTokenInformation getTokenInfoFromMemory(TokenIdent ident) {
-    return currentTokens.get(ident);
   }
 }

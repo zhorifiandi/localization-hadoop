@@ -17,20 +17,22 @@ import org.junit.Assert;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.security.authentication.client.AuthenticatedURL;
 import org.apache.hadoop.security.authentication.server.AuthenticationFilter;
 import org.apache.hadoop.security.ssl.KeyStoreTestUtil;
 import org.apache.hadoop.security.ssl.SSLFactory;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import javax.net.ssl.HttpsURLConnection;
 import javax.servlet.*;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
 import java.security.GeneralSecurityException;
@@ -38,8 +40,8 @@ import java.net.HttpCookie;
 import java.util.List;
 
 public class TestHttpCookieFlag {
-  private static final String BASEDIR =
-      GenericTestUtils.getTempPath(TestHttpCookieFlag.class.getSimpleName());
+  private static final String BASEDIR = System.getProperty("test.build.dir",
+          "target/test-dir") + "/" + TestHttpCookieFlag.class.getSimpleName();
   private static String keystoresDir;
   private static String sslConfDir;
   private static SSLFactory clientSslFactory;
@@ -58,7 +60,7 @@ public class TestHttpCookieFlag {
       HttpServletResponse resp = (HttpServletResponse) response;
       boolean isHttps = "https".equals(request.getScheme());
       AuthenticationFilter.createAuthCookie(resp, "token", null, null, -1,
-              true, isHttps);
+              isHttps);
       chain.doFilter(request, resp);
     }
 
@@ -87,7 +89,9 @@ public class TestHttpCookieFlag {
     sslConfDir = KeyStoreTestUtil.getClasspathDir(TestSSLHttpServer.class);
 
     KeyStoreTestUtil.setupSSLConfig(keystoresDir, sslConfDir, conf, false);
-    Configuration sslConf = KeyStoreTestUtil.getSslConfig();
+    Configuration sslConf = new Configuration(false);
+    sslConf.addResource("ssl-server.xml");
+    sslConf.addResource("ssl-client.xml");
 
     clientSslFactory = new SSLFactory(SSLFactory.Mode.CLIENT, sslConf);
     clientSslFactory.init();
@@ -103,10 +107,7 @@ public class TestHttpCookieFlag {
                     sslConf.get("ssl.server.keystore.type", "jks"))
             .trustStore(sslConf.get("ssl.server.truststore.location"),
                     sslConf.get("ssl.server.truststore.password"),
-                    sslConf.get("ssl.server.truststore.type", "jks"))
-            .excludeCiphers(
-                    sslConf.get("ssl.server.exclude.cipher.list"))
-            .build();
+                    sslConf.get("ssl.server.truststore.type", "jks")).build();
     server.addServlet("echo", "/echo", TestHttpServer.EchoServlet.class);
     server.start();
   }

@@ -27,7 +27,6 @@ import java.io.IOException;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.junit.Test;
 
 /**
@@ -66,7 +65,7 @@ public class TestLocalDFS {
   /**
    * Tests get/set working directory in DFS.
    */
-  @Test(timeout=20000)
+  @Test
   public void testWorkingDirectory() throws IOException {
     Configuration conf = new HdfsConfiguration();
     MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).build();
@@ -92,8 +91,8 @@ public class TestLocalDFS {
       // test home directory
       Path home = 
         fileSys.makeQualified(
-            new Path(HdfsClientConfigKeys.DFS_USER_HOME_DIR_PREFIX_DEFAULT
-                + "/" + getUserName(fileSys)));
+            new Path(DFSConfigKeys.DFS_USER_HOME_DIR_PREFIX_DEFAULT
+                + "/" + getUserName(fileSys))); 
       Path fsHome = fileSys.getHomeDirectory();
       assertEquals(home, fsHome);
 
@@ -111,7 +110,7 @@ public class TestLocalDFS {
     final String[] homeBases = new String[] {"/home", "/home/user"};
     Configuration conf = new HdfsConfiguration();
     for (final String homeBase : homeBases) {
-      conf.set(HdfsClientConfigKeys.DFS_USER_HOME_DIR_PREFIX_KEY, homeBase);
+      conf.set(DFSConfigKeys.DFS_USER_HOME_DIR_PREFIX_KEY, homeBase);
       MiniDFSCluster cluster = new MiniDFSCluster.Builder(conf).build();
       FileSystem fileSys = cluster.getFileSystem();
       try {    

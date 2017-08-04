@@ -18,37 +18,37 @@
 
 package org.apache.hadoop.yarn.server.resourcemanager.reservation;
 
+import java.util.Map;
+
 import org.apache.hadoop.classification.InterfaceAudience.LimitedPrivate;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.yarn.api.records.ReservationId;
+import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.server.resourcemanager.RMContext;
-import org.apache.hadoop.yarn.server.resourcemanager.recovery.Recoverable;
+import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.Queue;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceScheduler;
-import org.apache.hadoop.yarn.server.resourcemanager.security.ReservationsACLsManager;
-
-import java.util.Map;
 
 /**
  * This interface is the one implemented by any system that wants to support
- * Reservations i.e. make {@code Resource} allocations in future. Implementors
+ * Reservations i.e. make {@link Resource} allocations in future. Implementors
  * need to bootstrap all configured {@link Plan}s in the active
  * {@link ResourceScheduler} along with their corresponding
- * {@code ReservationAgent} and {@link SharingPolicy}. It is also responsible
+ * {@link ReservationAgent} and {@link SharingPolicy}. It is also responsible
  * for managing the {@link PlanFollower} to ensure the {@link Plan}s are in sync
  * with the {@link ResourceScheduler}.
  */
 @LimitedPrivate("yarn")
 @Unstable
-public interface ReservationSystem extends Recoverable {
+public interface ReservationSystem {
 
   /**
    * Set RMContext for {@link ReservationSystem}. This method should be called
    * immediately after instantiating a reservation system once.
    * 
-   * @param rmContext created by {@code ResourceManager}
+   * @param rmContext created by {@link ResourceManager}
    */
   void setRMContext(RMContext rmContext);
 
@@ -56,7 +56,7 @@ public interface ReservationSystem extends Recoverable {
    * Re-initialize the {@link ReservationSystem}.
    * 
    * @param conf configuration
-   * @param rmContext current context of the {@code ResourceManager}
+   * @param rmContext current context of the {@link ResourceManager}
    * @throws YarnException
    */
   void reinitialize(Configuration conf, RMContext rmContext)
@@ -84,10 +84,8 @@ public interface ReservationSystem extends Recoverable {
    * the {@link ResourceScheduler}
    * 
    * @param planName the name of the {@link Plan} to be synchronized
-   * @param shouldReplan replan on reduction of plan capacity if true or
-   *          proportionally scale down reservations if false
    */
-  void synchronizePlan(String planName, boolean shouldReplan);
+  void synchronizePlan(String planName);
 
   /**
    * Return the time step (ms) at which the {@link PlanFollower} is invoked
@@ -124,12 +122,4 @@ public interface ReservationSystem extends Recoverable {
    */
   void setQueueForReservation(ReservationId reservationId, String queueName);
 
-  /**
-   * Get the {@link ReservationsACLsManager} to use to check for the reservation
-   * access on a user.
-   *
-   * @return the reservation ACL manager to use to check reservation ACLs.
-   *
-   */
-  ReservationsACLsManager getReservationsACLsManager();
 }

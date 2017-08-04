@@ -18,14 +18,12 @@
 
 package org.apache.hadoop.fs;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_SHELL_MISSING_DEFAULT_FS_WARNING_KEY;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.io.PrintStream;
 import java.util.Arrays;
 import java.util.Collections;
@@ -33,27 +31,24 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.shell.CommandFactory;
 import org.apache.hadoop.fs.shell.FsCommand;
 import org.apache.hadoop.fs.shell.PathData;
 import org.apache.hadoop.io.IOUtils;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY;
-
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Shell;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This test validates that chmod, chown, chgrp returning correct exit codes
  * 
  */
 public class TestFsShellReturnCode {
-  private static final Logger LOG = LoggerFactory
-      .getLogger("org.apache.hadoop.fs.TestFsShellReturnCode");
+  private static final Log LOG = LogFactory
+      .getLog("org.apache.hadoop.fs.TestFsShellReturnCode");
 
   private static final Configuration conf = new Configuration();
   private static FileSystem fileSys;
@@ -65,9 +60,9 @@ public class TestFsShellReturnCode {
     fileSys = FileSystem.get(conf);
     fsShell = new FsShell(conf);
   }
-
-  private static String TEST_ROOT_DIR =
-      GenericTestUtils.getTempPath("testCHReturnCode");
+  
+  private static String TEST_ROOT_DIR = System.getProperty("test.build.data",
+      "build/test/data/testCHReturnCode");
 
   static void writeFile(FileSystem fs, Path name) throws Exception {
     FSDataOutputStream stm = fs.create(name);
@@ -387,60 +382,18 @@ public class TestFsShellReturnCode {
     
   }
   
-  @Test (timeout = 30000)
-  public void testInterrupt() throws Exception {
-    MyFsShell shell = new MyFsShell();
-    shell.setConf(new Configuration());
-    final Path d = new Path(TEST_ROOT_DIR, "testInterrupt");
-    final Path f1 = new Path(d, "f1");
-    final Path f2 = new Path(d, "f2");
-    assertTrue(fileSys.mkdirs(d));
-    writeFile(fileSys, f1);
-    assertTrue(fileSys.isFile(f1));
-    writeFile(fileSys, f2);
-    assertTrue(fileSys.isFile(f2));
-
-    int exitCode = shell.run(
-        new String[]{ "-testInterrupt", f1.toString(), f2.toString() });
-    // processing a file throws an interrupt, it should blow on first file
-    assertEquals(1, InterruptCommand.processed);
-    assertEquals(130, exitCode);
-
-    exitCode = shell.run(
-        new String[]{ "-testInterrupt", d.toString() });
-    // processing a file throws an interrupt, it should blow on file
-    // after descent into dir
-    assertEquals(2, InterruptCommand.processed);
-    assertEquals(130, exitCode);
-  }
-
-  /**
-   * Faked Chown class for {@link testChownUserAndGroupValidity()}.
-   *
-   * The test only covers argument parsing, so override to skip processing.
-   */
-  private static class FakeChown extends FsShellPermissions.Chown {
-    public static String NAME = "chown";
-    @Override
-    protected void processArgument(PathData item) {
-    }
-  }
-
   /**
    * Tests combinations of valid and invalid user and group arguments to chown.
    */
   @Test
   public void testChownUserAndGroupValidity() {
-    testChownUserAndGroupValidity(true);
-    testChownUserAndGroupValidity(false);
-  }
-
-  private void testChownUserAndGroupValidity(boolean enableWarning) {
-    Configuration conf = new Configuration();
-    conf.setBoolean(
-        HADOOP_SHELL_MISSING_DEFAULT_FS_WARNING_KEY, enableWarning);
-    FsCommand chown = new FakeChown();
-    chown.setConf(conf);
+    // This test only covers argument parsing, so override to skip processing.
+    FsCommand chown = new FsShellPermissions.Chown() {
+      @Override
+      protected void processArgument(PathData item) {
+      }
+    };
+    chown.setConf(new Configuration());
 
     // The following are valid (no exception expected).
     chown.run("user", "/path");
@@ -465,31 +418,17 @@ public class TestFsShellReturnCode {
   }
 
   /**
-   * Faked Chgrp class for {@link testChgrpGroupValidity()}.
-   * The test only covers argument parsing, so override to skip processing.
-   */
-  private static class FakeChgrp extends FsShellPermissions.Chgrp {
-    public static String NAME = "chgrp";
-    @Override
-    protected void processArgument(PathData item) {
-    }
-  }
-
-  /**
    * Tests valid and invalid group arguments to chgrp.
    */
   @Test
   public void testChgrpGroupValidity() {
-    testChgrpGroupValidity(true);
-    testChgrpGroupValidity(false);
-  }
-
-  private void testChgrpGroupValidity(boolean enableWarning) {
-    Configuration conf = new Configuration();
-    conf.setBoolean(
-        HADOOP_SHELL_MISSING_DEFAULT_FS_WARNING_KEY, enableWarning);
-    FsShellPermissions.Chgrp chgrp = new FakeChgrp();
-    chgrp.setConf(conf);
+    // This test only covers argument parsing, so override to skip processing.
+    FsCommand chgrp = new FsShellPermissions.Chgrp() {
+      @Override
+      protected void processArgument(PathData item) {
+      }
+    };
+    chgrp.setConf(new Configuration());
 
     // The following are valid (no exception expected).
     chgrp.run("group", "/path");
@@ -550,30 +489,6 @@ public class TestFsShellReturnCode {
       return stat;
     }
   }
-  
-  static class MyFsShell extends FsShell {
-    @Override
-    protected void registerCommands(CommandFactory factory) {
-      factory.addClass(InterruptCommand.class, "-testInterrupt");
-    }
-  }
-
-  static class InterruptCommand extends FsCommand {
-    static int processed = 0;
-    InterruptCommand() {
-      processed = 0;
-      setRecursive(true);
-    }
-    @Override
-    protected void processPath(PathData item) throws IOException {
-      System.out.println("processing: "+item);
-      processed++;
-      if (item.stat.isFile()) {
-        System.out.println("throw interrupt");
-        throw new InterruptedIOException();
-      }
-    }
-  }  
 
   /**
    * Asserts that for the given command, the given arguments are considered

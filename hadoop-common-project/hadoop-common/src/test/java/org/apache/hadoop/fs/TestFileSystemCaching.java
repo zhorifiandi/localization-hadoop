@@ -95,14 +95,16 @@ public class TestFileSystemCaching {
     try {
       fs = FileSystem.get(URI.create("//host"), conf);
       fail("got fs with auth but no scheme");
-    } catch (UnsupportedFileSystemException e) {
+    } catch (Exception e) {
+      assertEquals("No FileSystem for scheme: null", e.getMessage());
     }
-
+    
     // no scheme, different auth
     try {
       fs = FileSystem.get(URI.create("//host2"), conf);
       fail("got fs with auth but no scheme");
-    } catch (UnsupportedFileSystemException e) {
+    } catch (Exception e) {
+      assertEquals("No FileSystem for scheme: null", e.getMessage());
     }
   }
   

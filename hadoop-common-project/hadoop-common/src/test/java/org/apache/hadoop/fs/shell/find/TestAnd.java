@@ -26,17 +26,12 @@ import java.util.Deque;
 import java.util.LinkedList;
 
 import org.apache.hadoop.fs.shell.PathData;
-import org.junit.Rule;
-import org.junit.rules.Timeout;
 import org.junit.Test;
 
 public class TestAnd {
 
-  @Rule
-  public Timeout globalTimeout = new Timeout(10000);
-
   // test all expressions passing
-  @Test
+  @Test(timeout = 1000)
   public void testPass() throws IOException {
     And and = new And();
 
@@ -61,7 +56,7 @@ public class TestAnd {
   }
 
   // test the first expression failing
-  @Test
+  @Test(timeout = 1000)
   public void testFailFirst() throws IOException {
     And and = new And();
 
@@ -85,7 +80,7 @@ public class TestAnd {
   }
 
   // test the second expression failing
-  @Test
+  @Test(timeout = 1000)
   public void testFailSecond() throws IOException {
     And and = new And();
 
@@ -110,7 +105,7 @@ public class TestAnd {
   }
 
   // test both expressions failing
-  @Test
+  @Test(timeout = 1000)
   public void testFailBoth() throws IOException {
     And and = new And();
 
@@ -134,7 +129,7 @@ public class TestAnd {
   }
 
   // test the first expression stopping
-  @Test
+  @Test(timeout = 1000)
   public void testStopFirst() throws IOException {
     And and = new And();
 
@@ -159,7 +154,7 @@ public class TestAnd {
   }
 
   // test the second expression stopping
-  @Test
+  @Test(timeout = 1000)
   public void testStopSecond() throws IOException {
     And and = new And();
 
@@ -184,7 +179,7 @@ public class TestAnd {
   }
 
   // test first expression stopping and second failing
-  @Test
+  @Test(timeout = 1000)
   public void testStopFail() throws IOException {
     And and = new And();
 
@@ -209,7 +204,7 @@ public class TestAnd {
   }
 
   // test setOptions is called on child
-  @Test
+  @Test(timeout = 1000)
   public void testSetOptions() throws IOException {
     And and = new And();
     Expression first = mock(Expression.class);
@@ -229,7 +224,7 @@ public class TestAnd {
   }
 
   // test prepare is called on child
-  @Test
+  @Test(timeout = 1000)
   public void testPrepare() throws IOException {
     And and = new And();
     Expression first = mock(Expression.class);
@@ -248,7 +243,7 @@ public class TestAnd {
   }
 
   // test finish is called on child
-  @Test
+  @Test(timeout = 1000)
   public void testFinish() throws IOException {
     And and = new And();
     Expression first = mock(Expression.class);

@@ -117,7 +117,6 @@ public class TestAfsCheckPath {
     }
 
     @Override
-    @Deprecated
     public FsServerDefaults getServerDefaults() throws IOException {
       // deliberately empty
       return null;

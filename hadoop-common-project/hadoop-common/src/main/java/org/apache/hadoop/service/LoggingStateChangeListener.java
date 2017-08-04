@@ -18,10 +18,10 @@
 
 package org.apache.hadoop.service;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience.Public;
 import org.apache.hadoop.classification.InterfaceStability.Evolving;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This is a state change listener that logs events at INFO level
@@ -30,16 +30,15 @@ import org.slf4j.LoggerFactory;
 @Evolving
 public class LoggingStateChangeListener implements ServiceStateChangeListener {
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(LoggingStateChangeListener.class);
+  private static final Log LOG = LogFactory.getLog(LoggingStateChangeListener.class);
 
-  private final Logger log;
+  private final Log log;
 
   /**
    * Log events to the given log
    * @param log destination for events
    */
-  public LoggingStateChangeListener(Logger log) {
+  public LoggingStateChangeListener(Log log) {
     //force an NPE if a null log came in
     log.isDebugEnabled();
     this.log = log;

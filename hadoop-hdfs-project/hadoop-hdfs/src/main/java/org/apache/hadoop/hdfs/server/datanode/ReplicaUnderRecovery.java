@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hdfs.server.datanode;
 
+import java.io.File;
+
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.ReplicaState;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi;
 import org.apache.hadoop.hdfs.server.protocol.ReplicaRecoveryInfo;
@@ -29,19 +31,19 @@ import org.apache.hadoop.hdfs.server.protocol.ReplicaRecoveryInfo;
  * A recovery with higher recovery id preempts recoveries with a lower id.
  *
  */
-public class ReplicaUnderRecovery extends LocalReplica {
-  private LocalReplica original; // original replica to be recovered
+public class ReplicaUnderRecovery extends ReplicaInfo {
+  private ReplicaInfo original; // the original replica that needs to be recovered
   private long recoveryId; // recovery id; it is also the generation stamp 
                            // that the replica will be bumped to after recovery
 
   public ReplicaUnderRecovery(ReplicaInfo replica, long recoveryId) {
-    super(replica, replica.getVolume(), ((LocalReplica)replica).getDir());
+    super(replica, replica.getVolume(), replica.getDir());
     if ( replica.getState() != ReplicaState.FINALIZED &&
          replica.getState() != ReplicaState.RBW &&
          replica.getState() != ReplicaState.RWR ) {
       throw new IllegalArgumentException("Cannot recover replica: " + replica);
     }
-    this.original = (LocalReplica) replica;
+    this.original = replica;
     this.recoveryId = recoveryId;
   }
 
@@ -51,21 +53,27 @@ public class ReplicaUnderRecovery extends LocalReplica {
    */
   public ReplicaUnderRecovery(ReplicaUnderRecovery from) {
     super(from);
-    this.original = (LocalReplica) from.getOriginalReplica();
+    this.original = from.getOriginalReplica();
     this.recoveryId = from.getRecoveryID();
   }
 
-  @Override
+  /** 
+   * Get the recovery id
+   * @return the generation stamp that the replica will be bumped to 
+   */
   public long getRecoveryID() {
     return recoveryId;
   }
 
-  @Override
+  /** 
+   * Set the recovery id
+   * @param recoveryId the new recoveryId
+   */
   public void setRecoveryID(long recoveryId) {
     if (recoveryId > this.recoveryId) {
       this.recoveryId = recoveryId;
     } else {
-      throw new IllegalArgumentException("The new recovery id: " + recoveryId
+      throw new IllegalArgumentException("The new rcovery id: " + recoveryId
           + " must be greater than the current one: " + this.recoveryId);
     }
   }
@@ -74,9 +82,18 @@ public class ReplicaUnderRecovery extends LocalReplica {
    * Get the original replica that's under recovery
    * @return the original replica under recovery
    */
-  @Override
   public ReplicaInfo getOriginalReplica() {
     return original;
+  }
+
+  @Override //ReplicaInfo
+  public boolean isUnlinked() {
+    return original.isUnlinked();
+  }
+
+  @Override //ReplicaInfo
+  public void setUnlinked() {
+    original.setUnlinked();
   }
   
   @Override //ReplicaInfo
@@ -113,9 +130,9 @@ public class ReplicaUnderRecovery extends LocalReplica {
   }
   
   @Override //ReplicaInfo
-  public void updateWithReplica(StorageLocation replicaLocation) {
-    super.updateWithReplica(replicaLocation);
-    original.updateWithReplica(replicaLocation);
+  public void setDir(File dir) {
+    super.setDir(dir);
+    original.setDir(dir);
   }
   
   @Override //ReplicaInfo
@@ -141,7 +158,6 @@ public class ReplicaUnderRecovery extends LocalReplica {
         + "\n  original=" + original;
   }
 
-  @Override
   public ReplicaRecoveryInfo createInfo() {
     return new ReplicaRecoveryInfo(original.getBlockId(), 
         original.getBytesOnDisk(), original.getGenerationStamp(),

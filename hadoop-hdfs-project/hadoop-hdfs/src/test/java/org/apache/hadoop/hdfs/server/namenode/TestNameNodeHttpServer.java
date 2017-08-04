@@ -32,7 +32,6 @@ import org.apache.hadoop.http.HttpConfig;
 import org.apache.hadoop.http.HttpConfig.Policy;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.ssl.KeyStoreTestUtil;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -43,8 +42,8 @@ import org.junit.runners.Parameterized.Parameters;
 
 @RunWith(value = Parameterized.class)
 public class TestNameNodeHttpServer {
-  private static final String BASEDIR = GenericTestUtils
-      .getTempPath(TestNameNodeHttpServer.class.getSimpleName());
+  private static final String BASEDIR = System.getProperty("test.build.dir",
+      "target/test-dir") + "/" + TestNameNodeHttpServer.class.getSimpleName();
   private static String keystoresDir;
   private static String sslConfDir;
   private static Configuration conf;
@@ -75,10 +74,6 @@ public class TestNameNodeHttpServer {
     KeyStoreTestUtil.setupSSLConfig(keystoresDir, sslConfDir, conf, false);
     connectionFactory = URLConnectionFactory
         .newDefaultURLConnectionFactory(conf);
-    conf.set(DFSConfigKeys.DFS_CLIENT_HTTPS_KEYSTORE_RESOURCE_KEY,
-        KeyStoreTestUtil.getClientSSLConfigFileName());
-    conf.set(DFSConfigKeys.DFS_SERVER_HTTPS_KEYSTORE_RESOURCE_KEY,
-        KeyStoreTestUtil.getServerSSLConfigFileName());
   }
 
   @AfterClass

@@ -19,53 +19,39 @@ package org.apache.hadoop.fs.viewfs;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.net.URI;
-import java.security.PrivilegedExceptionAction;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.List;
 import java.util.ArrayList;
-import java.util.Map;
-import java.util.Map.Entry;
+import java.util.List;
+
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
-import org.apache.hadoop.fs.BlockStoragePolicySpi;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileSystemTestHelper;
-import org.apache.hadoop.fs.FsConstants;
-import org.apache.hadoop.fs.FsStatus;
-import org.apache.hadoop.fs.LocatedFileStatus;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.RemoteIterator;
-import org.apache.hadoop.fs.Trash;
-import org.apache.hadoop.fs.UnsupportedFileSystemException;
-import org.apache.hadoop.fs.contract.ContractTestUtils;
+import static org.apache.hadoop.fs.FileSystemTestHelper.*;
 import org.apache.hadoop.fs.permission.AclEntry;
+import static org.apache.hadoop.fs.viewfs.Constants.PERMISSION_555;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FsConstants;
+import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.AclStatus;
 import org.apache.hadoop.fs.permission.AclUtil;
 import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.fs.viewfs.ConfigUtil;
+import org.apache.hadoop.fs.viewfs.ViewFileSystem;
 import org.apache.hadoop.fs.viewfs.ViewFileSystem.MountPoint;
 import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
-import org.apache.hadoop.test.GenericTestUtils;
-import org.junit.Assume;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import static org.apache.hadoop.fs.FileSystemTestHelper.*;
-import static org.apache.hadoop.fs.viewfs.Constants.PERMISSION_555;
-
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.junit.Assert.*;
 
 
 /**
@@ -88,14 +74,12 @@ import static org.junit.Assert.*;
  * </p>
  */
 
-abstract public class ViewFileSystemBaseTest {
+public class ViewFileSystemBaseTest {
   FileSystem fsView;  // the view file system - the mounts are here
   FileSystem fsTarget;  // the target file system - the mount will point here
   Path targetTestRoot;
   Configuration conf;
   final FileSystemTestHelper fileSystemTestHelper;
-  private static final Logger LOG =
-      LoggerFactory.getLogger(ViewFileSystemBaseTest.class);
 
   public ViewFileSystemBaseTest() {
       this.fileSystemTestHelper = createFileSystemHelper();
@@ -141,7 +125,7 @@ abstract public class ViewFileSystemBaseTest {
   
   void setupMountPoints() {
     ConfigUtil.addLink(conf, "/targetRoot", targetTestRoot.toUri());
-    ConfigUtil.addLink(conf, "/user", new Path(targetTestRoot, "user").toUri());
+    ConfigUtil.addLink(conf, "/user", new Path(targetTestRoot,"user").toUri());
     ConfigUtil.addLink(conf, "/user2", new Path(targetTestRoot,"user").toUri());
     ConfigUtil.addLink(conf, "/data", new Path(targetTestRoot,"data").toUri());
     ConfigUtil.addLink(conf, "/internalDir/linkToDir2",
@@ -149,19 +133,15 @@ abstract public class ViewFileSystemBaseTest {
     ConfigUtil.addLink(conf, "/internalDir/internalDir2/linkToDir3",
         new Path(targetTestRoot,"dir3").toUri());
     ConfigUtil.addLink(conf, "/danglingLink",
-        new Path(targetTestRoot, "missingTarget").toUri());
+        new Path(targetTestRoot,"missingTarget").toUri());
     ConfigUtil.addLink(conf, "/linkToAFile",
-        new Path(targetTestRoot, "aFile").toUri());
+        new Path(targetTestRoot,"aFile").toUri());
   }
   
   @Test
   public void testGetMountPoints() {
     ViewFileSystem viewfs = (ViewFileSystem) fsView;
     MountPoint[] mountPoints = viewfs.getMountPoints();
-    for (MountPoint mountPoint : mountPoints) {
-      LOG.info("MountPoint: " + mountPoint.getMountedOnPath() + " => "
-          + mountPoint.getTargetFileSystemURIs()[0]);
-    }
     Assert.assertEquals(getExpectedMountPoints(), mountPoints.length); 
   }
   
@@ -224,28 +204,19 @@ abstract public class ViewFileSystemBaseTest {
         fsView.makeQualified(new Path("/foo/bar")));
   }
 
-  @Test
-  public void testLocatedOperationsThroughMountLinks() throws IOException {
-    testOperationsThroughMountLinksInternal(true);
-  }
-
-  @Test
-  public void testOperationsThroughMountLinks() throws IOException {
-    testOperationsThroughMountLinksInternal(false);
-  }
-
-  /**
-   * Test modify operations (create, mkdir, delete, etc)
+  
+  /** 
+   * Test modify operations (create, mkdir, delete, etc) 
    * on the mount file system where the pathname references through
    * the mount points.  Hence these operation will modify the target
    * file system.
-   *
+   * 
    * Verify the operation via mountfs (ie fSys) and *also* via the
    *  target file system (ie fSysLocal) that the mount link points-to.
    */
-  private void testOperationsThroughMountLinksInternal(boolean located)
-      throws IOException {
-    // Create file
+  @Test
+  public void testOperationsThroughMountLinks() throws IOException {
+    // Create file 
     fileSystemTestHelper.createFile(fsView, "/user/foo");
     Assert.assertTrue("Created file should be type file",
         fsView.isFile(new Path("/user/foo")));
@@ -253,7 +224,7 @@ abstract public class ViewFileSystemBaseTest {
         fsTarget.isFile(new Path(targetTestRoot,"user/foo")));
     
     // Delete the created file
-    Assert.assertTrue("Delete should succeed",
+    Assert.assertTrue("Delete should suceed",
         fsView.delete(new Path("/user/foo"), false));
     Assert.assertFalse("File should not exist after delete",
         fsView.exists(new Path("/user/foo")));
@@ -268,7 +239,7 @@ abstract public class ViewFileSystemBaseTest {
         fsTarget.isFile(new Path(targetTestRoot,"dir2/foo")));
     
     // Delete the created file
-    Assert.assertTrue("Delete should succeed",
+    Assert.assertTrue("Delete should suceed",
         fsView.delete(new Path("/internalDir/linkToDir2/foo"), false));
     Assert.assertFalse("File should not exist after delete",
         fsView.exists(new Path("/internalDir/linkToDir2/foo")));
@@ -358,8 +329,7 @@ abstract public class ViewFileSystemBaseTest {
     fsView.mkdirs(new Path("/targetRoot/dirFoo"));
     Assert.assertTrue(fsView.exists(new Path("/targetRoot/dirFoo")));
     boolean dirFooPresent = false;
-    for (FileStatus fileStatus :
-        listStatusInternal(located, new Path("/targetRoot/"))) {
+    for (FileStatus fileStatus : fsView.listStatus(new Path("/targetRoot/"))) {
       if (fileStatus.getPath().getName().equals("dirFoo")) {
         dirFooPresent = true;
       }
@@ -368,83 +338,28 @@ abstract public class ViewFileSystemBaseTest {
   }
   
   // rename across mount points that point to same target also fail 
-  @Test
+  @Test(expected=IOException.class) 
   public void testRenameAcrossMounts1() throws IOException {
     fileSystemTestHelper.createFile(fsView, "/user/foo");
-    try {
-      fsView.rename(new Path("/user/foo"), new Path("/user2/fooBarBar"));
-      ContractTestUtils.fail("IOException is not thrown on rename operation");
-    } catch (IOException e) {
-      GenericTestUtils
-          .assertExceptionContains("Renames across Mount points not supported",
-              e);
-    }
+    fsView.rename(new Path("/user/foo"), new Path("/user2/fooBarBar"));
+    /* - code if we had wanted this to suceed
+    Assert.assertFalse(fSys.exists(new Path("/user/foo")));
+    Assert.assertFalse(fSysLocal.exists(new Path(targetTestRoot,"user/foo")));
+    Assert.assertTrue(fSys.isFile(FileSystemTestHelper.getTestRootPath(fSys,"/user2/fooBarBar")));
+    Assert.assertTrue(fSysLocal.isFile(new Path(targetTestRoot,"user/fooBarBar")));
+    */
   }
   
   
   // rename across mount points fail if the mount link targets are different
   // even if the targets are part of the same target FS
 
-  @Test
+  @Test(expected=IOException.class) 
   public void testRenameAcrossMounts2() throws IOException {
     fileSystemTestHelper.createFile(fsView, "/user/foo");
-    try {
-      fsView.rename(new Path("/user/foo"), new Path("/data/fooBar"));
-      ContractTestUtils.fail("IOException is not thrown on rename operation");
-    } catch (IOException e) {
-      GenericTestUtils
-          .assertExceptionContains("Renames across Mount points not supported",
-              e);
-    }
+    fsView.rename(new Path("/user/foo"), new Path("/data/fooBar"));
   }
-
-  // RenameStrategy SAME_TARGET_URI_ACROSS_MOUNTPOINT enabled
-  // to rename across mount points that point to same target URI
-  @Test
-  public void testRenameAcrossMounts3() throws IOException {
-    Configuration conf2 = new Configuration(conf);
-    conf2.set(Constants.CONFIG_VIEWFS_RENAME_STRATEGY,
-        ViewFileSystem.RenameStrategy.SAME_TARGET_URI_ACROSS_MOUNTPOINT
-            .toString());
-    FileSystem fsView2 = FileSystem.newInstance(FsConstants.VIEWFS_URI, conf2);
-    fileSystemTestHelper.createFile(fsView2, "/user/foo");
-    fsView2.rename(new Path("/user/foo"), new Path("/user2/fooBarBar"));
-    ContractTestUtils
-        .assertPathDoesNotExist(fsView2, "src should not exist after rename",
-            new Path("/user/foo"));
-    ContractTestUtils
-        .assertPathDoesNotExist(fsTarget, "src should not exist after rename",
-            new Path(targetTestRoot, "user/foo"));
-    ContractTestUtils.assertIsFile(fsView2,
-        fileSystemTestHelper.getTestRootPath(fsView2, "/user2/fooBarBar"));
-    ContractTestUtils
-        .assertIsFile(fsTarget, new Path(targetTestRoot, "user/fooBarBar"));
-  }
-
-  // RenameStrategy SAME_FILESYSTEM_ACROSS_MOUNTPOINT enabled
-  // to rename across mount points where the mount link targets are different
-  // but are part of the same target FS
-  @Test
-  public void testRenameAcrossMounts4() throws IOException {
-    Configuration conf2 = new Configuration(conf);
-    conf2.set(Constants.CONFIG_VIEWFS_RENAME_STRATEGY,
-        ViewFileSystem.RenameStrategy.SAME_FILESYSTEM_ACROSS_MOUNTPOINT
-            .toString());
-    FileSystem fsView2 = FileSystem.newInstance(FsConstants.VIEWFS_URI, conf2);
-    fileSystemTestHelper.createFile(fsView2, "/user/foo");
-    fsView2.rename(new Path("/user/foo"), new Path("/data/fooBar"));
-    ContractTestUtils
-        .assertPathDoesNotExist(fsView2, "src should not exist after rename",
-            new Path("/user/foo"));
-    ContractTestUtils
-        .assertPathDoesNotExist(fsTarget, "src should not exist after rename",
-            new Path(targetTestRoot, "user/foo"));
-    ContractTestUtils.assertIsFile(fsView2,
-        fileSystemTestHelper.getTestRootPath(fsView2, "/data/fooBar"));
-    ContractTestUtils
-        .assertIsFile(fsTarget, new Path(targetTestRoot, "data/fooBar"));
-  }
-
+  
   static protected boolean SupportsBlocks = false; //  local fs use 1 block
                                                    // override for HDFS
   @Test
@@ -479,13 +394,9 @@ abstract public class ViewFileSystemBaseTest {
       i++;     
     } 
   }
-
-  @Test
-  public void testLocatedListOnInternalDirsOfMountTable() throws IOException {
-    testListOnInternalDirsOfMountTableInternal(true);
-  }
-
-
+  
+  
+  
   /**
    * Test "readOps" (e.g. list, listStatus) 
    * on internal dirs of mount table
@@ -495,20 +406,15 @@ abstract public class ViewFileSystemBaseTest {
   // test list on internal dirs of mount table 
   @Test
   public void testListOnInternalDirsOfMountTable() throws IOException {
-    testListOnInternalDirsOfMountTableInternal(false);
-  }
-
-  private void testListOnInternalDirsOfMountTableInternal(boolean located)
-      throws IOException {
     
     // list on Slash
-
-    FileStatus[] dirPaths = listStatusInternal(located, new Path("/"));
+    
+    FileStatus[] dirPaths = fsView.listStatus(new Path("/"));
     FileStatus fs;
     verifyRootChildren(dirPaths);
 
     // list on internal dir
-    dirPaths = listStatusInternal(located, new Path("/internalDir"));
+    dirPaths = fsView.listStatus(new Path("/internalDir"));
     Assert.assertEquals(2, dirPaths.length);
 
     fs = fileSystemTestHelper.containsPath(fsView, "/internalDir/internalDir2", dirPaths);
@@ -546,26 +452,13 @@ abstract public class ViewFileSystemBaseTest {
   
   @Test
   public void testListOnMountTargetDirs() throws IOException {
-    testListOnMountTargetDirsInternal(false);
-  }
-
-  @Test
-  public void testLocatedListOnMountTargetDirs() throws IOException {
-    testListOnMountTargetDirsInternal(true);
-  }
-
-  private void testListOnMountTargetDirsInternal(boolean located)
-      throws IOException {
-    final Path dataPath = new Path("/data");
-
-    FileStatus[] dirPaths = listStatusInternal(located, dataPath);
-
+    FileStatus[] dirPaths = fsView.listStatus(new Path("/data"));
     FileStatus fs;
     Assert.assertEquals(0, dirPaths.length);
     
     // add a file
     long len = fileSystemTestHelper.createFile(fsView, "/data/foo");
-    dirPaths = listStatusInternal(located, dataPath);
+    dirPaths = fsView.listStatus(new Path("/data"));
     Assert.assertEquals(1, dirPaths.length);
     fs = fileSystemTestHelper.containsPath(fsView, "/data/foo", dirPaths);
     Assert.assertNotNull(fs);
@@ -574,7 +467,7 @@ abstract public class ViewFileSystemBaseTest {
     
     // add a dir
     fsView.mkdirs(fileSystemTestHelper.getTestRootPath(fsView, "/data/dirX"));
-    dirPaths = listStatusInternal(located, dataPath);
+    dirPaths = fsView.listStatus(new Path("/data"));
     Assert.assertEquals(2, dirPaths.length);
     fs = fileSystemTestHelper.containsPath(fsView, "/data/foo", dirPaths);
     Assert.assertNotNull(fs);
@@ -583,23 +476,7 @@ abstract public class ViewFileSystemBaseTest {
     Assert.assertNotNull(fs);
     Assert.assertTrue("Created dir should appear as a dir", fs.isDirectory()); 
   }
-
-  private FileStatus[] listStatusInternal(boolean located, Path dataPath) throws IOException {
-    FileStatus[] dirPaths = new FileStatus[0];
-    if (located) {
-      RemoteIterator<LocatedFileStatus> statIter =
-          fsView.listLocatedStatus(dataPath);
-      ArrayList<LocatedFileStatus> tmp = new ArrayList<LocatedFileStatus>(10);
-      while (statIter.hasNext()) {
-        tmp.add(statIter.next());
-      }
-      dirPaths = tmp.toArray(dirPaths);
-    } else {
-      dirPaths = fsView.listStatus(dataPath);
-    }
-    return dirPaths;
-  }
-
+      
   @Test
   public void testFileStatusOnMountLink() throws IOException {
     Assert.assertTrue(fsView.getFileStatus(new Path("/")).isDirectory());
@@ -815,21 +692,11 @@ abstract public class ViewFileSystemBaseTest {
     Assert.assertTrue("Created file should be type file",
         fsView.isFile(new Path("/user/foo")));
     Assert.assertTrue("Target of created file should be type file",
-        fsTarget.isFile(new Path(targetTestRoot, "user/foo")));
+        fsTarget.isFile(new Path(targetTestRoot,"user/foo")));
   }
 
   @Test
   public void testRootReadableExecutable() throws IOException {
-    testRootReadableExecutableInternal(false);
-  }
-
-  @Test
-  public void testLocatedRootReadableExecutable() throws IOException {
-    testRootReadableExecutableInternal(true);
-  }
-
-  private void testRootReadableExecutableInternal(boolean located)
-      throws IOException {
     // verify executable permission on root: cd /
     //
     Assert.assertFalse("In root before cd",
@@ -840,8 +707,7 @@ abstract public class ViewFileSystemBaseTest {
 
     // verify readable
     //
-    verifyRootChildren(listStatusInternal(located,
-        fsView.getWorkingDirectory()));
+    verifyRootChildren(fsView.listStatus(fsView.getWorkingDirectory()));
 
     // verify permissions
     //
@@ -937,334 +803,4 @@ abstract public class ViewFileSystemBaseTest {
     fsView.removeXAttr(new Path("/internalDir"), "xattrName");
   }
 
-  @Test(expected = AccessControlException.class)
-  public void testInternalCreateSnapshot1() throws IOException {
-    fsView.createSnapshot(new Path("/internalDir"));
-  }
-
-  @Test(expected = AccessControlException.class)
-  public void testInternalCreateSnapshot2() throws IOException {
-    fsView.createSnapshot(new Path("/internalDir"), "snap1");
-  }
-
-  @Test(expected = AccessControlException.class)
-  public void testInternalRenameSnapshot() throws IOException {
-    fsView.renameSnapshot(new Path("/internalDir"), "snapOldName",
-        "snapNewName");
-  }
-
-  @Test(expected = AccessControlException.class)
-  public void testInternalDeleteSnapshot() throws IOException {
-    fsView.deleteSnapshot(new Path("/internalDir"), "snap1");
-  }
-
-  @Test(expected = AccessControlException.class)
-  public void testInternalSetStoragePolicy() throws IOException {
-    fsView.setStoragePolicy(new Path("/internalDir"), "HOT");
-  }
-
-  @Test(expected = AccessControlException.class)
-  public void testInternalUnsetStoragePolicy() throws IOException {
-    fsView.unsetStoragePolicy(new Path("/internalDir"));
-  }
-
-  @Test(expected = NotInMountpointException.class)
-  public void testInternalgetStoragePolicy() throws IOException {
-    fsView.getStoragePolicy(new Path("/internalDir"));
-  }
-
-  @Test
-  public void testInternalGetAllStoragePolicies() throws IOException {
-    Collection<? extends BlockStoragePolicySpi> policies =
-        fsView.getAllStoragePolicies();
-    for (FileSystem fs : fsView.getChildFileSystems()) {
-      try {
-        for (BlockStoragePolicySpi s : fs.getAllStoragePolicies()) {
-          assertTrue("Missing policy: " + s, policies.contains(s));
-        }
-      } catch (UnsupportedOperationException e) {
-        // ignore
-      }
-    }
-  }
-
-  @Test
-  public void testConfLinkSlash() throws Exception {
-    String clusterName = "ClusterX";
-    URI viewFsUri = new URI(FsConstants.VIEWFS_SCHEME, clusterName,
-        "/", null, null);
-
-    Configuration newConf = new Configuration();
-    ConfigUtil.addLink(newConf, clusterName, "/",
-        new Path(targetTestRoot, "/").toUri());
-
-    String mtPrefix = Constants.CONFIG_VIEWFS_PREFIX + "." + clusterName + ".";
-    try {
-      FileSystem.get(viewFsUri, newConf);
-      fail("ViewFileSystem should error out on mount table entry: "
-          + mtPrefix + Constants.CONFIG_VIEWFS_LINK + "." + "/");
-    } catch (Exception e) {
-      if (e instanceof UnsupportedFileSystemException) {
-        String msg = Constants.CONFIG_VIEWFS_LINK_MERGE_SLASH
-            + " is not supported yet.";
-        assertThat(e.getMessage(), containsString(msg));
-      } else {
-        fail("Unexpected exception: " + e.getMessage());
-      }
-    }
-  }
-
-  @Test
-  public void testTrashRoot() throws IOException {
-
-    Path mountDataRootPath = new Path("/data");
-    Path fsTargetFilePath = new Path("debug.log");
-    Path mountDataFilePath = new Path(mountDataRootPath, fsTargetFilePath);
-    Path mountDataNonExistingFilePath = new Path(mountDataRootPath, "no.log");
-    fileSystemTestHelper.createFile(fsTarget, fsTargetFilePath);
-
-    // Get Trash roots for paths via ViewFileSystem handle
-    Path mountDataRootTrashPath = fsView.getTrashRoot(mountDataRootPath);
-    Path mountDataFileTrashPath = fsView.getTrashRoot(mountDataFilePath);
-
-    // Get Trash roots for the same set of paths via the mounted filesystem
-    Path fsTargetRootTrashRoot = fsTarget.getTrashRoot(mountDataRootPath);
-    Path fsTargetFileTrashPath = fsTarget.getTrashRoot(mountDataFilePath);
-
-    // Verify if Trash roots from ViewFileSystem matches that of the ones
-    // from the target mounted FileSystem.
-    assertEquals(mountDataRootTrashPath.toUri().getPath(),
-        fsTargetRootTrashRoot.toUri().getPath());
-    assertEquals(mountDataFileTrashPath.toUri().getPath(),
-        fsTargetFileTrashPath.toUri().getPath());
-    assertEquals(mountDataRootTrashPath.toUri().getPath(),
-        mountDataFileTrashPath.toUri().getPath());
-
-
-    // Verify trash root for an non-existing file but on a valid mountpoint.
-    Path trashRoot = fsView.getTrashRoot(mountDataNonExistingFilePath);
-    assertEquals(mountDataRootTrashPath.toUri().getPath(),
-        trashRoot.toUri().getPath());
-
-    // Verify trash root for invalid mounts.
-    Path invalidMountRootPath = new Path("/invalid_mount");
-    Path invalidMountFilePath = new Path(invalidMountRootPath, "debug.log");
-    try {
-      fsView.getTrashRoot(invalidMountRootPath);
-      fail("ViewFileSystem getTashRoot should fail for non-mountpoint paths.");
-    } catch (NotInMountpointException e) {
-      //expected exception
-    }
-    try {
-      fsView.getTrashRoot(invalidMountFilePath);
-      fail("ViewFileSystem getTashRoot should fail for non-mountpoint paths.");
-    } catch (NotInMountpointException e) {
-      //expected exception
-    }
-    try {
-      fsView.getTrashRoot(null);
-      fail("ViewFileSystem getTashRoot should fail for empty paths.");
-    } catch (NotInMountpointException e) {
-      //expected exception
-    }
-
-    // Move the file to trash
-    FileStatus fileStatus = fsTarget.getFileStatus(fsTargetFilePath);
-    Configuration newConf = new Configuration(conf);
-    newConf.setLong("fs.trash.interval", 1000);
-    Trash lTrash = new Trash(fsTarget, newConf);
-    boolean trashed = lTrash.moveToTrash(fsTargetFilePath);
-    Assert.assertTrue("File " + fileStatus + " move to " +
-        "trash failed.", trashed);
-
-    // Verify ViewFileSystem trash roots shows the ones from
-    // target mounted FileSystem.
-    Assert.assertTrue("", fsView.getTrashRoots(true).size() > 0);
-  }
-
-  @Test(expected = NotInMountpointException.class)
-  public void testViewFileSystemUtil() throws Exception {
-    Configuration newConf = new Configuration(conf);
-
-    FileSystem fileSystem = FileSystem.get(FsConstants.LOCAL_FS_URI,
-        newConf);
-    Assert.assertFalse("Unexpected FileSystem: " + fileSystem,
-        ViewFileSystemUtil.isViewFileSystem(fileSystem));
-
-    fileSystem = FileSystem.get(FsConstants.VIEWFS_URI,
-        newConf);
-    Assert.assertTrue("Unexpected FileSystem: " + fileSystem,
-        ViewFileSystemUtil.isViewFileSystem(fileSystem));
-
-    // Case 1: Verify FsStatus of root path returns all MountPoints status.
-    Map<MountPoint, FsStatus> mountPointFsStatusMap =
-        ViewFileSystemUtil.getStatus(fileSystem, InodeTree.SlashPath);
-    Assert.assertEquals(getExpectedMountPoints(), mountPointFsStatusMap.size());
-
-    // Case 2: Verify FsStatus of an internal dir returns all
-    // MountPoints status.
-    mountPointFsStatusMap =
-        ViewFileSystemUtil.getStatus(fileSystem, new Path("/internalDir"));
-    Assert.assertEquals(getExpectedMountPoints(), mountPointFsStatusMap.size());
-
-    // Case 3: Verify FsStatus of a matching MountPoint returns exactly
-    // the corresponding MountPoint status.
-    mountPointFsStatusMap =
-        ViewFileSystemUtil.getStatus(fileSystem, new Path("/user"));
-    Assert.assertEquals(1, mountPointFsStatusMap.size());
-    for (Entry<MountPoint, FsStatus> entry : mountPointFsStatusMap.entrySet()) {
-      Assert.assertEquals(entry.getKey().getMountedOnPath().toString(),
-          "/user");
-    }
-
-    // Case 4: Verify FsStatus of a path over a MountPoint returns the
-    // corresponding MountPoint status.
-    mountPointFsStatusMap =
-        ViewFileSystemUtil.getStatus(fileSystem, new Path("/user/cloud"));
-    Assert.assertEquals(1, mountPointFsStatusMap.size());
-    for (Entry<MountPoint, FsStatus> entry : mountPointFsStatusMap.entrySet()) {
-      Assert.assertEquals(entry.getKey().getMountedOnPath().toString(),
-          "/user");
-    }
-
-    // Case 5: Verify FsStatus of any level of an internal dir
-    // returns all MountPoints status.
-    mountPointFsStatusMap =
-        ViewFileSystemUtil.getStatus(fileSystem,
-            new Path("/internalDir/internalDir2"));
-    Assert.assertEquals(getExpectedMountPoints(), mountPointFsStatusMap.size());
-
-    // Case 6: Verify FsStatus of a MountPoint URI returns
-    // the MountPoint status.
-    mountPointFsStatusMap =
-        ViewFileSystemUtil.getStatus(fileSystem, new Path("viewfs:/user/"));
-    Assert.assertEquals(1, mountPointFsStatusMap.size());
-    for (Entry<MountPoint, FsStatus> entry : mountPointFsStatusMap.entrySet()) {
-      Assert.assertEquals(entry.getKey().getMountedOnPath().toString(),
-          "/user");
-    }
-
-    // Case 7: Verify FsStatus of a non MountPoint path throws exception
-    ViewFileSystemUtil.getStatus(fileSystem, new Path("/non-existing"));
-  }
-
-  @Test
-  public void testCheckOwnerWithFileStatus()
-      throws IOException, InterruptedException {
-    final UserGroupInformation userUgi = UserGroupInformation
-        .createUserForTesting("user@HADOOP.COM", new String[]{"hadoop"});
-    userUgi.doAs(new PrivilegedExceptionAction<Object>() {
-      @Override
-      public Object run() throws IOException {
-        UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
-        String doAsUserName = ugi.getUserName();
-        assertEquals(doAsUserName, "user@HADOOP.COM");
-        FileSystem vfs = FileSystem.get(FsConstants.VIEWFS_URI, conf);
-        FileStatus stat = vfs.getFileStatus(new Path("/internalDir"));
-        assertEquals(userUgi.getShortUserName(), stat.getOwner());
-        return null;
-      }
-    });
-  }
-
-  @Test
-  public void testUsed() throws IOException {
-    try {
-      fsView.getUsed();
-      fail("ViewFileSystem getUsed() should fail for slash root path when the" +
-          " slash root mount point is not configured.");
-    } catch (NotInMountpointException e) {
-      // expected exception.
-    }
-    long usedSpaceByPathViaViewFs = fsView.getUsed(new Path("/user"));
-    long usedSpaceByPathViaTargetFs =
-        fsTarget.getUsed(new Path(targetTestRoot, "user"));
-    assertEquals("Space used not matching between ViewFileSystem and " +
-        "the mounted FileSystem!",
-        usedSpaceByPathViaTargetFs, usedSpaceByPathViaViewFs);
-
-    Path mountDataRootPath = new Path("/data");
-    String fsTargetFileName = "debug.log";
-    Path fsTargetFilePath = new Path(targetTestRoot, "data/debug.log");
-    Path mountDataFilePath = new Path(mountDataRootPath, fsTargetFileName);
-    fileSystemTestHelper.createFile(fsTarget, fsTargetFilePath);
-
-    usedSpaceByPathViaViewFs = fsView.getUsed(mountDataFilePath);
-    usedSpaceByPathViaTargetFs = fsTarget.getUsed(fsTargetFilePath);
-    assertEquals("Space used not matching between ViewFileSystem and " +
-        "the mounted FileSystem!",
-        usedSpaceByPathViaTargetFs, usedSpaceByPathViaViewFs);
-  }
-
-  @Test
-  public void testLinkTarget() throws Exception {
-
-    Assume.assumeTrue(fsTarget.supportsSymlinks() &&
-        fsTarget.areSymlinksEnabled());
-
-    // Symbolic link
-    final String targetFileName = "debug.log";
-    final String linkFileName = "debug.link";
-    final Path targetFile = new Path(targetTestRoot, targetFileName);
-    final Path symLink = new Path(targetTestRoot, linkFileName);
-
-    FileSystemTestHelper.createFile(fsTarget, targetFile);
-    fsTarget.createSymlink(targetFile, symLink, false);
-
-    final Path mountTargetRootPath = new Path("/targetRoot");
-    final Path mountTargetSymLinkPath = new Path(mountTargetRootPath,
-        linkFileName);
-    final Path expectedMountLinkTarget = fsTarget.makeQualified(
-        new Path(targetTestRoot, targetFileName));
-    final Path actualMountLinkTarget = fsView.getLinkTarget(
-        mountTargetSymLinkPath);
-
-    assertEquals("Resolved link target path not matching!",
-        expectedMountLinkTarget, actualMountLinkTarget);
-
-    // Relative symbolic link
-    final String relativeFileName = "dir2/../" + targetFileName;
-    final String link2FileName = "dir2/rel.link";
-    final Path relTargetFile = new Path(targetTestRoot, relativeFileName);
-    final Path relativeSymLink = new Path(targetTestRoot, link2FileName);
-    fsTarget.createSymlink(relTargetFile, relativeSymLink, true);
-
-    final Path mountTargetRelativeSymLinkPath = new Path(mountTargetRootPath,
-        link2FileName);
-    final Path expectedMountRelLinkTarget = fsTarget.makeQualified(
-        new Path(targetTestRoot, relativeFileName));
-    final Path actualMountRelLinkTarget = fsView.getLinkTarget(
-        mountTargetRelativeSymLinkPath);
-
-    assertEquals("Resolved relative link target path not matching!",
-        expectedMountRelLinkTarget, actualMountRelLinkTarget);
-
-    try {
-      fsView.getLinkTarget(new Path("/linkToAFile"));
-      fail("Resolving link target for a ViewFs mount link should fail!");
-    } catch (Exception e) {
-      LOG.info("Expected exception: " + e);
-      assertThat(e.getMessage(),
-          containsString("not a symbolic link"));
-    }
-
-    try {
-      fsView.getLinkTarget(fsView.makeQualified(
-          new Path(mountTargetRootPath, targetFileName)));
-      fail("Resolving link target for a non sym link should fail!");
-    } catch (Exception e) {
-      LOG.info("Expected exception: " + e);
-      assertThat(e.getMessage(),
-          containsString("not a symbolic link"));
-    }
-
-    try {
-      fsView.getLinkTarget(new Path("/targetRoot/non-existing-file"));
-      fail("Resolving link target for a non existing link should fail!");
-    } catch (Exception e) {
-      LOG.info("Expected exception: " + e);
-      assertThat(e.getMessage(),
-          containsString("File does not exist:"));
-    }
-  }
 }

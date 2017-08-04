@@ -323,7 +323,7 @@ public class RMApplicationHistoryWriter extends CompositeService {
     }
 
     @Override
-    public EventHandler<Event> getEventHandler() {
+    public EventHandler getEventHandler() {
       return new CompositEventHandler();
     }
 
@@ -355,7 +355,7 @@ public class RMApplicationHistoryWriter extends CompositeService {
     }
 
     protected AsyncDispatcher createDispatcher() {
-      return new AsyncDispatcher("RM ApplicationHistory dispatcher");
+      return new AsyncDispatcher();
     }
 
   }

@@ -23,9 +23,6 @@ import java.util.List;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.impl.Log4jLoggerAdapter;
 
 /**
  * Contains utility methods for dealing with Java Generics. 
@@ -75,16 +72,4 @@ public class GenericsUtil {
     return toArray(getClass(list.get(0)), list);
   }
 
-  /**
-   * Determine whether the log of <code>clazz</code> is Log4j implementation.
-   * @param clazz a class to be determined
-   * @return true if the log of <code>clazz</code> is Log4j implementation.
-   */
-  public static boolean isLog4jLogger(Class<?> clazz) {
-    if (clazz == null) {
-      return false;
-    }
-    Logger log = LoggerFactory.getLogger(clazz);
-    return log instanceof Log4jLoggerAdapter;
-  }
 }

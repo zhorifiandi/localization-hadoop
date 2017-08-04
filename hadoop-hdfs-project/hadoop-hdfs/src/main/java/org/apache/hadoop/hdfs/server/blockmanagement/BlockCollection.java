@@ -21,7 +21,6 @@ import java.io.IOException;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.fs.ContentSummary;
-import org.apache.hadoop.security.AccessControlException;
 
 /** 
  * This interface is used by the block manager to expose a
@@ -32,70 +31,59 @@ public interface BlockCollection {
   /**
    * Get the last block of the collection.
    */
-  BlockInfo getLastBlock();
+  public BlockInfoContiguous getLastBlock();
 
   /** 
    * Get content summary.
    */
-  ContentSummary computeContentSummary(BlockStoragePolicySuite bsps)
-      throws AccessControlException;
+  public ContentSummary computeContentSummary(BlockStoragePolicySuite bsps);
 
   /**
-   * @return the number of blocks or block groups
+   * @return the number of blocks
    */ 
-  int numBlocks();
+  public int numBlocks();
 
   /**
-   * Get the blocks (striped or contiguous).
+   * Get the blocks.
    */
-  BlockInfo[] getBlocks();
+  public BlockInfoContiguous[] getBlocks();
 
   /**
    * Get preferred block size for the collection 
    * @return preferred block size in bytes
    */
-  long getPreferredBlockSize();
+  public long getPreferredBlockSize();
 
   /**
-   * Get block replication for the collection.
-   * @return block replication value. Return 0 if the file is erasure coded.
+   * Get block replication for the collection 
+   * @return block replication value
    */
-  short getPreferredBlockReplication();
+  public short getBlockReplication();
 
-  /**
+  /** 
    * @return the storage policy ID.
    */
-  byte getStoragePolicyID();
+  public byte getStoragePolicyID();
 
   /**
    * Get the name of the collection.
    */
-  String getName();
+  public String getName();
 
   /**
-   * Set the block (contiguous or striped) at the given index.
+   * Set the block at the given index.
    */
-  void setBlock(int index, BlockInfo blk);
+  public void setBlock(int index, BlockInfoContiguous blk);
 
   /**
    * Convert the last block of the collection to an under-construction block
    * and set the locations.
    */
-  void convertLastBlockToUC(BlockInfo lastBlock,
+  public BlockInfoContiguousUnderConstruction setLastBlock(BlockInfoContiguous lastBlock,
       DatanodeStorageInfo[] targets) throws IOException;
 
   /**
    * @return whether the block collection is under construction.
    */
-  boolean isUnderConstruction();
-
-  /**
-   * @return whether the block collection is in striping format
-   */
-  boolean isStriped();
-
-  /**
-   * @return the id for the block collection
-   */
-  long getId();
+  public boolean isUnderConstruction();
 }

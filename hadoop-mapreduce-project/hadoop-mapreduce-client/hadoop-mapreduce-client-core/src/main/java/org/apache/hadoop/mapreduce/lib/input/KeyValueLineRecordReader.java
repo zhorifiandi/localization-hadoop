@@ -37,14 +37,9 @@ import org.apache.hadoop.mapreduce.TaskAttemptContext;
 @InterfaceAudience.Public
 @InterfaceStability.Stable
 public class KeyValueLineRecordReader extends RecordReader<Text, Text> {
-  public static final String KEY_VALUE_SEPARATOR =
-      "mapreduce.input.keyvaluelinerecordreader.key.value.separator";
-  /**
-   * @deprecated Use {@link #KEY_VALUE_SEPARATOR}
-   */
-  @Deprecated
-  public static final String KEY_VALUE_SEPERATOR = KEY_VALUE_SEPARATOR;
-
+  public static final String KEY_VALUE_SEPERATOR = 
+    "mapreduce.input.keyvaluelinerecordreader.key.value.separator";
+  
   private final LineRecordReader lineRecordReader;
 
   private byte separator = (byte) '\t';
@@ -61,7 +56,7 @@ public class KeyValueLineRecordReader extends RecordReader<Text, Text> {
     throws IOException {
     
     lineRecordReader = new LineRecordReader();
-    String sepStr = conf.get(KEY_VALUE_SEPARATOR, "\t");
+    String sepStr = conf.get(KEY_VALUE_SEPERATOR, "\t");
     this.separator = (byte) sepStr.charAt(0);
   }
 

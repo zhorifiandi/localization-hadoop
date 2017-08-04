@@ -23,37 +23,21 @@ public class TaskInfo {
   private final long bytesOut;
   private final int recsOut;
   private final long maxMemory;
-  private final long maxVcores;
   private final ResourceUsageMetrics metrics;
 
-
   public TaskInfo(long bytesIn, int recsIn, long bytesOut, int recsOut,
-                  long maxMemory) {
-    this(bytesIn, recsIn, bytesOut, recsOut, maxMemory, 1,
-        new ResourceUsageMetrics());
-  }
-
-  public TaskInfo(long bytesIn, int recsIn, long bytesOut, int recsOut,
-                  long maxMemory, ResourceUsageMetrics
-                      metrics) {
-    this(bytesIn, recsIn, bytesOut, recsOut, maxMemory, 1, metrics);
-  }
-
-  public TaskInfo(long bytesIn, int recsIn, long bytesOut, int recsOut,
-      long maxMemory, long maxVcores) {
-    this(bytesIn, recsIn, bytesOut, recsOut, maxMemory, maxVcores,
+      long maxMemory) {
+    this(bytesIn, recsIn, bytesOut, recsOut, maxMemory, 
          new ResourceUsageMetrics());
   }
   
   public TaskInfo(long bytesIn, int recsIn, long bytesOut, int recsOut,
-                  long maxMemory, long maxVcores, ResourceUsageMetrics
-                      metrics) {
+                  long maxMemory, ResourceUsageMetrics metrics) {
     this.bytesIn = bytesIn;
     this.recsIn = recsIn;
     this.bytesOut = bytesOut;
     this.recsOut = recsOut;
     this.maxMemory = maxMemory;
-    this.maxVcores = maxVcores;
     this.metrics = metrics;
   }
 
@@ -92,13 +76,6 @@ public class TaskInfo {
    */
   public long getTaskMemory() {
     return maxMemory;
-  }
-
-  /**
-   * @return Vcores used by the task.
-   */
-  public long getTaskVCores() {
-    return maxVcores;
   }
 
   /**

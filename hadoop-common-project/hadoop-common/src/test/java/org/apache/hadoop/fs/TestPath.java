@@ -17,36 +17,22 @@
  */
 
 package org.apache.hadoop.fs;
-import org.junit.Assert;
 import org.junit.Test;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Arrays;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.AvroTestUtil;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Shell;
 
 import com.google.common.base.Joiner;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
-import static org.apache.hadoop.test.PlatformAssumptions.assumeWindows;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import junit.framework.TestCase;
 
-/**
- * Test Hadoop Filesystem Paths.
- */
-public class TestPath {
+public class TestPath extends TestCase {
   /**
    * Merge a bunch of Path objects into a sorted semicolon-separated
    * path string.
@@ -255,7 +241,9 @@ public class TestPath {
   /** Test that Windows paths are correctly handled */
   @Test (timeout = 5000)
   public void testWindowsPaths() throws URISyntaxException, IOException {
-    assumeWindows();
+    if (!Path.WINDOWS) {
+      return;
+    }
 
     assertEquals(new Path("c:\\foo\\bar").toString(), "c:/foo/bar");
     assertEquals(new Path("c:/foo/bar").toString(), "c:/foo/bar");
@@ -266,7 +254,9 @@ public class TestPath {
   /** Test invalid paths on Windows are correctly rejected */
   @Test (timeout = 5000)
   public void testInvalidWindowsPaths() throws URISyntaxException, IOException {
-    assumeWindows();
+    if (!Path.WINDOWS) {
+      return;
+    }
 
     String [] invalidPaths = {
         "hdfs:\\\\\\tmp"
@@ -410,10 +400,11 @@ public class TestPath {
   @Test (timeout = 30000)
   public void testGlobEscapeStatus() throws Exception {
     // This test is not meaningful on Windows where * is disallowed in file name.
-    assumeNotWindows();
+    if (Shell.WINDOWS) return;
     FileSystem lfs = FileSystem.getLocal(new Configuration());
-    Path testRoot = lfs.makeQualified(
-        new Path(GenericTestUtils.getTempPath("testPathGlob")));
+    Path testRoot = lfs.makeQualified(new Path(
+        System.getProperty("test.build.data","test/build/data"),
+        "testPathGlob"));
     lfs.delete(testRoot, true);
     lfs.mkdirs(testRoot);
     assertTrue(lfs.isDirectory(testRoot));
@@ -502,7 +493,7 @@ public class TestPath {
 
   @Test (timeout = 30000)
   public void testIsWindowsAbsolutePath() {
-    assumeWindows();
+    if (!Shell.WINDOWS) return;
     assertTrue(Path.isWindowsAbsolutePath("C:\\test", false));
     assertTrue(Path.isWindowsAbsolutePath("C:/test", false));
     assertTrue(Path.isWindowsAbsolutePath("/C:/test", true));
@@ -510,20 +501,5 @@ public class TestPath {
     assertFalse(Path.isWindowsAbsolutePath("/test", true));
     assertFalse(Path.isWindowsAbsolutePath("C:test", false));
     assertFalse(Path.isWindowsAbsolutePath("/C:test", true));
-  }
-
-  @Test(timeout = 30000)
-  public void testSerDeser() throws Throwable {
-    Path source = new Path("hdfs://localhost:4040/scratch");
-    ByteArrayOutputStream baos = new ByteArrayOutputStream(256);
-    try(ObjectOutputStream oos = new ObjectOutputStream(baos)) {
-      oos.writeObject(source);
-    }
-    ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
-    try (ObjectInputStream ois = new ObjectInputStream(bais)) {
-      Path deser = (Path) ois.readObject();
-      Assert.assertEquals(source, deser);
-    }
-
   }
 }

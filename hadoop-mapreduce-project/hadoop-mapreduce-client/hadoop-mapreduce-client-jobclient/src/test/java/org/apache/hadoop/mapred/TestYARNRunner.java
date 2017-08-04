@@ -18,12 +18,6 @@
 
 package org.apache.hadoop.mapred;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -41,15 +35,15 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.security.PrivilegedExceptionAction;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+
+import junit.framework.TestCase;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
@@ -93,10 +87,7 @@ import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.ApplicationSubmissionContext;
 import org.apache.hadoop.yarn.api.records.ContainerLaunchContext;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.QueueInfo;
-import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.api.records.ResourceRequest;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.api.records.YarnClusterMetrics;
 import org.apache.hadoop.yarn.client.api.impl.YarnClientImpl;
@@ -104,7 +95,6 @@ import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.factories.RecordFactory;
 import org.apache.hadoop.yarn.factory.providers.RecordFactoryProvider;
 import org.apache.hadoop.yarn.security.client.RMDelegationTokenIdentifier;
-import org.apache.hadoop.yarn.server.utils.BuilderUtils;
 import org.apache.hadoop.yarn.util.Records;
 import org.apache.log4j.Appender;
 import org.apache.log4j.Layout;
@@ -112,7 +102,6 @@ import org.apache.log4j.Logger;
 import org.apache.log4j.SimpleLayout;
 import org.apache.log4j.WriterAppender;
 import org.junit.After;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
@@ -122,7 +111,7 @@ import org.mockito.stubbing.Answer;
  * Test YarnRunner and make sure the client side plugin works
  * fine
  */
-public class TestYARNRunner {
+public class TestYARNRunner extends TestCase {
   private static final Log LOG = LogFactory.getLog(TestYARNRunner.class);
   private static final RecordFactory recordFactory = RecordFactoryProvider.getRecordFactory(null);
 
@@ -472,8 +461,7 @@ public class TestYARNRunner {
     int adminPos = -1;
     int userIndex = 0;
     int userPos = -1;
-    int tmpDirPos = -1;
-
+    
     for(String command : commands) {
       if(command != null) {
         assertFalse("Profiler should be disabled by default",
@@ -485,16 +473,11 @@ public class TestYARNRunner {
         userPos = command.indexOf("-Xmx1024m");
         if(userPos >= 0)
           userIndex = index;
-
-        tmpDirPos = command.indexOf("-Djava.io.tmpdir=");
       }
       
       index++;
     }
-
-    // Check java.io.tmpdir opts are set in the commands
-    assertTrue("java.io.tmpdir is not set for AM", tmpDirPos > 0);
-
+    
     // Check both admin java opts and user java opts are in the commands
     assertTrue("AM admin command opts not in the commands.", adminPos > 0);
     assertTrue("AM user command opts not in the commands.", userPos > 0);
@@ -564,211 +547,16 @@ public class TestYARNRunner {
   }
 
   @Test
-  public void testNodeLabelExp() throws Exception {
-    JobConf jobConf = new JobConf();
-
-    jobConf.set(MRJobConfig.JOB_NODE_LABEL_EXP, "GPU");
-    jobConf.set(MRJobConfig.AM_NODE_LABEL_EXP, "highMem");
-
-    YARNRunner yarnRunner = new YARNRunner(jobConf);
-    ApplicationSubmissionContext appSubCtx =
-        buildSubmitContext(yarnRunner, jobConf);
-
-    assertEquals(appSubCtx.getNodeLabelExpression(), "GPU");
-    assertEquals(appSubCtx.getAMContainerResourceRequests().get(0)
-        .getNodeLabelExpression(), "highMem");
-  }
-
-  @Test
-  public void testResourceRequestLocalityAny() throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, true);
-    verifyResourceRequestLocality(null, null, amAnyResourceRequest);
-    verifyResourceRequestLocality(null, "label1", amAnyResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityRack() throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, false);
-    ResourceRequest amRackResourceRequest =
-        createResourceRequest("/rack1", true);
-    verifyResourceRequestLocality("/rack1", null, amAnyResourceRequest,
-        amRackResourceRequest);
-    verifyResourceRequestLocality("/rack1", "label1", amAnyResourceRequest,
-        amRackResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityNode() throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, false);
-    ResourceRequest amRackResourceRequest =
-        createResourceRequest("/rack1", false);
-    ResourceRequest amNodeResourceRequest =
-        createResourceRequest("node1", true);
-    verifyResourceRequestLocality("/rack1/node1", null, amAnyResourceRequest,
-        amRackResourceRequest, amNodeResourceRequest);
-    verifyResourceRequestLocality("/rack1/node1", "label1",
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityNodeDefaultRack() throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, false);
-    ResourceRequest amRackResourceRequest =
-        createResourceRequest("/default-rack", false);
-    ResourceRequest amNodeResourceRequest =
-        createResourceRequest("node1", true);
-    verifyResourceRequestLocality("node1", null,
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest);
-    verifyResourceRequestLocality("node1", "label1",
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityMultipleNodes() throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, false);
-    ResourceRequest amRackResourceRequest =
-        createResourceRequest("/rack1", false);
-    ResourceRequest amNodeResourceRequest =
-        createResourceRequest("node1", true);
-    ResourceRequest amNode2ResourceRequest =
-        createResourceRequest("node2", true);
-    verifyResourceRequestLocality("/rack1/node1,/rack1/node2", null,
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest,
-        amNode2ResourceRequest);
-    verifyResourceRequestLocality("/rack1/node1,/rack1/node2", "label1",
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest,
-        amNode2ResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityMultipleNodesDifferentRack()
-      throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, false);
-    ResourceRequest amRackResourceRequest =
-        createResourceRequest("/rack1", false);
-    ResourceRequest amNodeResourceRequest =
-        createResourceRequest("node1", true);
-    ResourceRequest amRack2ResourceRequest =
-        createResourceRequest("/rack2", false);
-    ResourceRequest amNode2ResourceRequest =
-        createResourceRequest("node2", true);
-    verifyResourceRequestLocality("/rack1/node1,/rack2/node2", null,
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest,
-        amRack2ResourceRequest, amNode2ResourceRequest);
-    verifyResourceRequestLocality("/rack1/node1,/rack2/node2", "label1",
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest,
-        amRack2ResourceRequest, amNode2ResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityMultipleNodesDefaultRack()
-      throws Exception {
-    ResourceRequest amAnyResourceRequest =
-        createResourceRequest(ResourceRequest.ANY, false);
-    ResourceRequest amRackResourceRequest =
-        createResourceRequest("/rack1", false);
-    ResourceRequest amNodeResourceRequest =
-        createResourceRequest("node1", true);
-    ResourceRequest amRack2ResourceRequest =
-        createResourceRequest("/default-rack", false);
-    ResourceRequest amNode2ResourceRequest =
-        createResourceRequest("node2", true);
-    verifyResourceRequestLocality("/rack1/node1,node2", null,
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest,
-        amRack2ResourceRequest, amNode2ResourceRequest);
-    verifyResourceRequestLocality("/rack1/node1,node2", "label1",
-        amAnyResourceRequest, amRackResourceRequest, amNodeResourceRequest,
-        amRack2ResourceRequest, amNode2ResourceRequest);
-  }
-
-  @Test
-  public void testResourceRequestLocalityInvalid() throws Exception {
-    try {
-      verifyResourceRequestLocality("rack/node1", null,
-          new ResourceRequest[]{});
-      fail("Should have failed due to invalid resource but did not");
-    } catch (IOException ioe) {
-      assertTrue(ioe.getMessage().contains("Invalid resource name"));
-    }
-    try {
-      verifyResourceRequestLocality("/rack/node1/blah", null,
-          new ResourceRequest[]{});
-      fail("Should have failed due to invalid resource but did not");
-    } catch (IOException ioe) {
-      assertTrue(ioe.getMessage().contains("Invalid resource name"));
-    }
-  }
-
-  private void verifyResourceRequestLocality(String strictResource,
-      String label, ResourceRequest... expectedReqs) throws Exception {
-    JobConf jobConf = new JobConf();
-    if (strictResource != null) {
-      jobConf.set(MRJobConfig.AM_STRICT_LOCALITY, strictResource);
-    }
-    if (label != null) {
-      jobConf.set(MRJobConfig.AM_NODE_LABEL_EXP, label);
-      for (ResourceRequest expectedReq : expectedReqs) {
-        expectedReq.setNodeLabelExpression(label);
-      }
-    }
-
-    YARNRunner yarnRunner = new YARNRunner(jobConf);
-    ApplicationSubmissionContext appSubCtx =
-        buildSubmitContext(yarnRunner, jobConf);
-    assertEquals(Arrays.asList(expectedReqs),
-        appSubCtx.getAMContainerResourceRequests());
-  }
-
-  private ResourceRequest createResourceRequest(String name,
-      boolean relaxLocality) {
-    Resource capability = recordFactory.newRecordInstance(Resource.class);
-    capability.setMemorySize(MRJobConfig.DEFAULT_MR_AM_VMEM_MB);
-    capability.setVirtualCores(MRJobConfig.DEFAULT_MR_AM_CPU_VCORES);
-
-    ResourceRequest req =
-        recordFactory.newRecordInstance(ResourceRequest.class);
-    req.setPriority(YARNRunner.AM_CONTAINER_PRIORITY);
-    req.setResourceName(name);
-    req.setCapability(capability);
-    req.setNumContainers(1);
-    req.setRelaxLocality(relaxLocality);
-
-    return req;
-  }
-
-  @Test
-  public void testAMStandardEnvWithDefaultLibPath() throws Exception {
-    testAMStandardEnv(false);
-  }
-
-  @Test
-  public void testAMStandardEnvWithCustomLibPath() throws Exception {
-    testAMStandardEnv(true);
-  }
-
-  private void testAMStandardEnv(boolean customLibPath) throws Exception {
-    // the Windows behavior is different and this test currently doesn't really
-    // apply
-    // MAPREDUCE-6588 should revisit this test
-    assumeNotWindows();
-
+  public void testAMStandardEnv() throws Exception {
     final String ADMIN_LIB_PATH = "foo";
     final String USER_LIB_PATH = "bar";
     final String USER_SHELL = "shell";
     JobConf jobConf = new JobConf();
-    String pathKey = Environment.LD_LIBRARY_PATH.name();
 
-    if (customLibPath) {
-      jobConf.set(MRJobConfig.MR_AM_ADMIN_USER_ENV, pathKey + "=" +
-          ADMIN_LIB_PATH);
-      jobConf.set(MRJobConfig.MR_AM_ENV, pathKey + "=" + USER_LIB_PATH);
-    }
+    jobConf.set(MRJobConfig.MR_AM_ADMIN_USER_ENV, "LD_LIBRARY_PATH=" +
+        ADMIN_LIB_PATH);
+    jobConf.set(MRJobConfig.MR_AM_ENV, "LD_LIBRARY_PATH="
+        + USER_LIB_PATH);
     jobConf.set(MRJobConfig.MAPRED_ADMIN_USER_SHELL, USER_SHELL);
 
     YARNRunner yarnRunner = new YARNRunner(jobConf);
@@ -778,52 +566,20 @@ public class TestYARNRunner {
     // make sure PWD is first in the lib path
     ContainerLaunchContext clc = appSubCtx.getAMContainerSpec();
     Map<String, String> env = clc.getEnvironment();
-    String libPath = env.get(pathKey);
-    assertNotNull(pathKey + " not set", libPath);
+    String libPath = env.get(Environment.LD_LIBRARY_PATH.name());
+    assertNotNull("LD_LIBRARY_PATH not set", libPath);
     String cps = jobConf.getBoolean(
         MRConfig.MAPREDUCE_APP_SUBMISSION_CROSS_PLATFORM,
         MRConfig.DEFAULT_MAPREDUCE_APP_SUBMISSION_CROSS_PLATFORM)
         ? ApplicationConstants.CLASS_PATH_SEPARATOR : File.pathSeparator;
-    String expectedLibPath =
-        MRApps.crossPlatformifyMREnv(conf, Environment.PWD);
-    if (customLibPath) {
-      // append admin libpath and user libpath
-      expectedLibPath += cps + ADMIN_LIB_PATH + cps + USER_LIB_PATH;
-    } else {
-      expectedLibPath += cps +
-          MRJobConfig.DEFAULT_MR_AM_ADMIN_USER_ENV.substring(
-              pathKey.length() + 1);
-    }
-    assertEquals("Bad AM " + pathKey + " setting", expectedLibPath, libPath);
+    assertEquals("Bad AM LD_LIBRARY_PATH setting",
+        MRApps.crossPlatformifyMREnv(conf, Environment.PWD)
+        + cps + ADMIN_LIB_PATH + cps + USER_LIB_PATH, libPath);
 
     // make sure SHELL is set
     String shell = env.get(Environment.SHELL.name());
     assertNotNull("SHELL not set", shell);
     assertEquals("Bad SHELL setting", USER_SHELL, shell);
-  }
-
-  @Test
-  public void testJobPriority() throws Exception {
-    JobConf jobConf = new JobConf();
-
-    jobConf.set(MRJobConfig.PRIORITY, "LOW");
-
-    YARNRunner yarnRunner = new YARNRunner(jobConf);
-    ApplicationSubmissionContext appSubCtx = buildSubmitContext(yarnRunner,
-        jobConf);
-
-    // 2 corresponds to LOW
-    assertEquals(appSubCtx.getPriority(), Priority.newInstance(2));
-
-    // Set an integer explicitly
-    jobConf.set(MRJobConfig.PRIORITY, "12");
-
-    yarnRunner = new YARNRunner(jobConf);
-    appSubCtx = buildSubmitContext(yarnRunner,
-        jobConf);
-
-    // Verify whether 12 is set to submission context
-    assertEquals(appSubCtx.getPriority(), Priority.newInstance(12));
   }
 
   private ApplicationSubmissionContext buildSubmitContext(
@@ -844,41 +600,5 @@ public class TestYARNRunner {
 
     return yarnRunner.createApplicationSubmissionContext(jobConf,
         testWorkDir.toString(), new Credentials());
-  }
-
-  // Test configs that match regex expression should be set in
-  // containerLaunchContext
-  @Test
-  public void testSendJobConf() throws IOException {
-    JobConf jobConf = new JobConf();
-    jobConf.set("dfs.nameservices", "mycluster1,mycluster2");
-    jobConf.set("dfs.namenode.rpc-address.mycluster2.nn1", "123.0.0.1");
-    jobConf.set("dfs.namenode.rpc-address.mycluster2.nn2", "123.0.0.2");
-    jobConf.set("dfs.ha.namenodes.mycluster2", "nn1,nn2");
-    jobConf.set("dfs.client.failover.proxy.provider.mycluster2", "provider");
-    jobConf.set("hadoop.tmp.dir", "testconfdir");
-    jobConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-        "kerberos");
-    jobConf.set("mapreduce.job.send-token-conf",
-        "dfs.nameservices|^dfs.namenode.rpc-address.*$|^dfs.ha.namenodes.*$"
-            + "|^dfs.client.failover.proxy.provider.*$"
-            + "|dfs.namenode.kerberos.principal");
-    UserGroupInformation.setConfiguration(jobConf);
-
-    YARNRunner yarnRunner = new YARNRunner(jobConf);
-    ApplicationSubmissionContext submissionContext =
-        buildSubmitContext(yarnRunner, jobConf);
-    Configuration confSent = BuilderUtils.parseTokensConf(submissionContext);
-
-    // configs that match regex should be included
-    Assert.assertEquals("123.0.0.1",
-        confSent.get("dfs.namenode.rpc-address.mycluster2.nn1"));
-    Assert.assertEquals("123.0.0.2",
-        confSent.get("dfs.namenode.rpc-address.mycluster2.nn2"));
-
-    // configs that aren't matching regex should not be included
-    Assert.assertTrue(confSent.get("hadoop.tmp.dir") == null || !confSent
-        .get("hadoop.tmp.dir").equals("testconfdir"));
-    UserGroupInformation.reset();
   }
 }

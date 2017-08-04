@@ -35,11 +35,5 @@ public class EncryptionFaultInjector {
   }
 
   @VisibleForTesting
-  public void startFileNoKey() throws IOException {}
-
-  @VisibleForTesting
-  public void startFileBeforeGenerateKey() throws IOException {}
-
-  @VisibleForTesting
   public void startFileAfterGenerateKey() throws IOException {}
 }

@@ -19,24 +19,18 @@
 package org.apache.hadoop.yarn.server.nodemanager.containermanager.application;
 
 import org.apache.hadoop.yarn.api.records.ContainerId;
-import org.apache.hadoop.yarn.api.records.ContainerStatus;
 
 public class ApplicationContainerFinishedEvent extends ApplicationEvent {
-  private ContainerStatus containerStatus;
+  private ContainerId containerID;
 
-  public ApplicationContainerFinishedEvent(ContainerStatus containerStatus) {
-    super(containerStatus.getContainerId().getApplicationAttemptId().
-        getApplicationId(),
+  public ApplicationContainerFinishedEvent(
+      ContainerId containerID) {
+    super(containerID.getApplicationAttemptId().getApplicationId(),
         ApplicationEventType.APPLICATION_CONTAINER_FINISHED);
-    this.containerStatus = containerStatus;
+    this.containerID = containerID;
   }
 
   public ContainerId getContainerID() {
-    return containerStatus.getContainerId();
+    return this.containerID;
   }
-
-  public ContainerStatus getContainerStatus() {
-    return containerStatus;
-  }
-
 }

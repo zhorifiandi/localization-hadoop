@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hdfs;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -239,8 +238,7 @@ public class AppendTestUtil {
   }
 
   public static void testAppend(FileSystem fs, Path p) throws IOException {
-    final int size = 1000;
-    final byte[] bytes = randomBytes(seed, size);
+    final byte[] bytes = new byte[1000];
 
     { //create file
       final FSDataOutputStream out = fs.create(p, (short)1);
@@ -249,22 +247,12 @@ public class AppendTestUtil {
       assertEquals(bytes.length, fs.getFileStatus(p).getLen());
     }
 
-    final int appends = 50;
-    for (int i = 2; i < appends; i++) {
+    for(int i = 2; i < 500; i++) {
       //append
       final FSDataOutputStream out = fs.append(p);
       out.write(bytes);
       out.close();
-      assertEquals(i * bytes.length, fs.getFileStatus(p).getLen());
+      assertEquals(i*bytes.length, fs.getFileStatus(p).getLen());
     }
-
-    // Check the appended content
-    final FSDataInputStream in = fs.open(p);
-    for (int i = 0; i < appends - 1; i++) {
-      byte[] read = new byte[size];
-      in.read(i * bytes.length, read, 0, size);
-      assertArrayEquals(bytes, read);
-    }
-    in.close();
   }
 }

@@ -165,9 +165,4 @@ public class CompressedSplitLineReader extends SplitLineReader {
   public boolean needAdditionalRecordAfterSplit() {
     return !finished && needAdditionalRecord;
   }
-
-  @Override
-  protected void unsetNeedAdditionalRecordAfterSplit() {
-    needAdditionalRecord = false;
-  }
 }

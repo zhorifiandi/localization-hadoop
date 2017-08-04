@@ -32,7 +32,7 @@ import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.eclipse.jetty.util.log.Log;
+import org.mortbay.log.Log;
 
 /**
  * <p>
@@ -274,7 +274,8 @@ public abstract class FSMainOperationsBaseTest extends FileSystemTestHelper {
       // expected
     }
   }
-
+  
+  // TODO: update after fixing HADOOP-7352
   @Test
   public void testListStatusThrowsExceptionForUnreadableDir()
   throws Exception {
@@ -629,26 +630,7 @@ public abstract class FSMainOperationsBaseTest extends FileSystemTestHelper {
     Assert.assertTrue(containsTestRootPath(getTestRootPath(fSys, TEST_DIR_AXX),
         filteredPaths));
   }
-
-  @Test
-  public void testGlobStatusThrowsExceptionForUnreadableDir()
-      throws Exception {
-    Path testRootDir = getTestRootPath(fSys, "test/hadoop/dir");
-    Path obscuredDir = new Path(testRootDir, "foo");
-    Path subDir = new Path(obscuredDir, "bar"); //so foo is non-empty
-    fSys.mkdirs(subDir);
-    fSys.setPermission(obscuredDir, new FsPermission((short)0)); //no access
-    try {
-      fSys.globStatus(getTestRootPath(fSys, "test/hadoop/dir/foo/*"));
-      Assert.fail("Should throw IOException");
-    } catch (IOException ioe) {
-      // expected
-    } finally {
-      // make sure the test directory can be deleted
-      fSys.setPermission(obscuredDir, new FsPermission((short)0755)); //default
-    }
-  }
-
+  
   @Test
   public void testWriteReadAndDeleteEmptyFile() throws Exception {
     writeReadAndDelete(0);
@@ -797,7 +779,7 @@ public abstract class FSMainOperationsBaseTest extends FileSystemTestHelper {
       rename(src, dst, false, false, false, Rename.NONE);
       Assert.fail("Should throw FileNotFoundException");
     } catch (IOException e) {
-      Log.getLog().info("XXX", e);
+      Log.info("XXX", e);
       Assert.assertTrue(unwrapException(e) instanceof FileNotFoundException);
     }
 

@@ -28,7 +28,7 @@ import org.apache.hadoop.yarn.server.nodemanager.Context;
 import org.apache.hadoop.yarn.server.nodemanager.ResourceView;
 import org.apache.hadoop.yarn.server.nodemanager.webapp.dao.NodeInfo;
 import org.apache.hadoop.yarn.webapp.SubView;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.HTML;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.HTML;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 import org.apache.hadoop.yarn.webapp.view.InfoBlock;
 
@@ -39,7 +39,7 @@ public class NodePage extends NMView {
   private static final long BYTES_IN_MB = 1024 * 1024;
 
   @Override
-  protected void commonPreHead(HTML<__> html) {
+  protected void commonPreHead(HTML<_> html) {
     super.commonPreHead(html);
 
     set(initID(ACCORDION, "nav"), "{autoHeight:false, active:1}");
@@ -65,29 +65,27 @@ public class NodePage extends NMView {
     protected void render(Block html) {
       NodeInfo info = new NodeInfo(this.context, this.resourceView);
       info("NodeManager information")
-          .__("Total Vmem allocated for Containers",
+          ._("Total Vmem allocated for Containers",
               StringUtils.byteDesc(info.getTotalVmemAllocated() * BYTES_IN_MB))
-          .__("Vmem enforcement enabled",
+          ._("Vmem enforcement enabled",
               info.isVmemCheckEnabled())
-          .__("Total Pmem allocated for Container",
+          ._("Total Pmem allocated for Container",
               StringUtils.byteDesc(info.getTotalPmemAllocated() * BYTES_IN_MB))
-          .__("Pmem enforcement enabled",
+          ._("Pmem enforcement enabled",
               info.isPmemCheckEnabled())
-          .__("Total VCores allocated for Containers",
-              String.valueOf(info.getTotalVCoresAllocated()))
-          .__("NodeHealthyStatus",
+           ._("Total VCores allocated for Containers",
+              String.valueOf(info.getTotalVCoresAllocated())) 
+          ._("NodeHealthyStatus",
               info.getHealthStatus())
-          .__("LastNodeHealthTime", new Date(
+          ._("LastNodeHealthTime", new Date(
               info.getLastNodeUpdateTime()))
-          .__("NodeHealthReport",
+          ._("NodeHealthReport",
               info.getHealthReport())
-          .__("NodeManager started on", new Date(
-              info.getNMStartupTime()))
-          .__("NodeManager Version:", info.getNMBuildVersion() +
+          ._("Node Manager Version:", info.getNMBuildVersion() +
               " on " + info.getNMVersionBuiltOn())
-          .__("Hadoop Version:", info.getHadoopBuildVersion() +
+          ._("Hadoop Version:", info.getHadoopBuildVersion() +
               " on " + info.getHadoopVersionBuiltOn());
-      html.__(InfoBlock.class);
+      html._(InfoBlock.class);
     }
   }
 }

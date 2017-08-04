@@ -22,8 +22,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.UndeclaredThrowableException;
 import java.net.URISyntaxException;
+import java.util.Random;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -61,6 +61,13 @@ class SharedCacheUploader implements Callable<Boolean> {
       new FsPermission((short)00555);
 
   private static final Log LOG = LogFactory.getLog(SharedCacheUploader.class);
+  private static final ThreadLocal<Random> randomTl =
+      new ThreadLocal<Random>() {
+        @Override
+        protected Random initialValue() {
+          return new Random(System.nanoTime());
+        }
+      };
 
   private final LocalResource resource;
   private final Path localPath;
@@ -192,12 +199,10 @@ class SharedCacheUploader implements Callable<Boolean> {
 
   private void deleteTempFile(Path tempPath) {
     try {
-      if (tempPath != null) {
+      if (tempPath != null && fs.exists(tempPath)) {
         fs.delete(tempPath, false);
       }
-    } catch (IOException ioe) {
-      LOG.debug("Exception received while deleting temp files", ioe);
-    }
+    } catch (IOException ignore) {}
   }
 
   /**
@@ -213,7 +218,7 @@ class SharedCacheUploader implements Callable<Boolean> {
 
     final Path remotePath;
     try {
-      remotePath = resource.getResource().toPath();
+      remotePath = ConverterUtils.getPathFromYarnURL(resource.getResource());
     } catch (URISyntaxException e) {
       throw new IOException("Invalid resource", e);
     }
@@ -262,7 +267,7 @@ class SharedCacheUploader implements Callable<Boolean> {
   }
 
   private String getTemporaryFileName(Path path) {
-    return path.getName() + "-" + ThreadLocalRandom.current().nextLong();
+    return path.getName() + "-" + randomTl.get().nextLong();
   }
 
   @VisibleForTesting

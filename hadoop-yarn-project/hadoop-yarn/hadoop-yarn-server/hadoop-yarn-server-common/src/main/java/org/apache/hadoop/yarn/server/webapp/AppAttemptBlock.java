@@ -36,9 +36,10 @@ import org.apache.hadoop.yarn.api.records.ContainerReport;
 import org.apache.hadoop.yarn.api.records.YarnApplicationAttemptState;
 import org.apache.hadoop.yarn.server.webapp.dao.AppAttemptInfo;
 import org.apache.hadoop.yarn.server.webapp.dao.ContainerInfo;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
+import org.apache.hadoop.yarn.util.ConverterUtils;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 import org.apache.hadoop.yarn.webapp.view.InfoBlock;
 import com.google.inject.Inject;
@@ -64,14 +65,14 @@ public class AppAttemptBlock extends HtmlBlock {
     }
 
     try {
-      appAttemptId = ApplicationAttemptId.fromString(attemptid);
+      appAttemptId = ConverterUtils.toApplicationAttemptId(attemptid);
     } catch (IllegalArgumentException e) {
       puts("Invalid application attempt ID: " + attemptid);
       return;
     }
 
     UserGroupInformation callerUGI = getCallerUGI();
-    ApplicationAttemptReport appAttemptReport;
+    ApplicationAttemptReport appAttemptReport = null;
     try {
       final GetApplicationAttemptReportRequest request =
           GetApplicationAttemptReportRequest.newInstance(appAttemptId);
@@ -93,7 +94,7 @@ public class AppAttemptBlock extends HtmlBlock {
       String message =
           "Failed to read the application attempt " + appAttemptId + ".";
       LOG.error(message, e);
-      html.p().__(message).__();
+      html.p()._(message)._();
       return;
     }
 
@@ -134,19 +135,44 @@ public class AppAttemptBlock extends HtmlBlock {
         && appAttempt.getRpcPort() < 65536) {
       node = appAttempt.getHost() + ":" + appAttempt.getRpcPort();
     }
-    generateOverview(appAttemptReport, containers, appAttempt, node);
+    info("Application Attempt Overview")
+      ._(
+        "Application Attempt State:",
+        appAttempt.getAppAttemptState() == null ? UNAVAILABLE : appAttempt
+          .getAppAttemptState())
+      ._(
+        "AM Container:",
+        appAttempt.getAmContainerId() == null || containers == null
+            || !hasAMContainer(appAttemptReport.getAMContainerId(), containers)
+            ? null : root_url("container", appAttempt.getAmContainerId()),
+        String.valueOf(appAttempt.getAmContainerId()))
+      ._("Node:", node)
+      ._(
+        "Tracking URL:",
+        appAttempt.getTrackingUrl() == null
+            || appAttempt.getTrackingUrl() == UNAVAILABLE ? null
+            : root_url(appAttempt.getTrackingUrl()),
+        appAttempt.getTrackingUrl() == null
+            || appAttempt.getTrackingUrl() == UNAVAILABLE
+            ? "Unassigned"
+            : appAttempt.getAppAttemptState() == YarnApplicationAttemptState.FINISHED
+                || appAttempt.getAppAttemptState() == YarnApplicationAttemptState.FAILED
+                || appAttempt.getAppAttemptState() == YarnApplicationAttemptState.KILLED
+                ? "History" : "ApplicationMaster")
+      ._("Diagnostics Info:", appAttempt.getDiagnosticsInfo() == null ?
+          "" : appAttempt.getDiagnosticsInfo());
 
     if (exceptionWhenGetContainerReports) {
       html
         .p()
-        .__(
+        ._(
           "Sorry, Failed to get containers for application attempt" + attemptid
-              + ".").__();
+              + ".")._();
       return;
     }
 
     createAttemptHeadRoomTable(html);
-    html.__(InfoBlock.class);
+    html._(InfoBlock.class);
 
     createTablesForAttemptMetrics(html);
 
@@ -154,7 +180,7 @@ public class AppAttemptBlock extends HtmlBlock {
     TBODY<TABLE<Hamlet>> tbody =
         html.table("#containers").thead().tr().th(".id", "Container ID")
           .th(".node", "Node").th(".exitstatus", "Container Exit Status")
-          .th(".logs", "Logs").__().__().tbody();
+          .th(".logs", "Logs")._()._().tbody();
 
     StringBuilder containersTableData = new StringBuilder("[\n");
     for (ContainerReport containerReport : containers) {
@@ -185,46 +211,12 @@ public class AppAttemptBlock extends HtmlBlock {
     }
     containersTableData.append("]");
     html.script().$type("text/javascript")
-      .__("var containersTableData=" + containersTableData).__();
+      ._("var containersTableData=" + containersTableData)._();
 
-    tbody.__().__();
+    tbody._()._();
   }
 
-  protected void generateOverview(ApplicationAttemptReport appAttemptReport,
-      Collection<ContainerReport> containers, AppAttemptInfo appAttempt,
-      String node) {
-    String amContainerId = appAttempt.getAmContainerId();
-    info("Application Attempt Overview")
-      .__(
-        "Application Attempt State:",
-        appAttempt.getAppAttemptState() == null ? UNAVAILABLE : appAttempt
-          .getAppAttemptState())
-      .__("AM Container:",
-          amContainerId == null
-              || containers == null
-              || !hasAMContainer(appAttemptReport.getAMContainerId(),
-                  containers) ? null : root_url("container", amContainerId),
-          amContainerId == null ? "N/A" : amContainerId)
-      .__("Node:", node)
-      .__(
-        "Tracking URL:",
-        appAttempt.getTrackingUrl() == null
-            || appAttempt.getTrackingUrl().equals(UNAVAILABLE) ? null
-            : root_url(appAttempt.getTrackingUrl()),
-        appAttempt.getTrackingUrl() == null
-            || appAttempt.getTrackingUrl().equals(UNAVAILABLE)
-            ? "Unassigned"
-            : appAttempt.getAppAttemptState() == YarnApplicationAttemptState.FINISHED
-                || appAttempt.getAppAttemptState() == YarnApplicationAttemptState.FAILED
-                || appAttempt.getAppAttemptState() == YarnApplicationAttemptState.KILLED
-                ? "History" : "ApplicationMaster")
-      .__(
-        "Diagnostics Info:",
-        appAttempt.getDiagnosticsInfo() == null ? "" : appAttempt
-          .getDiagnosticsInfo());
-  }
-
-  protected boolean hasAMContainer(ContainerId containerId,
+  private boolean hasAMContainer(ContainerId containerId,
       Collection<ContainerReport> containers) {
     for (ContainerReport container : containers) {
       if (containerId.equals(container.getContainerId())) {

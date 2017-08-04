@@ -27,6 +27,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 import static org.mockito.Mockito.*;
+import static org.apache.hadoop.test.MockitoMaker.*;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
@@ -79,14 +80,12 @@ public class TestMRCJCFileInputFormat {
   @Test
   public void testNumInputFiles() throws Exception {
     Configuration conf = spy(new Configuration());
-    Job mockedJob = mock(Job.class);
-    when(mockedJob.getConfiguration()).thenReturn(conf);
-    FileStatus stat = mock(FileStatus.class);
-    when(stat.getLen()).thenReturn(0L);
+    Job job = make(stub(Job.class).returning(conf).from.getConfiguration());
+    FileStatus stat = make(stub(FileStatus.class).returning(0L).from.getLen());
     TextInputFormat ispy = spy(new TextInputFormat());
-    doReturn(Arrays.asList(stat)).when(ispy).listStatus(mockedJob);
+    doReturn(Arrays.asList(stat)).when(ispy).listStatus(job);
 
-    ispy.getSplits(mockedJob);
+    ispy.getSplits(job);
     verify(conf).setLong(FileInputFormat.NUM_INPUT_FILES, 1);
   }
   

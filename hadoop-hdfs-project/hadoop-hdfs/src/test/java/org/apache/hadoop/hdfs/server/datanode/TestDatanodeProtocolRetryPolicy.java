@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.hdfs.server.datanode;
 
-import org.apache.hadoop.hdfs.server.protocol.SlowDiskReports;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -28,11 +27,11 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
-import java.util.concurrent.ThreadLocalRandom;
 
 import com.google.common.base.Supplier;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystem;
@@ -50,7 +49,6 @@ import org.apache.hadoop.hdfs.server.protocol.HeartbeatResponse;
 import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.server.protocol.NNHAStatusHeartbeat;
 import org.apache.hadoop.hdfs.server.protocol.RegisterCommand;
-import org.apache.hadoop.hdfs.server.protocol.SlowPeerReports;
 import org.apache.hadoop.hdfs.server.protocol.StorageBlockReport;
 import org.apache.hadoop.hdfs.server.protocol.StorageReport;
 import org.apache.hadoop.hdfs.server.protocol.VolumeFailureSummary;
@@ -84,7 +82,7 @@ public class TestDatanodeProtocolRetryPolicy {
       DFSTestUtil.getLocalDatanodeRegistration();
 
   static {
-    GenericTestUtils.setLogLevel(LOG, Level.ALL);
+    ((Log4JLogger)LOG).getLogger().setLevel(Level.ALL);
   }
 
   /**
@@ -201,13 +199,13 @@ public class TestDatanodeProtocolRetryPolicy {
           heartbeatResponse = new HeartbeatResponse(
               new DatanodeCommand[]{RegisterCommand.REGISTER},
               new NNHAStatusHeartbeat(HAServiceState.ACTIVE, 1),
-              null, ThreadLocalRandom.current().nextLong() | 1L);
+              null);
         } else {
           LOG.info("mockito heartbeatResponse " + i);
           heartbeatResponse = new HeartbeatResponse(
               new DatanodeCommand[0],
               new NNHAStatusHeartbeat(HAServiceState.ACTIVE, 1),
-              null, ThreadLocalRandom.current().nextLong() | 1L);
+              null);
         }
         return heartbeatResponse;
       }
@@ -219,12 +217,9 @@ public class TestDatanodeProtocolRetryPolicy {
            Mockito.anyInt(),
            Mockito.anyInt(),
            Mockito.anyInt(),
-           Mockito.any(VolumeFailureSummary.class),
-           Mockito.anyBoolean(),
-           Mockito.any(SlowPeerReports.class),
-           Mockito.any(SlowDiskReports.class));
+           Mockito.any(VolumeFailureSummary.class));
 
-    dn = new DataNode(conf, locations, null, null) {
+    dn = new DataNode(conf, locations, null) {
       @Override
       DatanodeProtocolClientSideTranslatorPB connectToNN(
           InetSocketAddress nnAddr) throws IOException {
@@ -234,7 +229,7 @@ public class TestDatanodeProtocolRetryPolicy {
     };
 
     // Trigger a heartbeat so that it acknowledges the NN as active.
-    dn.getAllBpOs().get(0).triggerHeartbeatForTests();
+    dn.getAllBpOs()[0].triggerHeartbeatForTests();
 
     waitForBlockReport(namenode);
   }

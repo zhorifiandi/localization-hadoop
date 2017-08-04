@@ -25,7 +25,6 @@ import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.impl.pb.ApplicationIdPBImpl;
-import org.apache.hadoop.yarn.api.records.impl.pb.ProtoUtils;
 import org.apache.hadoop.yarn.api.records.impl.pb.ResourcePBImpl;
 import org.apache.hadoop.yarn.proto.YarnProtos.ApplicationIdProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ResourceProto;
@@ -159,13 +158,13 @@ public class GetNewApplicationResponsePBImpl extends GetNewApplicationResponse {
   private ApplicationIdProto convertToProtoFormat(ApplicationId t) {
     return ((ApplicationIdPBImpl)t).getProto();
   }
-
+  
   private Resource convertFromProtoFormat(ResourceProto resource) {
-    return new ResourcePBImpl(resource);
+	  return new ResourcePBImpl(resource);
   }
 
   private ResourceProto convertToProtoFormat(Resource resource) {
-    return ProtoUtils.convertToProtoFormat(resource);
+	  return ((ResourcePBImpl)resource).getProto();
   }
 
-}
+}  

@@ -21,10 +21,7 @@ package org.apache.hadoop.yarn.server.nodemanager.containermanager;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.UnsupportedFileSystemException;
-import org.apache.hadoop.io.retry.UnreliableInterface;
 import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
@@ -43,6 +40,7 @@ import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.ipc.YarnRPC;
 import org.apache.hadoop.yarn.security.NMTokenIdentifier;
 import org.apache.hadoop.yarn.server.nodemanager.DeletionService;
+import org.apache.hadoop.yarn.server.security.ApplicationACLsManager;
 import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.Records;
 import org.junit.Assert;
@@ -56,37 +54,36 @@ public class TestNMProxy extends BaseContainerManagerTest {
   }
 
   int retryCount = 0;
+  boolean shouldThrowNMNotYetReadyException = false;
 
   @Before
   public void setUp() throws Exception {
-    containerManager.start();
+    conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_MAX_WAIT_MS, 10000);
+    conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_RETRY_INTERVAL_MS, 100);
   }
 
   @Override
   protected ContainerManagerImpl
       createContainerManager(DeletionService delSrvc) {
     return new ContainerManagerImpl(context, exec, delSrvc, nodeStatusUpdater,
-      metrics, dirsHandler) {
+      metrics, new ApplicationACLsManager(conf), dirsHandler) {
 
       @Override
       public StartContainersResponse startContainers(
           StartContainersRequest requests) throws YarnException, IOException {
         if (retryCount < 5) {
           retryCount++;
-          if (isRetryPolicyRetryForEver()) {
-            // Throw non network exception
-            throw new IOException(
-                new UnreliableInterface.UnreliableException());
+          if (shouldThrowNMNotYetReadyException) {
+            // This causes super to throw an NMNotYetReadyException
+            containerManager.setBlockNewContainerRequests(true);
           } else {
             throw new java.net.ConnectException("start container exception");
           }
+        } else {
+          // This stops super from throwing an NMNotYetReadyException
+          containerManager.setBlockNewContainerRequests(false);
         }
         return super.startContainers(requests);
-      }
-
-      private boolean isRetryPolicyRetryForEver() {
-        return conf.getLong(
-            YarnConfiguration.CLIENT_NM_CONNECT_MAX_WAIT_MS, 1000) == -1;
       }
 
       @Override
@@ -113,82 +110,50 @@ public class TestNMProxy extends BaseContainerManagerTest {
   }
 
   @Test(timeout = 20000)
-   public void testNMProxyRetry() throws Exception {
-     conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_MAX_WAIT_MS, 10000);
-     conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_RETRY_INTERVAL_MS, 100);
-     StartContainersRequest allRequests =
-         Records.newRecord(StartContainersRequest.class);
-
-    ContainerManagementProtocol proxy = getNMProxy(conf);
-
-    proxy.startContainers(allRequests);
-    Assert.assertEquals(5, retryCount);
-
-    retryCount = 0;
-    proxy.stopContainers(Records.newRecord(StopContainersRequest.class));
-    Assert.assertEquals(5, retryCount);
-
-    retryCount = 0;
-    proxy.getContainerStatuses(Records
-      .newRecord(GetContainerStatusesRequest.class));
-    Assert.assertEquals(5, retryCount);
-  }
-
-  @Test(timeout = 20000, expected = IOException.class)
-  public void testShouldNotRetryForeverForNonNetworkExceptionsOnNMConnections()
-      throws Exception {
-    conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_MAX_WAIT_MS, -1);
+  public void testNMProxyRetry() throws Exception {
+    containerManager.start();
+    containerManager.setBlockNewContainerRequests(false);
     StartContainersRequest allRequests =
         Records.newRecord(StartContainersRequest.class);
-
-    ContainerManagementProtocol proxy = getNMProxy(conf);
-
-    retryCount = 0;
-    proxy.startContainers(allRequests);
-  }
-
-  @Test(timeout = 20000)
-  public void testNMProxyRPCRetry() throws Exception {
-    conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_MAX_WAIT_MS, 1000);
-    conf.setLong(YarnConfiguration.CLIENT_NM_CONNECT_RETRY_INTERVAL_MS, 100);
-    StartContainersRequest allRequests =
-        Records.newRecord(StartContainersRequest.class);
-    Configuration newConf = new YarnConfiguration(conf);
-    newConf.setInt(
-        CommonConfigurationKeysPublic.IPC_CLIENT_CONNECT_MAX_RETRIES_KEY, 100);
-
-    newConf.setInt(CommonConfigurationKeysPublic.
-        IPC_CLIENT_CONNECT_MAX_RETRIES_ON_SOCKET_TIMEOUTS_KEY, 100);
-    // connect to some dummy address so that it can trigger
-    // connection failure and RPC level retires.
-    newConf.set(YarnConfiguration.NM_ADDRESS, "1234");
-    ContainerManagementProtocol proxy = getNMProxy(newConf);
-    try {
-      proxy.startContainers(allRequests);
-      Assert.fail("should get socket exception");
-    } catch (IOException e) {
-      // socket exception should be thrown immediately, without RPC retries.
-      Assert.assertTrue(e instanceof java.net.SocketException);
-    }
-  }
-
-  private ContainerManagementProtocol getNMProxy(Configuration conf) {
     ApplicationId appId = ApplicationId.newInstance(1, 1);
     ApplicationAttemptId attemptId = ApplicationAttemptId.newInstance(appId, 1);
 
     org.apache.hadoop.yarn.api.records.Token nmToken =
         context.getNMTokenSecretManager().createNMToken(attemptId,
-            context.getNodeId(), user);
+          context.getNodeId(), user);
     final InetSocketAddress address =
         conf.getSocketAddr(YarnConfiguration.NM_BIND_HOST,
-            YarnConfiguration.NM_ADDRESS, YarnConfiguration.DEFAULT_NM_ADDRESS,
-            YarnConfiguration.DEFAULT_NM_PORT);
+          YarnConfiguration.NM_ADDRESS, YarnConfiguration.DEFAULT_NM_ADDRESS,
+          YarnConfiguration.DEFAULT_NM_PORT);
     Token<NMTokenIdentifier> token =
         ConverterUtils.convertFromYarn(nmToken,
-            SecurityUtil.buildTokenService(address));
+          SecurityUtil.buildTokenService(address));
     UserGroupInformation ugi = UserGroupInformation.createRemoteUser(user);
     ugi.addToken(token);
-    return NMProxy.createNMProxy(conf, ContainerManagementProtocol.class, ugi,
-        YarnRPC.create(conf), address);
+
+    ContainerManagementProtocol proxy =
+        NMProxy.createNMProxy(conf, ContainerManagementProtocol.class, ugi,
+          YarnRPC.create(conf), address);
+
+    retryCount = 0;
+    shouldThrowNMNotYetReadyException = false;
+    proxy.startContainers(allRequests);
+    Assert.assertEquals(5, retryCount);
+
+    retryCount = 0;
+    shouldThrowNMNotYetReadyException = false;
+    proxy.stopContainers(Records.newRecord(StopContainersRequest.class));
+    Assert.assertEquals(5, retryCount);
+
+    retryCount = 0;
+    shouldThrowNMNotYetReadyException = false;
+    proxy.getContainerStatuses(Records
+      .newRecord(GetContainerStatusesRequest.class));
+    Assert.assertEquals(5, retryCount);
+
+    retryCount = 0;
+    shouldThrowNMNotYetReadyException = true;
+    proxy.startContainers(allRequests);
+    Assert.assertEquals(5, retryCount);
   }
 }

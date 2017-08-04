@@ -18,17 +18,13 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.util.Set;
-
-import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ContainerId;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
-import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 import org.apache.hadoop.yarn.util.ConverterUtils;
+
+import org.apache.avro.util.Utf8;
 
 /**
  * Event to record start of a task attempt
@@ -86,12 +82,12 @@ public class AMStartedEvent implements HistoryEvent {
       ContainerId containerId, String nodeManagerHost, int nodeManagerPort,
       int nodeManagerHttpPort, String forcedJobStateOnShutDown,
       long submitTime) {
-    datum.setApplicationAttemptId(new Utf8(appAttemptId.toString()));
-    datum.setStartTime(startTime);
-    datum.setContainerId(new Utf8(containerId.toString()));
-    datum.setNodeManagerHost(new Utf8(nodeManagerHost));
-    datum.setNodeManagerPort(nodeManagerPort);
-    datum.setNodeManagerHttpPort(nodeManagerHttpPort);
+    datum.applicationAttemptId = new Utf8(appAttemptId.toString());
+    datum.startTime = startTime;
+    datum.containerId = new Utf8(containerId.toString());
+    datum.nodeManagerHost = new Utf8(nodeManagerHost);
+    datum.nodeManagerPort = nodeManagerPort;
+    datum.nodeManagerHttpPort = nodeManagerHttpPort;
     this.forcedJobStateOnShutDown = forcedJobStateOnShutDown;
     this.submitTime = submitTime;
   }
@@ -111,43 +107,43 @@ public class AMStartedEvent implements HistoryEvent {
    * @return the ApplicationAttemptId
    */
   public ApplicationAttemptId getAppAttemptId() {
-    return ApplicationAttemptId.fromString(
-        datum.getApplicationAttemptId().toString());
+    return ConverterUtils.toApplicationAttemptId(datum.applicationAttemptId
+        .toString());
   }
 
   /**
    * @return the start time for the MRAppMaster
    */
   public long getStartTime() {
-    return datum.getStartTime();
+    return datum.startTime;
   }
 
   /**
    * @return the ContainerId for the MRAppMaster.
    */
   public ContainerId getContainerId() {
-    return ContainerId.fromString(datum.getContainerId().toString());
+    return ConverterUtils.toContainerId(datum.containerId.toString());
   }
 
   /**
    * @return the node manager host.
    */
   public String getNodeManagerHost() {
-    return datum.getNodeManagerHost().toString();
+    return datum.nodeManagerHost.toString();
   }
 
   /**
    * @return the node manager port.
    */
   public int getNodeManagerPort() {
-    return datum.getNodeManagerPort();
+    return datum.nodeManagerPort;
   }
   
   /**
    * @return the http port for the tracker.
    */
   public int getNodeManagerHttpPort() {
-    return datum.getNodeManagerHttpPort();
+    return datum.nodeManagerHttpPort;
   }
 
   /**
@@ -169,25 +165,5 @@ public class AMStartedEvent implements HistoryEvent {
   @Override
   public EventType getEventType() {
     return EventType.AM_STARTED;
-  }
-
-  @Override
-  public TimelineEvent toTimelineEvent() {
-    TimelineEvent tEvent = new TimelineEvent();
-    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
-    tEvent.addInfo("APPLICATION_ATTEMPT_ID",
-        getAppAttemptId() == null ? "" : getAppAttemptId().toString());
-    tEvent.addInfo("CONTAINER_ID", getContainerId() == null ?
-        "" : getContainerId().toString());
-    tEvent.addInfo("NODE_MANAGER_HOST", getNodeManagerHost());
-    tEvent.addInfo("NODE_MANAGER_PORT", getNodeManagerPort());
-    tEvent.addInfo("NODE_MANAGER_HTTP_PORT", getNodeManagerHttpPort());
-    tEvent.addInfo("START_TIME", getStartTime());
-    return tEvent;
-  }
-
-  @Override
-  public Set<TimelineMetric> getTimelineMetrics() {
-    return null;
   }
 }

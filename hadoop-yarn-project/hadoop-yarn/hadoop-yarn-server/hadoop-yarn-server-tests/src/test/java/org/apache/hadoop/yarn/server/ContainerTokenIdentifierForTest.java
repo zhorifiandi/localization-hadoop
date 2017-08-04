@@ -33,7 +33,6 @@ import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.impl.pb.ContainerIdPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.LogAggregationContextPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.PriorityPBImpl;
-import org.apache.hadoop.yarn.api.records.impl.pb.ProtoUtils;
 import org.apache.hadoop.yarn.api.records.impl.pb.ResourcePBImpl;
 import org.apache.hadoop.yarn.security.ContainerTokenIdentifier;
 import org.apache.hadoop.yarn.proto.YarnProtos.LogAggregationContextProto;
@@ -61,7 +60,7 @@ public class ContainerTokenIdentifierForTest extends ContainerTokenIdentifier {
     builder.setNmHostAddr(hostName);
     builder.setAppSubmitter(appSubmitter);
     if (r != null) {
-      builder.setResource(ProtoUtils.convertToProtoFormat(r));
+      builder.setResource(((ResourcePBImpl)r).getProto());
     }
     builder.setExpiryTimeStamp(expiryTimeStamp);
     builder.setMasterKeyId(masterKeyId);
@@ -92,7 +91,7 @@ public class ContainerTokenIdentifierForTest extends ContainerTokenIdentifier {
     
     ResourcePBImpl resource = (ResourcePBImpl)identifier.getResource();
     if (resource != null) {
-      builder.setResource(ProtoUtils.convertToProtoFormat(resource));
+      builder.setResource(resource.getProto());
     }
     
     builder.setExpiryTimeStamp(identifier.getExpiryTimeStamp());

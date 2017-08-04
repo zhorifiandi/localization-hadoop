@@ -18,10 +18,13 @@
 
 package org.apache.hadoop.mapred;
 
+import static org.junit.Assert.*;
+
+import java.net.InetSocketAddress;
+
 import org.apache.hadoop.mapreduce.MRConfig;
+import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.fail;
 import org.junit.Test;
 
 public class TestMaster {
@@ -30,6 +33,13 @@ public class TestMaster {
   public void testGetMasterAddress() {
     YarnConfiguration conf = new YarnConfiguration();
 
+    // Default is yarn framework
+    String masterHostname = Master.getMasterAddress(conf).getHostName();
+    
+    // no address set so should default to default rm address
+    InetSocketAddress rmAddr = NetUtils.createSocketAddr(YarnConfiguration.DEFAULT_RM_ADDRESS);
+    assertEquals(masterHostname, rmAddr.getHostName());
+    
     // Trying invalid master address for classic 
     conf.set(MRConfig.FRAMEWORK_NAME, MRConfig.CLASSIC_FRAMEWORK_NAME);
     conf.set(MRConfig.MASTER_ADDRESS, "local:invalid");
@@ -45,7 +55,34 @@ public class TestMaster {
 
     // Change master address to a valid value
     conf.set(MRConfig.MASTER_ADDRESS, "bar.com:8042");    
-    String masterHostname = Master.getMasterAddress(conf);
+    masterHostname = Master.getMasterAddress(conf).getHostName();
     assertEquals(masterHostname, "bar.com");
+
+    // change framework to yarn
+    conf.set(MRConfig.FRAMEWORK_NAME, MRConfig.YARN_FRAMEWORK_NAME);
+    conf.set(YarnConfiguration.RM_ADDRESS, "foo1.com:8192");
+    masterHostname = Master.getMasterAddress(conf).getHostName();
+    assertEquals(masterHostname, "foo1.com");
+
   }
+
+  @Test 
+  public void testGetMasterUser() {
+    YarnConfiguration conf = new YarnConfiguration();
+    conf.set(MRConfig.MASTER_USER_NAME, "foo");
+    conf.set(YarnConfiguration.RM_PRINCIPAL, "bar");
+
+    // default is yarn framework  
+    assertEquals(Master.getMasterUserName(conf), "bar");
+
+    // set framework name to classic
+    conf.set(MRConfig.FRAMEWORK_NAME, MRConfig.CLASSIC_FRAMEWORK_NAME);
+    assertEquals(Master.getMasterUserName(conf), "foo");
+
+    // change framework to yarn
+    conf.set(MRConfig.FRAMEWORK_NAME, MRConfig.YARN_FRAMEWORK_NAME);
+    assertEquals(Master.getMasterUserName(conf), "bar");
+
+  }
+
 }

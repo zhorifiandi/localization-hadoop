@@ -211,10 +211,9 @@ public final class Options {
   /**
    * Enum to support the varargs for rename() options
    */
-  public enum Rename {
+  public static enum Rename {
     NONE((byte) 0), // No options
-    OVERWRITE((byte) 1), // Overwrite the rename destination
-    TO_TRASH ((byte) 2); // Rename to trash
+    OVERWRITE((byte) 1); // Overwrite the rename destination
 
     private final byte code;
     

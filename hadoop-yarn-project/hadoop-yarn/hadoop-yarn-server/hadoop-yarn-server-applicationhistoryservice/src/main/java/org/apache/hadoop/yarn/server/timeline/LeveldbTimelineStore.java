@@ -21,7 +21,6 @@ package org.apache.hadoop.yarn.server.timeline;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import org.apache.commons.collections.map.LRUMap;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -34,7 +33,6 @@ import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.WritableComparator;
 import org.apache.hadoop.service.AbstractService;
-import org.apache.hadoop.util.Time;
 import org.apache.hadoop.yarn.api.records.timeline.*;
 import org.apache.hadoop.yarn.api.records.timeline.TimelineEvents.EventsOfOneEntity;
 import org.apache.hadoop.yarn.api.records.timeline.TimelinePutResponse.TimelinePutError;
@@ -125,11 +123,6 @@ public class LeveldbTimelineStore extends AbstractService
   @VisibleForTesting
   static final String FILENAME = "leveldb-timeline-store.ldb";
 
-  @VisibleForTesting
-  //Extension to FILENAME where backup will be stored in case we need to
-  //call LevelDb recovery
-  static final String BACKUP_EXT = ".backup-";
-
   private static final byte[] START_TIME_LOOKUP_PREFIX = "k".getBytes(Charset.forName("UTF-8"));
   private static final byte[] ENTITY_ENTRY_PREFIX = "e".getBytes(Charset.forName("UTF-8"));
   private static final byte[] INDEXED_ENTRY_PREFIX = "i".getBytes(Charset.forName("UTF-8"));
@@ -182,13 +175,6 @@ public class LeveldbTimelineStore extends AbstractService
     super(LeveldbTimelineStore.class.getName());
   }
 
-  private JniDBFactory factory;
-
-  @VisibleForTesting
-  void setFactory(JniDBFactory fact) {
-    this.factory = fact;
-  }
-
   @Override
   @SuppressWarnings("unchecked")
   protected void serviceInit(Configuration conf) throws Exception {
@@ -223,10 +209,7 @@ public class LeveldbTimelineStore extends AbstractService
     options.cacheSize(conf.getLong(
         YarnConfiguration.TIMELINE_SERVICE_LEVELDB_READ_CACHE_SIZE,
         YarnConfiguration.DEFAULT_TIMELINE_SERVICE_LEVELDB_READ_CACHE_SIZE));
-    if(factory == null) {
-      factory = new JniDBFactory();
-    }
-
+    JniDBFactory factory = new JniDBFactory();
     Path dbPath = new Path(
         conf.get(YarnConfiguration.TIMELINE_SERVICE_LEVELDB_PATH), FILENAME);
     FileSystem localFS = null;
@@ -243,19 +226,7 @@ public class LeveldbTimelineStore extends AbstractService
       IOUtils.cleanup(LOG, localFS);
     }
     LOG.info("Using leveldb path " + dbPath);
-    try {
-      db = factory.open(new File(dbPath.toString()), options);
-    } catch (IOException ioe) {
-      File dbFile = new File(dbPath.toString());
-      File backupPath = new File(
-          dbPath.toString() + BACKUP_EXT + Time.monotonicNow());
-      LOG.warn("Incurred exception while loading LevelDb database. Backing " +
-          "up at "+ backupPath, ioe);
-      FileUtils.copyDirectory(dbFile, backupPath);
-      LOG.warn("Going to try repair");
-      factory.repair(dbFile, options);
-      db = factory.open(dbFile, options);
-    }
+    db = factory.open(new File(dbPath.toString()), options);
     checkVersion();
     startTimeWriteCache =
         Collections.synchronizedMap(new LRUMap(getStartTimeWriteCacheSize(
@@ -386,9 +357,6 @@ public class LeveldbTimelineStore extends AbstractService
       iterator = new LeveldbIterator(db);
       iterator.seek(prefix);
 
-      if (fields == null) {
-        fields = EnumSet.allOf(Field.class);
-      }
       return getEntity(entityId, entityType, revStartTime, fields, iterator,
           prefix, prefix.length);
     } catch(DBException e) {
@@ -405,6 +373,10 @@ public class LeveldbTimelineStore extends AbstractService
   private static TimelineEntity getEntity(String entityId, String entityType,
       Long startTime, EnumSet<Field> fields, LeveldbIterator iterator,
       byte[] prefix, int prefixlen) throws IOException {
+    if (fields == null) {
+      fields = EnumSet.allOf(Field.class);
+    }
+
     TimelineEntity entity = new TimelineEntity();
     boolean events = false;
     boolean lastEvent = false;
@@ -618,25 +590,6 @@ public class LeveldbTimelineStore extends AbstractService
       String entityType, Long limit, Long starttime, Long endtime,
       String fromId, Long fromTs, Collection<NameValuePair> secondaryFilters,
       EnumSet<Field> fields, CheckAcl checkAcl) throws IOException {
-    // Even if other info and primary filter fields are not included, we
-    // still need to load them to match secondary filters when they are
-    // non-empty
-    if (fields == null) {
-      fields = EnumSet.allOf(Field.class);
-    }
-    boolean addPrimaryFilters = false;
-    boolean addOtherInfo = false;
-    if (secondaryFilters != null && secondaryFilters.size() > 0) {
-      if (!fields.contains(Field.PRIMARY_FILTERS)) {
-        fields.add(Field.PRIMARY_FILTERS);
-        addPrimaryFilters = true;
-      }
-      if (!fields.contains(Field.OTHER_INFO)) {
-        fields.add(Field.OTHER_INFO);
-        addOtherInfo = true;
-      }
-    }
-
     LeveldbIterator iterator = null;
     try {
       KeyBuilder kb = KeyBuilder.newInstance().add(base).add(entityType);
@@ -737,14 +690,6 @@ public class LeveldbTimelineStore extends AbstractService
             entity.setDomainId(DEFAULT_DOMAIN_ID);
           }
           if (checkAcl == null || checkAcl.check(entity)) {
-            // Remove primary filter and other info if they are added for
-            // matching secondary filters
-            if (addPrimaryFilters) {
-              entity.setPrimaryFilters(null);
-            }
-            if (addOtherInfo) {
-              entity.setOtherInfo(null);
-            }
             entities.addEntity(entity);
           }
         }

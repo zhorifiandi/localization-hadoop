@@ -22,8 +22,6 @@ import org.apache.hadoop.classification.InterfaceStability;
 
 import com.google.common.base.Preconditions;
 
-import java.io.IOException;
-
 @InterfaceAudience.Private
 @InterfaceStability.Evolving
 public abstract class AesCtrCryptoCodec extends CryptoCodec {
@@ -62,9 +60,5 @@ public abstract class AesCtrCryptoCodec extends CryptoCodec {
       }
       IV[i] = (byte) sum;
     }
-  }
-
-  @Override
-  public void close() throws IOException {
   }
 }

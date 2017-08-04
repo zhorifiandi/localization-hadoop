@@ -32,7 +32,6 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.FileStatus;
-import org.apache.hadoop.fs.HarFs;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.RemoteIterator;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -44,9 +43,10 @@ import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.logaggregation.AggregatedLogFormat;
 import org.apache.hadoop.yarn.logaggregation.LogAggregationUtils;
 import org.apache.hadoop.yarn.server.security.ApplicationACLsManager;
+import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.Times;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.PRE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.PRE;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -79,17 +79,11 @@ public class AggregatedLogsBlock extends HtmlBlock {
       logEntity = containerId.toString();
     }
 
-    String nmApplicationLogUrl = getApplicationLogURL(applicationId);
     if (!conf.getBoolean(YarnConfiguration.LOG_AGGREGATION_ENABLED,
         YarnConfiguration.DEFAULT_LOG_AGGREGATION_ENABLED)) {
       html.h1()
-          .__("Aggregation is not enabled. Try the nodemanager at " + nodeId)
-          .__();
-      if(nmApplicationLogUrl != null) {
-        html.h1()
-            .__("Or see application log at " + nmApplicationLogUrl)
-            .__();
-      }
+          ._("Aggregation is not enabled. Try the nodemanager at " + nodeId)
+          ._();
       return;
     }
 
@@ -109,18 +103,13 @@ public class AggregatedLogsBlock extends HtmlBlock {
             .listStatus(remoteAppDir);
     } catch (FileNotFoundException fnf) {
       html.h1()
-          .__("Logs not available for " + logEntity
+          ._("Logs not available for " + logEntity
               + ". Aggregation may not be complete, "
-              + "Check back later or try the nodemanager at " + nodeId).__();
-      if(nmApplicationLogUrl != null)  {
-        html.h1()
-            .__("Or see application log at " + nmApplicationLogUrl)
-            .__();
-      }
+              + "Check back later or try the nodemanager at " + nodeId)._();
       return;
     } catch (Exception ex) {
       html.h1()
-          .__("Error getting logs at " + nodeId).__();
+          ._("Error getting logs at " + nodeId)._();
       return;
     }
 
@@ -131,12 +120,6 @@ public class AggregatedLogsBlock extends HtmlBlock {
         AggregatedLogFormat.LogReader reader = null;
         try {
           FileStatus thisNodeFile = nodeFiles.next();
-          if (thisNodeFile.getPath().getName().equals(applicationId + ".har")) {
-            Path p = new Path("har:///"
-                + thisNodeFile.getPath().toUri().getRawPath());
-            nodeFiles = HarFs.get(p.toUri(), conf).listStatusIterator(p);
-            continue;
-          }
           if (!thisNodeFile.getPath().getName()
             .contains(LogAggregationUtils.getNodeString(nodeId))
               || thisNodeFile.getPath().getName()
@@ -167,9 +150,9 @@ public class AggregatedLogsBlock extends HtmlBlock {
           if (callerUGI != null && !aclsManager.checkAccess(callerUGI,
               ApplicationAccessType.VIEW_APP, owner, applicationId)) {
             html.h1()
-                .__("User [" + remoteUser
+                ._("User [" + remoteUser
                     + "] is not authorized to view the logs for " + logEntity
-                    + " in log file [" + thisNodeFile.getPath().getName() + "]").__();
+                    + " in log file [" + thisNodeFile.getPath().getName() + "]")._();
             LOG.error("User [" + remoteUser
               + "] is not authorized to view the logs for " + logEntity);
             continue;
@@ -187,9 +170,8 @@ public class AggregatedLogsBlock extends HtmlBlock {
           LOG.error("Error getting logs for " + logEntity, ex);
           continue;
         } finally {
-          if (reader != null) {
+          if (reader != null)
             reader.close();
-          }
         }
       }
       if (!foundLog) {
@@ -201,7 +183,7 @@ public class AggregatedLogsBlock extends HtmlBlock {
         }
       }
     } catch (IOException e) {
-      html.h1().__("Error getting logs for " + logEntity).__();
+      html.h1()._("Error getting logs for " + logEntity)._();
       LOG.error("Error getting logs for " + logEntity, e);
     }
   }
@@ -219,12 +201,12 @@ public class AggregatedLogsBlock extends HtmlBlock {
           || desiredLogType.equals(logType)) {
         long logLength = logReader.getCurrentLogLength();
         if (foundLog) {
-          html.pre().__("\n\n").__();
+          html.pre()._("\n\n")._();
         }
 
-        html.p().__("Log Type: " + logType).__();
-        html.p().__("Log Upload Time: " + Times.format(logUpLoadTime)).__();
-        html.p().__("Log Length: " + Long.toString(logLength)).__();
+        html.p()._("Log Type: " + logType)._();
+        html.p()._("Log Upload Time: " + Times.format(logUpLoadTime))._();
+        html.p()._("Log Length: " + Long.toString(logLength))._();
 
         long start = logLimits.start < 0
             ? logLength + logLimits.start : logLimits.start;
@@ -238,12 +220,12 @@ public class AggregatedLogsBlock extends HtmlBlock {
 
         long toRead = end - start;
         if (toRead < logLength) {
-            html.p().__("Showing " + toRead + " bytes of " + logLength
+            html.p()._("Showing " + toRead + " bytes of " + logLength
                 + " total. Click ")
                 .a(url("logs", $(NM_NODENAME), $(CONTAINER_ID),
                     $(ENTITY_STRING), $(APP_OWNER),
                     logType, "?start=0"), "here").
-                __(" for the full log.").__();
+                    _(" for the full log.")._();
         }
 
         long totalSkipped = 0;
@@ -267,12 +249,12 @@ public class AggregatedLogsBlock extends HtmlBlock {
 
         while (toRead > 0
             && (len = logReader.read(cbuf, 0, currentToRead)) > 0) {
-          pre.__(new String(cbuf, 0, len));
+          pre._(new String(cbuf, 0, len));
           toRead = toRead - len;
           currentToRead = toRead > bufferSize ? bufferSize : (int) toRead;
         }
 
-        pre.__();
+        pre._();
         foundLog = true;
       }
 
@@ -285,16 +267,16 @@ public class AggregatedLogsBlock extends HtmlBlock {
   private ContainerId verifyAndGetContainerId(Block html) {
     String containerIdStr = $(CONTAINER_ID);
     if (containerIdStr == null || containerIdStr.isEmpty()) {
-      html.h1().__("Cannot get container logs without a ContainerId").__();
+      html.h1()._("Cannot get container logs without a ContainerId")._();
       return null;
     }
     ContainerId containerId = null;
     try {
-      containerId = ContainerId.fromString(containerIdStr);
+      containerId = ConverterUtils.toContainerId(containerIdStr);
     } catch (IllegalArgumentException e) {
       html.h1()
-          .__("Cannot get container logs for invalid containerId: "
-              + containerIdStr).__();
+          ._("Cannot get container logs for invalid containerId: "
+              + containerIdStr)._();
       return null;
     }
     return containerId;
@@ -303,15 +285,15 @@ public class AggregatedLogsBlock extends HtmlBlock {
   private NodeId verifyAndGetNodeId(Block html) {
     String nodeIdStr = $(NM_NODENAME);
     if (nodeIdStr == null || nodeIdStr.isEmpty()) {
-      html.h1().__("Cannot get container logs without a NodeId").__();
+      html.h1()._("Cannot get container logs without a NodeId")._();
       return null;
     }
     NodeId nodeId = null;
     try {
-      nodeId = NodeId.fromString(nodeIdStr);
+      nodeId = ConverterUtils.toNodeId(nodeIdStr);
     } catch (IllegalArgumentException e) {
-      html.h1().__("Cannot get container logs. Invalid nodeId: " + nodeIdStr)
-          .__();
+      html.h1()._("Cannot get container logs. Invalid nodeId: " + nodeIdStr)
+          ._();
       return null;
     }
     return nodeId;
@@ -320,7 +302,7 @@ public class AggregatedLogsBlock extends HtmlBlock {
   private String verifyAndGetAppOwner(Block html) {
     String appOwner = $(APP_OWNER);
     if (appOwner == null || appOwner.isEmpty()) {
-      html.h1().__("Cannot get container logs without an app owner").__();
+      html.h1()._("Cannot get container logs without an app owner")._();
     }
     return appOwner;
   }
@@ -341,7 +323,7 @@ public class AggregatedLogsBlock extends HtmlBlock {
         start = Long.parseLong(startStr);
       } catch (NumberFormatException e) {
         isValid = false;
-        html.h1().__("Invalid log start value: " + startStr).__();
+        html.h1()._("Invalid log start value: " + startStr)._();
       }
     }
 
@@ -351,7 +333,7 @@ public class AggregatedLogsBlock extends HtmlBlock {
         end = Long.parseLong(endStr);
       } catch (NumberFormatException e) {
         isValid = false;
-        html.h1().__("Invalid log end value: " + endStr).__();
+        html.h1()._("Invalid log end value: " + endStr)._();
       }
     }
 
@@ -363,21 +345,5 @@ public class AggregatedLogsBlock extends HtmlBlock {
     limits.start = start;
     limits.end = end;
     return limits;
-  }
-
-  private String getApplicationLogURL(ApplicationId applicationId) {
-    String appId = applicationId.toString();
-    if (appId == null || appId.isEmpty()) {
-      return null;
-    }
-    String nodeId = $(NM_NODENAME);
-    if(nodeId == null || nodeId.isEmpty()) {
-      return null;
-    }
-    StringBuilder sb = new StringBuilder();
-    String scheme = YarnConfiguration.useHttps(this.conf) ? "https://":
-        "http://";
-    sb.append(scheme).append(nodeId).append("/node/application/").append(appId);
-    return sb.toString();
   }
 }

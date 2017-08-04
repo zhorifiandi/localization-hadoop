@@ -41,7 +41,7 @@ public class SetAttr3 {
   private NfsTime mtime;
   private EnumSet<SetAttrField> updateFields;
 
-  public enum SetAttrField {
+  public static enum SetAttrField {
     MODE, UID, GID, SIZE, ATIME, MTIME
   };
 

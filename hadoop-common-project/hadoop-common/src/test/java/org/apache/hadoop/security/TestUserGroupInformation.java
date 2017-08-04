@@ -18,76 +18,40 @@ package org.apache.hadoop.security;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.retry.RetryPolicies;
-import org.apache.hadoop.io.retry.RetryPolicy;
-import org.apache.hadoop.ipc.TestRpcBase.TestTokenIdentifier;
 import org.apache.hadoop.metrics2.MetricsRecordBuilder;
 import org.apache.hadoop.security.SaslRpcServer.AuthMethod;
 import org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod;
 import org.apache.hadoop.security.authentication.util.KerberosName;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.TokenIdentifier;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Shell;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.util.Time;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.slf4j.event.Level;
+import org.junit.*;
 
 import javax.security.auth.Subject;
 import javax.security.auth.kerberos.KerberosPrincipal;
-import javax.security.auth.kerberos.KeyTab;
 import javax.security.auth.login.AppConfigurationEntry;
 import javax.security.auth.login.LoginContext;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.lang.reflect.Method;
 import java.security.PrivilegedExceptionAction;
 import java.util.Collection;
 import java.util.ConcurrentModificationException;
-import java.util.Date;
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeys.HADOOP_TREAT_SUBJECT_EXTERNAL_KEY;
 import static org.apache.hadoop.fs.CommonConfigurationKeys.HADOOP_USER_GROUP_METRICS_PERCENTILES_INTERVALS;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_KERBEROS_MIN_SECONDS_BEFORE_RELOGIN;
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTH_TO_LOCAL;
-import static org.apache.hadoop.test.MetricsAsserts.assertCounter;
-import static org.apache.hadoop.test.MetricsAsserts.assertCounterGt;
-import static org.apache.hadoop.test.MetricsAsserts.assertGaugeGt;
-import static org.apache.hadoop.test.MetricsAsserts.assertQuantileGauges;
-import static org.apache.hadoop.test.MetricsAsserts.getDoubleGauge;
-import static org.apache.hadoop.test.MetricsAsserts.getMetrics;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNotSame;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import static org.apache.hadoop.ipc.TestSaslRPC.*;
+import static org.apache.hadoop.test.MetricsAsserts.*;
+import static org.junit.Assert.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 public class TestUserGroupInformation {
-
-  static final Logger LOG = LoggerFactory.getLogger(
-      TestUserGroupInformation.class);
   final private static String USER_NAME = "user1@HADOOP.APACHE.ORG";
   final private static String GROUP1_NAME = "group1";
   final private static String GROUP2_NAME = "group2";
@@ -97,7 +61,7 @@ public class TestUserGroupInformation {
   // Rollover interval of percentile metrics (in seconds)
   private static final int PERCENTILES_INTERVAL = 1;
   private static Configuration conf;
-  
+ 
   /**
    * UGI should not use the default security conf, else it will collide
    * with other classes that may change the default conf.  Using this dummy
@@ -140,7 +104,7 @@ public class TestUserGroupInformation {
     UserGroupInformation.setLoginUser(null);
   }
 
-  @Test(timeout = 30000)
+  @Test (timeout = 30000)
   public void testSimpleLogin() throws IOException {
     tryLoginAuthenticationMethod(AuthenticationMethod.SIMPLE, true);
   }
@@ -253,8 +217,7 @@ public class TestUserGroupInformation {
     }
     // get the groups
     pp = Runtime.getRuntime().exec(Shell.WINDOWS ?
-      Shell.getWinUtilsPath() + " groups -F"
-      : "id -Gn " + userName);
+      Shell.WINUTILS + " groups -F" : "id -Gn");
     br = new BufferedReader(new InputStreamReader(pp.getInputStream()));
     String line = br.readLine();
 
@@ -316,15 +279,10 @@ public class TestUserGroupInformation {
     UserGroupInformation.setConfiguration(conf);
     testConstructorSuccess("user1", "user1");
     testConstructorSuccess("user4@OTHER.REALM", "other-user4");
-
-    // pass through test, no transformation
-    testConstructorSuccess("user2@DEFAULT.REALM", "user2@DEFAULT.REALM");
-    testConstructorSuccess("user3/cron@DEFAULT.REALM", "user3/cron@DEFAULT.REALM");
-    testConstructorSuccess("user5/cron@OTHER.REALM", "user5/cron@OTHER.REALM");
-
-    // failures
-    testConstructorFailures("user6@example.com@OTHER.REALM");
-    testConstructorFailures("user7@example.com@DEFAULT.REALM");
+    // failure test
+    testConstructorFailures("user2@DEFAULT.REALM");
+    testConstructorFailures("user3/cron@DEFAULT.REALM");
+    testConstructorFailures("user5/cron@OTHER.REALM");
     testConstructorFailures(null);
     testConstructorFailures("");
   }
@@ -338,13 +296,10 @@ public class TestUserGroupInformation {
 
     testConstructorSuccess("user1", "user1");
     testConstructorSuccess("user2@DEFAULT.REALM", "user2");
-    testConstructorSuccess("user3/cron@DEFAULT.REALM", "user3");
-
-    // no rules applied, local name remains the same
-    testConstructorSuccess("user4@OTHER.REALM", "user4@OTHER.REALM");
-    testConstructorSuccess("user5/cron@OTHER.REALM", "user5/cron@OTHER.REALM");
-
+    testConstructorSuccess("user3/cron@DEFAULT.REALM", "user3");    
     // failure test
+    testConstructorFailures("user4@OTHER.REALM");
+    testConstructorFailures("user5/cron@OTHER.REALM");
     testConstructorFailures(null);
     testConstructorFailures("");
   }
@@ -385,9 +340,8 @@ public class TestUserGroupInformation {
     } catch (IllegalArgumentException e) {
       String expect = (userName == null || userName.isEmpty())
           ? "Null user" : "Illegal principal name "+userName;
-      String expect2 = "Malformed Kerberos name: "+userName;
-      assertTrue("Did not find "+ expect + " or " + expect2 + " in " + e,
-          e.toString().contains(expect) || e.toString().contains(expect2));
+      assertTrue("Did not find "+ expect + " in " + e,
+          e.toString().contains(expect));
     }
   }
 
@@ -476,10 +430,8 @@ public class TestUserGroupInformation {
     UserGroupInformation uugi = 
       UserGroupInformation.createUserForTesting(USER_NAME, GROUP_NAMES);
     assertEquals(USER_NAME, uugi.getUserName());
-    String[] expected = new String[]{GROUP1_NAME, GROUP2_NAME, GROUP3_NAME};
-    assertArrayEquals(expected, uugi.getGroupNames());
-    assertArrayEquals(expected, uugi.getGroups().toArray(new String[0]));
-    assertEquals(GROUP1_NAME, uugi.getPrimaryGroupName());
+    assertArrayEquals(new String[]{GROUP1_NAME, GROUP2_NAME, GROUP3_NAME},
+                      uugi.getGroupNames());
   }
 
   @SuppressWarnings("unchecked") // from Mockito mocks
@@ -843,42 +795,7 @@ public class TestUserGroupInformation {
     assertEquals("guest@DEFAULT.REALM", ugi.getUserName());
   }
 
-  /** Test hasSufficientTimeElapsed method */
-  @Test (timeout = 30000)
-  public void testHasSufficientTimeElapsed() throws Exception {
-    // Make hasSufficientTimeElapsed public
-    Method method = UserGroupInformation.class
-            .getDeclaredMethod("hasSufficientTimeElapsed", long.class);
-    method.setAccessible(true);
-
-    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
-    User user = ugi.getSubject().getPrincipals(User.class).iterator().next();
-    long now = System.currentTimeMillis();
-
-    // Using default relogin time (1 minute)
-    user.setLastLogin(now - 2 * 60 * 1000);  // 2 minutes before "now"
-    assertTrue((Boolean)method.invoke(ugi, now));
-    user.setLastLogin(now - 30 * 1000);      // 30 seconds before "now"
-    assertFalse((Boolean)method.invoke(ugi, now));
-
-    // Using relogin time of 10 minutes
-    Configuration conf2 = new Configuration(conf);
-    conf2.setLong(
-       CommonConfigurationKeysPublic.HADOOP_KERBEROS_MIN_SECONDS_BEFORE_RELOGIN,
-       10 * 60);
-    UserGroupInformation.setConfiguration(conf2);
-    user.setLastLogin(now - 15 * 60 * 1000); // 15 minutes before "now"
-    assertTrue((Boolean)method.invoke(ugi, now));
-    user.setLastLogin(now - 6 * 60 * 1000);  // 6 minutes before "now"
-    assertFalse((Boolean)method.invoke(ugi, now));
-    // Restore original conf to UGI
-    UserGroupInformation.setConfiguration(conf);
-
-    // Restore hasSufficientTimElapsed back to private
-    method.setAccessible(false);
-  }
-  
-  @Test(timeout=10000)
+  @Test(timeout=1000)
   public void testSetLoginUser() throws IOException {
     UserGroupInformation ugi = UserGroupInformation.createRemoteUser("test-user");
     UserGroupInformation.setLoginUser(ugi);
@@ -894,9 +811,7 @@ public class TestUserGroupInformation {
    */
   @Test
   public void testPrivateTokenExclusion() throws Exception  {
-    UserGroupInformation ugi =
-        UserGroupInformation.createUserForTesting(
-            "privateUser", new String[] { "PRIVATEUSERS" });
+    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
     TestTokenIdentifier tokenId = new TestTokenIdentifier();
     Token<TestTokenIdentifier> token = new Token<TestTokenIdentifier>(
             tokenId.getBytes(), "password".getBytes(),
@@ -904,10 +819,8 @@ public class TestUserGroupInformation {
     ugi.addToken(new Text("regular-token"), token);
 
     // Now add cloned private token
-    Text service = new Text("private-token");
-    ugi.addToken(service, token.privateClone(service));
-    Text service1 = new Text("private-token1");
-    ugi.addToken(service1, token.privateClone(service1));
+    ugi.addToken(new Text("private-token"), new Token.PrivateToken<TestTokenIdentifier>(token));
+    ugi.addToken(new Text("private-token1"), new Token.PrivateToken<TestTokenIdentifier>(token));
 
     // Ensure only non-private tokens are returned
     Collection<Token<? extends TokenIdentifier>> tokens = ugi.getCredentials().getAllTokens();
@@ -977,161 +890,5 @@ public class TestUserGroupInformation {
         }
       }
     }
-  }
-
-  @Test
-  public void testExternalTokenFiles() throws Exception {
-    StringBuilder tokenFullPathnames = new StringBuilder();
-    String tokenFilenames = "token1,token2";
-    String tokenFiles[] = StringUtils.getTrimmedStrings(tokenFilenames);
-    final File testDir = new File("target",
-        TestUserGroupInformation.class.getName() + "-tmpDir").getAbsoluteFile();
-    String testDirPath = testDir.getAbsolutePath();
-
-    // create path for token files
-    for (String tokenFile: tokenFiles) {
-      if (tokenFullPathnames.length() > 0) {
-        tokenFullPathnames.append(",");
-      }
-      tokenFullPathnames.append(testDirPath).append("/").append(tokenFile);
-    }
-
-    // create new token and store it
-    TestTokenIdentifier tokenId = new TestTokenIdentifier();
-    Credentials cred1 = new Credentials();
-    Token<TestTokenIdentifier> token1 = new Token<TestTokenIdentifier>(
-            tokenId.getBytes(), "password".getBytes(),
-            tokenId.getKind(), new Text("token-service1"));
-    cred1.addToken(token1.getService(), token1);
-    cred1.writeTokenStorageFile(new Path(testDirPath, tokenFiles[0]), conf);
-
-    Credentials cred2 = new Credentials();
-    Token<TestTokenIdentifier> token2 = new Token<TestTokenIdentifier>(
-            tokenId.getBytes(), "password".getBytes(),
-            tokenId.getKind(), new Text("token-service2"));
-    cred2.addToken(token2.getService(), token2);
-    cred2.writeTokenStorageFile(new Path(testDirPath, tokenFiles[1]), conf);
-
-    // set property for token external token files
-    System.setProperty("hadoop.token.files", tokenFullPathnames.toString());
-    UserGroupInformation.setLoginUser(null);
-    UserGroupInformation tokenUgi = UserGroupInformation.getLoginUser();
-    Collection<Token<?>> credsugiTokens = tokenUgi.getTokens();
-    assertTrue(credsugiTokens.contains(token1));
-    assertTrue(credsugiTokens.contains(token2));
-  }
-
-  private void testCheckTGTAfterLoginFromSubjectHelper() throws Exception {
-    // security on, default is remove default realm
-    SecurityUtil.setAuthenticationMethod(AuthenticationMethod.KERBEROS, conf);
-    UserGroupInformation.setConfiguration(conf);
-
-    // Login from a pre-set subject with a keytab
-    final Subject subject = new Subject();
-    KeyTab keytab = KeyTab.getInstance();
-    subject.getPrivateCredentials().add(keytab);
-    UserGroupInformation ugi = UserGroupInformation.getCurrentUser();
-
-    ugi.doAs(new PrivilegedExceptionAction<Void>() {
-      @Override
-      public Void run() throws IOException {
-        UserGroupInformation.loginUserFromSubject(subject);
-        // this should not throw.
-        UserGroupInformation.getLoginUser().checkTGTAndReloginFromKeytab();
-        return null;
-      }
-    });
-  }
-
-  @Test(expected = KerberosAuthException.class)
-  public void testCheckTGTAfterLoginFromSubject() throws Exception {
-    testCheckTGTAfterLoginFromSubjectHelper();
-  }
-
-  @Test
-  public void testCheckTGTAfterLoginFromSubjectFix() throws Exception {
-    conf.setBoolean(HADOOP_TREAT_SUBJECT_EXTERNAL_KEY, true);
-    testCheckTGTAfterLoginFromSubjectHelper();
-  }
-
-  @Test
-  public void testGetNextRetryTime() throws Exception {
-    GenericTestUtils.setLogLevel(UserGroupInformation.LOG, Level.DEBUG);
-    final long reloginInterval = 1;
-    final long reloginIntervalMs = reloginInterval * 1000;
-    // Relogin happens every 1 second.
-    conf.setLong(HADOOP_KERBEROS_MIN_SECONDS_BEFORE_RELOGIN, reloginInterval);
-    SecurityUtil.setAuthenticationMethod(AuthenticationMethod.KERBEROS, conf);
-    UserGroupInformation.setConfiguration(conf);
-
-    // Suppose tgt start time is now, end time is 20 seconds from now.
-    final long now = Time.now();
-    final Date endDate = new Date(now + 20000);
-
-    // Explicitly test the exponential back-off logic.
-    // Suppose some time (10 seconds) passed.
-    // Verify exponential backoff and max=(login interval before endTime).
-    final long currentTime = now + 10000;
-    final long endTime = endDate.getTime();
-
-    assertEquals(0, UserGroupInformation.metrics.getRenewalFailures().value());
-    RetryPolicy rp = RetryPolicies.exponentialBackoffRetry(Long.SIZE - 2,
-        1000, TimeUnit.MILLISECONDS);
-    long lastRetry =
-        UserGroupInformation.getNextTgtRenewalTime(endTime, currentTime, rp);
-    assertWithinBounds(
-        UserGroupInformation.metrics.getRenewalFailures().value(),
-        lastRetry, reloginIntervalMs, currentTime);
-
-    UserGroupInformation.metrics.getRenewalFailures().incr();
-    lastRetry =
-        UserGroupInformation.getNextTgtRenewalTime(endTime, currentTime, rp);
-    assertWithinBounds(
-        UserGroupInformation.metrics.getRenewalFailures().value(),
-        lastRetry, reloginIntervalMs, currentTime);
-
-    UserGroupInformation.metrics.getRenewalFailures().incr();
-    lastRetry =
-        UserGroupInformation.getNextTgtRenewalTime(endTime, currentTime, rp);
-    assertWithinBounds(
-        UserGroupInformation.metrics.getRenewalFailures().value(),
-        lastRetry, reloginIntervalMs, currentTime);
-
-    UserGroupInformation.metrics.getRenewalFailures().incr();
-    lastRetry =
-        UserGroupInformation.getNextTgtRenewalTime(endTime, currentTime, rp);
-    assertWithinBounds(
-        UserGroupInformation.metrics.getRenewalFailures().value(),
-        lastRetry, reloginIntervalMs, currentTime);
-
-    // last try should be right before expiry.
-    UserGroupInformation.metrics.getRenewalFailures().incr();
-    lastRetry =
-        UserGroupInformation.getNextTgtRenewalTime(endTime, currentTime, rp);
-    String str =
-        "5th retry, now:" + currentTime + ", retry:" + lastRetry;
-    LOG.info(str);
-    assertEquals(str, endTime - reloginIntervalMs, lastRetry);
-
-    // make sure no more retries after (tgt endTime - login interval).
-    UserGroupInformation.metrics.getRenewalFailures().incr();
-    lastRetry =
-        UserGroupInformation.getNextTgtRenewalTime(endTime, currentTime, rp);
-    str = "overflow retry, now:" + currentTime + ", retry:" + lastRetry;
-    LOG.info(str);
-    assertEquals(str, endTime - reloginIntervalMs, lastRetry);
-  }
-
-  private void assertWithinBounds(final int numFailures, final long lastRetry,
-      final long reloginIntervalMs, long now) {
-    // shift is 2 to the power of (numFailure).
-    int shift = numFailures + 1;
-    final long lower = now + reloginIntervalMs * (long)((1 << shift) * 0.5);
-    final long upper = now + reloginIntervalMs * (long)((1 << shift) * 1.5);
-    final String str = new String("Retry#" + (numFailures + 1) + ", now:" + now
-        + ", lower bound:" + lower + ", upper bound:" + upper
-        + ", retry:" + lastRetry);
-    LOG.info(str);
-    assertTrue(str, lower <= lastRetry && lastRetry < upper);
   }
 }

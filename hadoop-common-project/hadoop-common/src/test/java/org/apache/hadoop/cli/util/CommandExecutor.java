@@ -75,7 +75,7 @@ public abstract class CommandExecutor {
     System.setErr(new PrintStream(bao));
     
     try {
-      exitCode = execute(cmd);
+      execute(cmd);
     } catch (Exception e) {
       e.printStackTrace();
       lastException = e;
@@ -87,7 +87,7 @@ public abstract class CommandExecutor {
     return new Result(bao.toString(), exitCode, lastException, cmd);
   }
   
-  protected abstract int execute(String cmd) throws Exception;
+  protected abstract void execute(final String cmd) throws Exception;
   
   public static class Result {
     final String commandOutput;

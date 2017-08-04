@@ -28,13 +28,14 @@ import org.apache.hadoop.mapreduce.v2.app.webapp.dao.ReduceTaskAttemptInfo;
 import org.apache.hadoop.mapreduce.v2.app.webapp.dao.TaskAttemptInfo;
 import org.apache.hadoop.mapreduce.v2.app.webapp.dao.TaskInfo;
 import org.apache.hadoop.mapreduce.v2.util.MRApps;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TFOOT;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.THEAD;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TR;
-import org.apache.hadoop.yarn.webapp.hamlet2.HamletSpec.InputType;
+import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TFOOT;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.THEAD;
+import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TR;
+import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec.InputType;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -73,10 +74,10 @@ public class HsTasksBlock extends HtmlBlock {
     //Create the spanning row
     int attemptColSpan = type == TaskType.REDUCE ? 8 : 3;
     thead.tr().
-      th().$colspan(5).$class("ui-state-default").__("Task").__().
+      th().$colspan(5).$class("ui-state-default")._("Task")._().
       th().$colspan(attemptColSpan).$class("ui-state-default").
-        __("Successful Attempt").__().
-        __();
+        _("Successful Attempt")._().
+    _();
 
     TR<THEAD<TABLE<Hamlet>>> theadRow = thead.
           tr().
@@ -101,7 +102,7 @@ public class HsTasksBlock extends HtmlBlock {
     }
     theadRow.th("Elapsed Time"); //Attempt
 
-    TBODY<TABLE<Hamlet>> tbody = theadRow.__().__().tbody();
+    TBODY<TABLE<Hamlet>> tbody = theadRow._()._().tbody();
 
     // Write all the data into a JavaScript array of arrays for JQuery
     // DataTables to display
@@ -172,41 +173,41 @@ public class HsTasksBlock extends HtmlBlock {
     }
     tasksTableData.append("]");
     html.script().$type("text/javascript").
-        __("var tasksTableData=" + tasksTableData).__();
+    _("var tasksTableData=" + tasksTableData)._();
     
-    TR<TFOOT<TABLE<Hamlet>>> footRow = tbody.__().tfoot().tr();
+    TR<TFOOT<TABLE<Hamlet>>> footRow = tbody._().tfoot().tr();
     footRow.th().input("search_init").$type(InputType.text).$name("task")
-        .$value("ID").__().__().th().input("search_init").$type(InputType.text)
-        .$name("state").$value("State").__().__().th().input("search_init")
-        .$type(InputType.text).$name("start_time").$value("Start Time").__().__()
+        .$value("ID")._()._().th().input("search_init").$type(InputType.text)
+        .$name("state").$value("State")._()._().th().input("search_init")
+        .$type(InputType.text).$name("start_time").$value("Start Time")._()._()
         .th().input("search_init").$type(InputType.text).$name("finish_time")
-        .$value("Finish Time").__().__().th().input("search_init")
-        .$type(InputType.text).$name("elapsed_time").$value("Elapsed Time").__()
-        .__().th().input("search_init").$type(InputType.text)
-        .$name("attempt_start_time").$value("Start Time").__().__();
+        .$value("Finish Time")._()._().th().input("search_init")
+        .$type(InputType.text).$name("elapsed_time").$value("Elapsed Time")._()
+        ._().th().input("search_init").$type(InputType.text)
+        .$name("attempt_start_time").$value("Start Time")._()._();
 
     if(type == TaskType.REDUCE) {
       footRow.th().input("search_init").$type(InputType.text)
-          .$name("shuffle_time").$value("Shuffle Time").__().__();
+          .$name("shuffle_time").$value("Shuffle Time")._()._();
       footRow.th().input("search_init").$type(InputType.text)
-          .$name("merge_time").$value("Merge Time").__().__();
+          .$name("merge_time").$value("Merge Time")._()._();
     }
 
     footRow.th().input("search_init").$type(InputType.text)
-        .$name("attempt_finish").$value("Finish Time").__().__();
+        .$name("attempt_finish").$value("Finish Time")._()._();
 
     if(type == TaskType.REDUCE) {
       footRow.th().input("search_init").$type(InputType.text)
-          .$name("elapsed_shuffle_time").$value("Elapsed Shuffle Time").__().__();
+          .$name("elapsed_shuffle_time").$value("Elapsed Shuffle Time")._()._();
       footRow.th().input("search_init").$type(InputType.text)
-          .$name("elapsed_merge_time").$value("Elapsed Merge Time").__().__();
+          .$name("elapsed_merge_time").$value("Elapsed Merge Time")._()._();
       footRow.th().input("search_init").$type(InputType.text)
-          .$name("elapsed_reduce_time").$value("Elapsed Reduce Time").__().__();
+          .$name("elapsed_reduce_time").$value("Elapsed Reduce Time")._()._();
     }
 
     footRow.th().input("search_init").$type(InputType.text)
-        .$name("attempt_elapsed").$value("Elapsed Time").__().__();
+        .$name("attempt_elapsed").$value("Elapsed Time")._()._();
 
-    footRow.__().__().__();
+    footRow._()._()._();
   }
 }

@@ -87,10 +87,10 @@ public class TestDFSHAAdmin {
 
   private HdfsConfiguration getHAConf() {
     HdfsConfiguration conf = new HdfsConfiguration();
-    conf.set(DFSConfigKeys.DFS_NAMESERVICES, NSID);
+    conf.set(DFSConfigKeys.DFS_NAMESERVICES, NSID);    
     conf.set(DFSConfigKeys.DFS_NAMESERVICE_ID, NSID);
     conf.set(DFSUtil.addKeySuffixes(
-        DFSConfigKeys.DFS_HA_NAMENODES_KEY_PREFIX, NSID), "nn1,nn2");
+        DFSConfigKeys.DFS_HA_NAMENODES_KEY_PREFIX, NSID), "nn1,nn2");    
     conf.set(DFSConfigKeys.DFS_HA_NAMENODE_ID_KEY, "nn1");
     conf.set(DFSUtil.addKeySuffixes(
             DFSConfigKeys.DFS_NAMENODE_RPC_ADDRESS_KEY, NSID, "nn1"),
@@ -173,18 +173,7 @@ public class TestDFSHAAdmin {
     assertEquals(0, runTool("-help", "transitionToActive"));
     assertOutputContains("Transitions the service into Active");
   }
-
-  @Test
-  public void testGetAllServiceState() throws Exception {
-    Mockito.doReturn(STANDBY_READY_RESULT).when(mockProtocol)
-        .getServiceStatus();
-    assertEquals(0, runTool("-getAllServiceState"));
-    assertOutputContains(String.format("%-50s %-10s", (HOST_A + ":" + 12345),
-        STANDBY_READY_RESULT.getState()));
-    assertOutputContains(String.format("%-50s %-10s", (HOST_B + ":" + 12345),
-        STANDBY_READY_RESULT.getState()));
-  }
-
+  
   @Test
   public void testTransitionToActive() throws Exception {
     Mockito.doReturn(STANDBY_READY_RESULT).when(mockProtocol).getServiceStatus();

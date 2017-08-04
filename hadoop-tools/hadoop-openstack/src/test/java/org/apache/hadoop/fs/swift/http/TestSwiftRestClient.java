@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.fs.swift.http;
 
+import org.apache.commons.httpclient.Header;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
@@ -27,7 +28,6 @@ import org.apache.hadoop.fs.swift.util.Duration;
 import org.apache.hadoop.fs.swift.util.DurationStats;
 import org.apache.hadoop.fs.swift.util.SwiftObjectPath;
 import org.apache.hadoop.fs.swift.util.SwiftTestUtils;
-import org.apache.http.Header;
 import org.junit.Assert;
 import org.junit.Assume;
 import org.junit.Before;

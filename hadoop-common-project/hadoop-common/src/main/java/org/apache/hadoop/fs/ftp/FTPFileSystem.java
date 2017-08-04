@@ -23,8 +23,9 @@ import java.io.InputStream;
 import java.net.ConnectException;
 import java.net.URI;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPFile;
@@ -43,8 +44,6 @@ import org.apache.hadoop.fs.permission.FsAction;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.util.Progressable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * <p>
@@ -56,8 +55,8 @@ import org.slf4j.LoggerFactory;
 @InterfaceStability.Stable
 public class FTPFileSystem extends FileSystem {
 
-  public static final Logger LOG = LoggerFactory
-      .getLogger(FTPFileSystem.class);
+  public static final Log LOG = LogFactory
+      .getLog(FTPFileSystem.class);
 
   public static final int DEFAULT_BUFFER_SIZE = 1024 * 1024;
 
@@ -66,9 +65,6 @@ public class FTPFileSystem extends FileSystem {
   public static final String FS_FTP_HOST = "fs.ftp.host";
   public static final String FS_FTP_HOST_PORT = "fs.ftp.host.port";
   public static final String FS_FTP_PASSWORD_PREFIX = "fs.ftp.password.";
-  public static final String FS_FTP_DATA_CONNECTION_MODE =
-      "fs.ftp.data.connection.mode";
-  public static final String FS_FTP_TRANSFER_MODE = "fs.ftp.transfer.mode";
   public static final String E_SAME_DIRECTORY_ONLY =
       "only same directory renames are supported";
 
@@ -109,13 +105,13 @@ public class FTPFileSystem extends FileSystem {
     // get port information from uri, (overrides info in conf)
     int port = uri.getPort();
     port = (port == -1) ? FTP.DEFAULT_PORT : port;
-    conf.setInt(FS_FTP_HOST_PORT, port);
+    conf.setInt("fs.ftp.host.port", port);
 
     // get user/password information from URI (overrides info in conf)
     String userAndPassword = uri.getUserInfo();
     if (userAndPassword == null) {
-      userAndPassword = (conf.get(FS_FTP_USER_PREFIX + host, null) + ":" + conf
-          .get(FS_FTP_PASSWORD_PREFIX + host, null));
+      userAndPassword = (conf.get("fs.ftp.user." + host, null) + ":" + conf
+          .get("fs.ftp.password." + host, null));
     }
     String[] userPasswdInfo = userAndPassword.split(":");
     Preconditions.checkState(userPasswdInfo.length > 1,
@@ -147,79 +143,15 @@ public class FTPFileSystem extends FileSystem {
                    NetUtils.UNKNOWN_HOST, 0,
                    new ConnectException("Server response " + reply));
     } else if (client.login(user, password)) {
-      client.setFileTransferMode(getTransferMode(conf));
+      client.setFileTransferMode(FTP.BLOCK_TRANSFER_MODE);
       client.setFileType(FTP.BINARY_FILE_TYPE);
       client.setBufferSize(DEFAULT_BUFFER_SIZE);
-      setDataConnectionMode(client, conf);
     } else {
       throw new IOException("Login failed on server - " + host + ", port - "
           + port + " as user '" + user + "'");
     }
 
     return client;
-  }
-
-  /**
-   * Set FTP's transfer mode based on configuration. Valid values are
-   * STREAM_TRANSFER_MODE, BLOCK_TRANSFER_MODE and COMPRESSED_TRANSFER_MODE.
-   * <p/>
-   * Defaults to BLOCK_TRANSFER_MODE.
-   *
-   * @param conf
-   * @return
-   */
-  @VisibleForTesting
-  int getTransferMode(Configuration conf) {
-    final String mode = conf.get(FS_FTP_TRANSFER_MODE);
-    // FTP default is STREAM_TRANSFER_MODE, but Hadoop FTPFS's default is
-    // FTP.BLOCK_TRANSFER_MODE historically.
-    int ret = FTP.BLOCK_TRANSFER_MODE;
-    if (mode == null) {
-      return ret;
-    }
-    final String upper = mode.toUpperCase();
-    if (upper.equals("STREAM_TRANSFER_MODE")) {
-      ret = FTP.STREAM_TRANSFER_MODE;
-    } else if (upper.equals("COMPRESSED_TRANSFER_MODE")) {
-      ret = FTP.COMPRESSED_TRANSFER_MODE;
-    } else {
-      if (!upper.equals("BLOCK_TRANSFER_MODE")) {
-        LOG.warn("Cannot parse the value for " + FS_FTP_TRANSFER_MODE + ": "
-            + mode + ". Using default.");
-      }
-    }
-    return ret;
-  }
-
-  /**
-   * Set the FTPClient's data connection mode based on configuration. Valid
-   * values are ACTIVE_LOCAL_DATA_CONNECTION_MODE,
-   * PASSIVE_LOCAL_DATA_CONNECTION_MODE and PASSIVE_REMOTE_DATA_CONNECTION_MODE.
-   * <p/>
-   * Defaults to ACTIVE_LOCAL_DATA_CONNECTION_MODE.
-   *
-   * @param client
-   * @param conf
-   * @throws IOException
-   */
-  @VisibleForTesting
-  void setDataConnectionMode(FTPClient client, Configuration conf)
-      throws IOException {
-    final String mode = conf.get(FS_FTP_DATA_CONNECTION_MODE);
-    if (mode == null) {
-      return;
-    }
-    final String upper = mode.toUpperCase();
-    if (upper.equals("PASSIVE_LOCAL_DATA_CONNECTION_MODE")) {
-      client.enterLocalPassiveMode();
-    } else if (upper.equals("PASSIVE_REMOTE_DATA_CONNECTION_MODE")) {
-      client.enterRemotePassiveMode();
-    } else {
-      if (!upper.equals("ACTIVE_LOCAL_DATA_CONNECTION_MODE")) {
-        LOG.warn("Cannot parse the value for " + FS_FTP_DATA_CONNECTION_MODE
-            + ": " + mode + ". Using default.");
-      }
-    }
   }
 
   /**
@@ -356,8 +288,7 @@ public class FTPFileSystem extends FileSystem {
   @Override
   public FSDataOutputStream append(Path f, int bufferSize,
       Progressable progress) throws IOException {
-    throw new UnsupportedOperationException("Append is not supported "
-        + "by FTPFileSystem");
+    throw new IOException("Not supported");
   }
   
   /**
@@ -415,17 +346,16 @@ public class FTPFileSystem extends FileSystem {
     return client.removeDirectory(pathName);
   }
 
-  @VisibleForTesting
-  FsAction getFsAction(int accessGroup, FTPFile ftpFile) {
+  private FsAction getFsAction(int accessGroup, FTPFile ftpFile) {
     FsAction action = FsAction.NONE;
     if (ftpFile.hasPermission(accessGroup, FTPFile.READ_PERMISSION)) {
-      action = action.or(FsAction.READ);
+      action.or(FsAction.READ);
     }
     if (ftpFile.hasPermission(accessGroup, FTPFile.WRITE_PERMISSION)) {
-      action = action.or(FsAction.WRITE);
+      action.or(FsAction.WRITE);
     }
     if (ftpFile.hasPermission(accessGroup, FTPFile.EXECUTE_PERMISSION)) {
-      action = action.or(FsAction.EXECUTE);
+      action.or(FsAction.EXECUTE);
     }
     return action;
   }
@@ -645,7 +575,6 @@ public class FTPFileSystem extends FileSystem {
    * @return
    * @throws IOException
    */
-  @SuppressWarnings("deprecation")
   private boolean rename(FTPClient client, Path src, Path dst)
       throws IOException {
     Path workDir = new Path(client.printWorkingDirectory());

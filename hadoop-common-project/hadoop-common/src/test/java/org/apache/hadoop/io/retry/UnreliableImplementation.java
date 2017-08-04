@@ -26,8 +26,6 @@ class UnreliableImplementation implements UnreliableInterface {
 
   private int failsOnceInvocationCount,
     failsOnceWithValueInvocationCount,
-    failsOnceIOExceptionInvocationCount,
-    failsOnceRemoteExceptionInvocationCount,
     failsTenTimesInvocationCount,
     succeedsOnceThenFailsCount,
     succeedsOnceThenFailsIdempotentCount,
@@ -36,7 +34,7 @@ class UnreliableImplementation implements UnreliableInterface {
   private String identifier;
   private TypeOfExceptionToFailWith exceptionToFailWith;
   
-  public enum TypeOfExceptionToFailWith {
+  public static enum TypeOfExceptionToFailWith {
     UNRELIABLE_EXCEPTION,
     STANDBY_EXCEPTION,
     IO_EXCEPTION,
@@ -89,21 +87,6 @@ class UnreliableImplementation implements UnreliableInterface {
       throw new UnreliableException();
     }
     return true;
-  }
-
-  @Override
-  public void failsOnceWithIOException() throws IOException {
-    if (failsOnceIOExceptionInvocationCount++ == 0) {
-      throw new IOException("test exception for failsOnceWithIOException");
-    }
-  }
-
-  @Override
-  public void failsOnceWithRemoteException() throws RemoteException {
-    if (failsOnceRemoteExceptionInvocationCount++ == 0) {
-      throw new RemoteException(IOException.class.getName(),
-          "test exception for failsOnceWithRemoteException");
-    }
   }
 
   @Override

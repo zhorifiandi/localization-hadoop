@@ -27,11 +27,11 @@ import java.io.IOException;
  * the fs volume where this replica is located.
  */
 public class ReplicaHandler implements Closeable {
-  private final ReplicaInPipeline replica;
+  private final ReplicaInPipelineInterface replica;
   private final FsVolumeReference volumeReference;
 
   public ReplicaHandler(
-      ReplicaInPipeline replica, FsVolumeReference reference) {
+      ReplicaInPipelineInterface replica, FsVolumeReference reference) {
     this.replica = replica;
     this.volumeReference = reference;
   }
@@ -43,7 +43,7 @@ public class ReplicaHandler implements Closeable {
     }
   }
 
-  public ReplicaInPipeline getReplica() {
+  public ReplicaInPipelineInterface getReplica() {
     return replica;
   }
 }

@@ -61,7 +61,6 @@ import org.apache.hadoop.mapreduce.v2.util.MRBuilderUtils;
 import org.apache.hadoop.mapreduce.v2.util.MRWebAppUtil;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.AccessControlList;
-import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.util.Records;
 
@@ -139,7 +138,6 @@ public class CompletedJob implements org.apache.hadoop.mapreduce.v2.app.job.Job 
     report.setFinishTime(jobInfo.getFinishTime());
     report.setJobName(jobInfo.getJobname());
     report.setUser(jobInfo.getUsername());
-    report.setDiagnostics(jobInfo.getErrorInfo());
 
     if ( getTotalMaps() == 0 ) {
       report.setMapProgress(1.0f);
@@ -156,15 +154,14 @@ public class CompletedJob implements org.apache.hadoop.mapreduce.v2.app.job.Job 
     String historyUrl = "N/A";
     try {
       historyUrl =
-          MRWebAppUtil.getApplicationWebURLOnJHSWithScheme(conf,
+          MRWebAppUtil.getApplicationWebURLOnJHSWithoutScheme(conf,
               jobId.getAppId());
     } catch (UnknownHostException e) {
-        LOG.error("Problem determining local host: " + e.getMessage());
+      //Ignore.
     }
     report.setTrackingUrl(historyUrl);
     report.setAMInfos(getAMInfos());
     report.setIsUber(isUber());
-    report.setHistoryFile(info.getHistoryFile().toString());
   }
 
   @Override
@@ -333,12 +330,6 @@ public class CompletedJob implements org.apache.hadoop.mapreduce.v2.app.job.Job 
     }
   }
 
-  protected JobHistoryParser createJobHistoryParser(Path historyFileAbsolute)
-      throws IOException {
-    return new JobHistoryParser(historyFileAbsolute.getFileSystem(conf),
-                historyFileAbsolute);
-  }
-
   //History data is leisurely loaded when task level data is requested
   protected synchronized void loadFullHistoryData(boolean loadTasks,
       Path historyFileAbsolute) throws IOException {
@@ -350,7 +341,9 @@ public class CompletedJob implements org.apache.hadoop.mapreduce.v2.app.job.Job 
     if (historyFileAbsolute != null) {
       JobHistoryParser parser = null;
       try {
-        parser = createJobHistoryParser(historyFileAbsolute);
+        parser =
+            new JobHistoryParser(historyFileAbsolute.getFileSystem(conf),
+                historyFileAbsolute);
         this.jobInfo = parser.parse();
       } catch (IOException e) {
         throw new YarnRuntimeException("Could not load history file "
@@ -474,11 +467,5 @@ public class CompletedJob implements org.apache.hadoop.mapreduce.v2.app.job.Job 
   @Override
   public void setQueueName(String queueName) {
     throw new UnsupportedOperationException("Can't set job's queue name in history");
-  }
-
-  @Override
-  public void setJobPriority(Priority priority) {
-    throw new UnsupportedOperationException(
-        "Can't set job's priority in history");
   }
 }

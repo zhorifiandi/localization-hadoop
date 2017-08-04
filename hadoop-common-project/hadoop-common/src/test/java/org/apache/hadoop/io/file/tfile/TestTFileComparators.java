@@ -20,17 +20,13 @@ package org.apache.hadoop.io.file.tfile;
 import java.io.IOException;
 
 import org.junit.Assert;
-
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Test;
+import junit.framework.TestCase;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.file.tfile.TFile.Writer;
-import org.apache.hadoop.test.GenericTestUtils;
 
 /**
  * 
@@ -38,8 +34,10 @@ import org.apache.hadoop.test.GenericTestUtils;
  * and LZO compression classes.
  * 
  */
-public class TestTFileComparators {
-  private static String ROOT = GenericTestUtils.getTestDir().getAbsolutePath();
+public class TestTFileComparators extends TestCase {
+  private static String ROOT =
+      System.getProperty("test.build.data", "/tmp/tfile-test");
+
   private final static int BLOCK_SIZE = 512;
   private FileSystem fs;
   private Configuration conf;
@@ -58,7 +56,7 @@ public class TestTFileComparators {
   private int records1stBlock = 4480;
   private int records2ndBlock = 4263;
 
-  @Before
+  @Override
   public void setUp() throws IOException {
     conf = new Configuration();
     path = new Path(ROOT, outputFile);
@@ -66,13 +64,12 @@ public class TestTFileComparators {
     out = fs.create(path);
   }
 
-  @After
+  @Override
   public void tearDown() throws IOException {
     fs.delete(path, true);
   }
 
   // bad comparator format
-  @Test
   public void testFailureBadComparatorNames() throws IOException {
     try {
       writer = new Writer(out, BLOCK_SIZE, compression, "badcmp", conf);
@@ -85,7 +82,6 @@ public class TestTFileComparators {
   }
 
   // jclass that doesn't exist
-  @Test
   public void testFailureBadJClassNames() throws IOException {
     try {
       writer =
@@ -100,7 +96,6 @@ public class TestTFileComparators {
   }
 
   // class exists but not a RawComparator
-  @Test
   public void testFailureBadJClasses() throws IOException {
     try {
       writer =

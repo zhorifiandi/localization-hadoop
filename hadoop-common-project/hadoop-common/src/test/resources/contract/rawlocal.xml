@@ -17,24 +17,10 @@
   -->
 
 <configuration>
-
   <!--
-  case sensitivity and permission options are determined at run time from OS type
-  -->
-
-  <property>
-    <name>fs.contract.is-case-sensitive</name>
-    <value>true</value>
-  </property>
-
-
-  <property>
-    <name>fs.contract.supports-unix-permissions</name>
-    <value>true</value>
-  </property>
-
-  <!--
-  The remaining options are static
+  Here are most of the local FS contract options.
+  some of them may be overridden at run time based on the OS,
+  others potentially generated.
   -->
 
   <property>
@@ -45,6 +31,11 @@
   <property>
     <name>fs.contract.test.random-seek-count</name>
     <value>1000</value>
+  </property>
+
+  <property>
+    <name>fs.contract.is-case-sensitive</name>
+    <value>true</value>
   </property>
 
   <property>
@@ -83,11 +74,6 @@
   </property>
 
   <property>
-    <name>fs.contract.rename-remove-dest-if-empty-dir</name>
-    <value>true</value>
-  </property>
-
-  <property>
     <name>fs.contract.supports-seek</name>
     <value>true</value>
   </property>
@@ -109,16 +95,6 @@
 
   <property>
     <name>fs.contract.supports-unix-permissions</name>
-    <value>true</value>
-  </property>
-
-  <property>
-    <name>fs.contract.supports-settimes</name>
-    <value>true</value>
-  </property>
-
-  <property>
-    <name>fs.contract.supports-getfilestatus</name>
     <value>true</value>
   </property>
 

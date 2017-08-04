@@ -25,6 +25,8 @@ import java.net.SocketTimeoutException;
 import java.nio.channels.Pipe;
 import java.util.Arrays;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.test.MultithreadedTestUtil;
 import org.apache.hadoop.test.MultithreadedTestUtil.TestContext;
@@ -34,9 +36,6 @@ import org.apache.hadoop.util.Shell;
 import org.apache.hadoop.io.nativeio.NativeIO;
 
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import static org.junit.Assert.*;
 
 /**
@@ -48,8 +47,7 @@ import static org.junit.Assert.*;
  */
 public class TestSocketIOWithTimeout {
 
-  static final Logger LOG =
-      LoggerFactory.getLogger(TestSocketIOWithTimeout.class);
+  static Log LOG = LogFactory.getLog(TestSocketIOWithTimeout.class);
   
   private static int TIMEOUT = 1*1000; 
   private static String TEST_STRING = "1234567890";

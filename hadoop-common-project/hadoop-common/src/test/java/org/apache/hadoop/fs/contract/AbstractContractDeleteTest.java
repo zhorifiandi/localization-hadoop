@@ -47,7 +47,7 @@ public abstract class AbstractContractDeleteTest extends
   @Test
   public void testDeleteNonexistentPathRecursive() throws Throwable {
     Path path = path("testDeleteNonexistentPathRecursive");
-    assertPathDoesNotExist("leftover", path);
+    ContractTestUtils.assertPathDoesNotExist(getFileSystem(), "leftover", path);
     ContractTestUtils.rejectRootOperation(path);
     assertFalse("Returned true attempting to delete"
                 + " a nonexistent path " + path,
@@ -58,7 +58,7 @@ public abstract class AbstractContractDeleteTest extends
   @Test
   public void testDeleteNonexistentPathNonRecursive() throws Throwable {
     Path path = path("testDeleteNonexistentPathNonRecursive");
-    assertPathDoesNotExist("leftover", path);
+    ContractTestUtils.assertPathDoesNotExist(getFileSystem(), "leftover", path);
     ContractTestUtils.rejectRootOperation(path);
     assertFalse("Returned true attempting to recursively delete"
                 + " a nonexistent path " + path,
@@ -81,7 +81,7 @@ public abstract class AbstractContractDeleteTest extends
       //expected
       handleExpectedException(expected);
     }
-    assertIsDirectory(path);
+    ContractTestUtils.assertIsDirectory(getFileSystem(), path);
   }
 
   @Test
@@ -92,7 +92,7 @@ public abstract class AbstractContractDeleteTest extends
     ContractTestUtils.writeTextFile(getFileSystem(), file, "goodbye, world",
                                     true);
     assertDeleted(path, true);
-    assertPathDoesNotExist("not deleted", file);
+    ContractTestUtils.assertPathDoesNotExist(getFileSystem(), "not deleted", file);
   }
 
   @Test
@@ -100,11 +100,12 @@ public abstract class AbstractContractDeleteTest extends
     mkdirs(path("testDeleteDeepEmptyDir/d1/d2/d3/d4"));
     assertDeleted(path("testDeleteDeepEmptyDir/d1/d2/d3"), true);
 
-    assertPathDoesNotExist(
+    FileSystem fs = getFileSystem();
+    ContractTestUtils.assertPathDoesNotExist(fs,
         "not deleted", path("testDeleteDeepEmptyDir/d1/d2/d3/d4"));
-    assertPathDoesNotExist(
+    ContractTestUtils.assertPathDoesNotExist(fs,
         "not deleted", path("testDeleteDeepEmptyDir/d1/d2/d3"));
-    assertPathExists( "parent dir is deleted",
+    ContractTestUtils.assertPathExists(fs, "parent dir is deleted",
         path("testDeleteDeepEmptyDir/d1/d2"));
   }
 
@@ -116,7 +117,8 @@ public abstract class AbstractContractDeleteTest extends
     Path file = new Path(path, "childfile");
     ContractTestUtils.writeTextFile(getFileSystem(), file,
         "single file to be deleted.", true);
-    assertPathExists("single file not created", file);
+    ContractTestUtils.assertPathExists(getFileSystem(),
+        "single file not created", file);
     assertDeleted(file, false);
   }
 }

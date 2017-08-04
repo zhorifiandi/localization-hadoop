@@ -187,28 +187,7 @@ public class TestBlockListAsLongs {
     }
     assertTrue(reportReplicas.isEmpty());
   }
-
-  private BlockListAsLongs getBlockList(Replica ... replicas) {
-    int numBlocks = replicas.length;
-    List<Long> longs = new ArrayList<Long>(2 + numBlocks);
-    longs.add(Long.valueOf(numBlocks));
-    longs.add(0L);
-    for(Replica r : replicas) {
-      longs.add(r.getBlockId());
-      longs.add(r.getBytesOnDisk());
-      longs.add(r.getGenerationStamp());
-    }
-    BlockListAsLongs blockList = BlockListAsLongs.decodeLongs(longs);
-    return blockList;
-  }
-
-  @Test
-  public void testCapabilitiesInited() {
-    NamespaceInfo nsInfo = new NamespaceInfo();
-    assertTrue(
-        nsInfo.isCapabilitySupported(Capability.STORAGE_BLOCK_REPORT_BUFFERS));
-  }
-
+  
   @Test
   public void testDatanodeDetect() throws ServiceException, IOException {
     final AtomicReference<BlockReportRequestProto> request =
@@ -242,7 +221,7 @@ public class TestBlockListAsLongs {
     request.set(null);
     nsInfo.setCapabilities(Capability.STORAGE_BLOCK_REPORT_BUFFERS.getMask());
     nn.blockReport(reg, "pool", sbr,
-        new BlockReportContext(1, 0, System.nanoTime(), 0L, true));
+        new BlockReportContext(1, 0, System.nanoTime()));
     BlockReportRequestProto proto = request.get();
     assertNotNull(proto);
     assertTrue(proto.getReports(0).getBlocksList().isEmpty());
@@ -251,11 +230,8 @@ public class TestBlockListAsLongs {
     // back up to prior version and check DN sends old-style BR
     request.set(null);
     nsInfo.setCapabilities(Capability.UNKNOWN.getMask());
-    BlockListAsLongs blockList = getBlockList(r);
-    StorageBlockReport[] obp = new StorageBlockReport[] {
-        new StorageBlockReport(new DatanodeStorage("s1"), blockList) };
-    nn.blockReport(reg, "pool", obp,
-        new BlockReportContext(1, 0, System.nanoTime(), 0L, true));
+    nn.blockReport(reg, "pool", sbr,
+        new BlockReportContext(1, 0, System.nanoTime()));
     proto = request.get();
     assertNotNull(proto);
     assertFalse(proto.getReports(0).getBlocksList().isEmpty());

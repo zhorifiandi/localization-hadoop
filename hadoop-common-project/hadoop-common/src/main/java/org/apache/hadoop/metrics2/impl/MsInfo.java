@@ -18,10 +18,10 @@
 
 package org.apache.hadoop.metrics2.impl;
 
+import com.google.common.base.Objects;
+
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.metrics2.MetricsInfo;
-
-import java.util.StringJoiner;
 
 /**
  * Metrics system related metrics info instances
@@ -48,9 +48,8 @@ public enum MsInfo implements MetricsInfo {
   }
 
   @Override public String toString() {
-    return new StringJoiner(", ", this.getClass().getSimpleName() + "{", "}")
-        .add("name=" + name())
-        .add("description=" + desc)
+    return Objects.toStringHelper(this)
+        .add("name", name()).add("description", desc)
         .toString();
   }
 }

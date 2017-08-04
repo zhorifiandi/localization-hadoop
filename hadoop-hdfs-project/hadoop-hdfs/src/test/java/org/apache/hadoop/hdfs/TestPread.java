@@ -20,45 +20,32 @@ package org.apache.hadoop.hdfs;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
-import java.io.EOFException;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
 
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.ChecksumException;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
-import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
-import org.apache.hadoop.hdfs.protocol.HdfsConstants.DatanodeReportType;
-import org.apache.hadoop.hdfs.protocol.LocatedBlock;
-import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.protocol.datatransfer.DataTransferProtocol;
 import org.apache.hadoop.hdfs.server.datanode.SimulatedFSDataset;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
-
-import com.google.common.base.Supplier;
 
 /**
  * This class tests the DFS positional read functionality in a single node
@@ -67,8 +54,6 @@ import com.google.common.base.Supplier;
 public class TestPread {
   static final long seed = 0xDEADBEEFL;
   static final int blockSize = 4096;
-  static final int numBlocksPerFile = 12;
-  static final int fileSize = numBlocksPerFile * blockSize;
   boolean simulatedStorage;
   boolean isHedgedRead;
 
@@ -80,11 +65,13 @@ public class TestPread {
 
   private void writeFile(FileSystem fileSys, Path name) throws IOException {
     int replication = 3;// We need > 1 blocks to test out the hedged reads.
+    // create and write a file that contains three blocks of data
+    DataOutputStream stm = fileSys.create(name, true, 4096,
+      (short)replication, blockSize);
     // test empty file open and read
-    DFSTestUtil.createFile(fileSys, name, fileSize, 0,
-      blockSize, (short)replication, seed);
+    stm.close();
     FSDataInputStream in = fileSys.open(name);
-    byte[] buffer = new byte[fileSize];
+    byte[] buffer = new byte[12 * blockSize];
     in.readFully(0, buffer, 0, 0);
     IOException res = null;
     try { // read beyond the end of the file
@@ -99,7 +86,7 @@ public class TestPread {
       assertTrue("Cannot delete file", false);
     
     // now create the real file
-    DFSTestUtil.createFile(fileSys, name, fileSize, fileSize,
+    DFSTestUtil.createFile(fileSys, name, 12 * blockSize, 12 * blockSize,
         blockSize, (short) replication, seed);
   }
   
@@ -143,13 +130,11 @@ public class TestPread {
   
   private void pReadFile(FileSystem fileSys, Path name) throws IOException {
     FSDataInputStream stm = fileSys.open(name);
-    byte[] expected = new byte[fileSize];
+    byte[] expected = new byte[12 * blockSize];
     if (simulatedStorage) {
-      assert fileSys instanceof DistributedFileSystem;
-      DistributedFileSystem dfs = (DistributedFileSystem) fileSys;
-      LocatedBlocks lbs = dfs.getClient().getLocatedBlocks(name.toString(),
-          0, fileSize);
-      DFSTestUtil.fillExpectedBuf(lbs, expected);
+      for (int i= 0; i < expected.length; i++) {  
+        expected[i] = SimulatedFSDataset.DEFAULT_DATABYTE;
+      }
     } else {
       Random rand = new Random(seed);
       rand.nextBytes(expected);
@@ -221,7 +206,7 @@ public class TestPread {
       return;
     }
     int numBlocks = 1;
-    assertTrue(numBlocks <= HdfsClientConfigKeys.DFS_CLIENT_MAX_BLOCK_ACQUIRE_FAILURES_DEFAULT);
+    assertTrue(numBlocks <= DFSConfigKeys.DFS_CLIENT_MAX_BLOCK_ACQUIRE_FAILURES_DEFAULT);
     byte[] expected = new byte[numBlocks * blockSize];
     Random rand = new Random(seed);
     rand.nextBytes(expected);
@@ -273,7 +258,7 @@ public class TestPread {
   @Test
   public void testPreadDFSNoChecksum() throws IOException {
     Configuration conf = new Configuration();
-    GenericTestUtils.setLogLevel(DataTransferProtocol.LOG, Level.ALL);
+    ((Log4JLogger)DataTransferProtocol.LOG).getLogger().setLevel(Level.ALL);
     dfsPreadTest(conf, false, false);
     dfsPreadTest(conf, true, false);
   }
@@ -285,8 +270,8 @@ public class TestPread {
   public void testHedgedPreadDFSBasic() throws IOException {
     isHedgedRead = true;
     Configuration conf = new Configuration();
-    conf.setInt(HdfsClientConfigKeys.HedgedRead.THREADPOOL_SIZE_KEY, 5);
-    conf.setLong(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY, 1);
+    conf.setInt(DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THREADPOOL_SIZE, 5);
+    conf.setLong(DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THRESHOLD_MILLIS, 1);
     dfsPreadTest(conf, false, true); // normal pread
     dfsPreadTest(conf, true, true); // trigger read code path without
                                     // transferTo.
@@ -298,14 +283,15 @@ public class TestPread {
     int numHedgedReadPoolThreads = 5;
     final int hedgedReadTimeoutMillis = 50;
 
-    conf.setInt(HdfsClientConfigKeys.HedgedRead.THREADPOOL_SIZE_KEY,
+    conf.setInt(DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THREADPOOL_SIZE,
         numHedgedReadPoolThreads);
-    conf.setLong(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY,
+    conf.setLong(DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THRESHOLD_MILLIS,
         hedgedReadTimeoutMillis);
-    conf.setInt(HdfsClientConfigKeys.Retry.WINDOW_BASE_KEY, 0);
+    conf.setInt(DFSConfigKeys.DFS_CLIENT_RETRY_WINDOW_BASE, 0);
     // Set up the InjectionHandler
-    DFSClientFaultInjector.set(Mockito.mock(DFSClientFaultInjector.class));
-    DFSClientFaultInjector injector = DFSClientFaultInjector.get();
+    DFSClientFaultInjector.instance = Mockito
+        .mock(DFSClientFaultInjector.class);
+    DFSClientFaultInjector injector = DFSClientFaultInjector.instance;
     final int sleepMs = 100;
     Mockito.doAnswer(new Answer<Void>() {
       @Override
@@ -373,14 +359,15 @@ public class TestPread {
     int numHedgedReadPoolThreads = 5;
     final int initialHedgedReadTimeoutMillis = 50000;
     final int fixedSleepIntervalMillis = 50;
-    conf.setInt(HdfsClientConfigKeys.HedgedRead.THREADPOOL_SIZE_KEY,
+    conf.setInt(DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THREADPOOL_SIZE,
         numHedgedReadPoolThreads);
-    conf.setLong(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY,
+    conf.setLong(DFSConfigKeys.DFS_DFSCLIENT_HEDGED_READ_THRESHOLD_MILLIS,
         initialHedgedReadTimeoutMillis);
 
     // Set up the InjectionHandler
-    DFSClientFaultInjector.set(Mockito.mock(DFSClientFaultInjector.class));
-    DFSClientFaultInjector injector = DFSClientFaultInjector.get();
+    DFSClientFaultInjector.instance = Mockito
+        .mock(DFSClientFaultInjector.class);
+    DFSClientFaultInjector injector = DFSClientFaultInjector.instance;
     // make preads sleep for 50ms
     Mockito.doAnswer(new Answer<Void>() {
       @Override
@@ -414,14 +401,7 @@ public class TestPread {
        * that there were hedged reads. But, none of the reads had to run in the
        * current thread.
        */
-      {
-        Configuration conf2 =  new Configuration(cluster.getConfiguration(0));
-        conf2.setBoolean("fs.hdfs.impl.disable.cache", true);
-        conf2.setLong(HdfsClientConfigKeys.HedgedRead.THRESHOLD_MILLIS_KEY, 50);
-        fileSys.close();
-        fileSys = (DistributedFileSystem)FileSystem.get(cluster.getURI(0), conf2);
-        metrics = fileSys.getClient().getHedgedReadMetrics();
-      }
+      dfsClient.setHedgedReadTimeout(50); // 50ms
       pReadFile(fileSys, file1);
       // assert that there were hedged reads
       assertTrue(metrics.getHedgedReadOps() > 0);
@@ -456,9 +436,9 @@ public class TestPread {
   private void dfsPreadTest(Configuration conf, boolean disableTransferTo, boolean verifyChecksum)
       throws IOException {
     conf.setLong(DFSConfigKeys.DFS_BLOCK_SIZE_KEY, 4096);
-    conf.setLong(HdfsClientConfigKeys.Read.PREFETCH_SIZE_KEY, 4096);
+    conf.setLong(DFSConfigKeys.DFS_CLIENT_READ_PREFETCH_SIZE_KEY, 4096);
     // Set short retry timeouts so this test runs faster
-    conf.setInt(HdfsClientConfigKeys.Retry.WINDOW_BASE_KEY, 0);
+    conf.setInt(DFSConfigKeys.DFS_CLIENT_RETRY_WINDOW_BASE, 0);
     if (simulatedStorage) {
       SimulatedFSDataset.setFactory(conf);
     }
@@ -469,7 +449,7 @@ public class TestPread {
     FileSystem fileSys = cluster.getFileSystem();
     fileSys.setVerifyChecksum(verifyChecksum);
     try {
-      Path file1 = new Path("/preadtest.dat");
+      Path file1 = new Path("preadtest.dat");
       writeFile(fileSys, file1);
       pReadFile(fileSys, file1);
       datanodeRestartTest(cluster, fileSys, file1);
@@ -494,197 +474,12 @@ public class TestPread {
     Configuration conf = new HdfsConfiguration();
     FileSystem fileSys = FileSystem.getLocal(conf);
     try {
-      Path file1 = new Path(GenericTestUtils.getTempPath("preadtest.dat"));
+      Path file1 = new Path("build/test/data", "preadtest.dat");
       writeFile(fileSys, file1);
       pReadFile(fileSys, file1);
       cleanupFile(fileSys, file1);
     } finally {
       fileSys.close();
-    }
-  }
-
-  @Test
-  public void testTruncateWhileReading() throws Exception {
-    Path path = new Path("/testfile");
-    final int blockSize = 512;
-
-    // prevent initial pre-fetch of multiple block locations
-    Configuration conf = new Configuration();
-    conf.setLong(HdfsClientConfigKeys.Read.PREFETCH_SIZE_KEY, blockSize);
-
-    MiniDFSCluster cluster =
-        new MiniDFSCluster.Builder(conf).numDataNodes(1).build();
-    try {
-      DistributedFileSystem fs = cluster.getFileSystem();
-      // create multi-block file
-      FSDataOutputStream dos =
-          fs.create(path, true, blockSize, (short)1, blockSize);
-      dos.write(new byte[blockSize*3]);
-      dos.close();
-      // truncate a file while it's open
-      final FSDataInputStream dis = fs.open(path);
-      while (!fs.truncate(path, 10)) {
-        Thread.sleep(10);
-      }
-      // verify that reading bytes outside the initial pre-fetch do
-      // not send the client into an infinite loop querying locations.
-      ExecutorService executor = Executors.newFixedThreadPool(1);
-      Future<?> future = executor.submit(new Callable<Void>() {
-        @Override
-        public Void call() throws IOException {
-          // read from 2nd block.
-          dis.readFully(blockSize, new byte[4]);
-          return null;
-        }
-      });
-      try {
-        future.get(4, TimeUnit.SECONDS);
-        Assert.fail();
-      } catch (ExecutionException ee) {
-        assertTrue(ee.toString(), ee.getCause() instanceof EOFException);
-      } finally {
-        future.cancel(true);
-        executor.shutdown();
-      }
-    } finally {
-      cluster.shutdown();
-    }
-  }
-
-  /**
-   * Scenario: 1. Write a file with RF=2, DN1 and DN2<br>
-   * 2. Open the stream, Consider Locations are [DN1, DN2] in LocatedBlock.<br>
-   * 3. Move block from DN2 to DN3.<br>
-   * 4. Let block gets replicated to another DN3<br>
-   * 5. Stop DN1 also.<br>
-   * 6. Current valid Block locations in NameNode [DN1, DN3]<br>
-   * 7. Consider next calls to getBlockLocations() always returns DN3 as last
-   * location.<br>
-   */
-  @Test
-  public void testPreadFailureWithChangedBlockLocations() throws Exception {
-    doPreadTestWithChangedLocations();
-  }
-
-  /**
-   * Scenario: 1. Write a file with RF=2, DN1 and DN2<br>
-   * 2. Open the stream, Consider Locations are [DN1, DN2] in LocatedBlock.<br>
-   * 3. Move block from DN2 to DN3.<br>
-   * 4. Let block gets replicated to another DN3<br>
-   * 5. Stop DN1 also.<br>
-   * 6. Current valid Block locations in NameNode [DN1, DN3]<br>
-   * 7. Consider next calls to getBlockLocations() always returns DN3 as last
-   * location.<br>
-   */
-  @Test
-  public void testPreadHedgedFailureWithChangedBlockLocations()
-      throws Exception {
-    isHedgedRead = true;
-    doPreadTestWithChangedLocations();
-  }
-
-  private void doPreadTestWithChangedLocations()
-      throws IOException, TimeoutException, InterruptedException {
-    GenericTestUtils.setLogLevel(DFSClient.LOG, Level.DEBUG);
-    Configuration conf = new HdfsConfiguration();
-    conf.setInt(DFSConfigKeys.DFS_REPLICATION_KEY, 2);
-    conf.setInt(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
-    if (isHedgedRead) {
-      conf.setInt(HdfsClientConfigKeys.HedgedRead.THREADPOOL_SIZE_KEY, 2);
-    }
-    try (MiniDFSCluster cluster =
-        new MiniDFSCluster.Builder(conf).numDataNodes(3).build()) {
-      DistributedFileSystem dfs = cluster.getFileSystem();
-      Path p = new Path("/test");
-      String data = "testingmissingblock";
-      DFSTestUtil.writeFile(dfs, p, data);
-
-      FSDataInputStream in = dfs.open(p);
-      List<LocatedBlock> blocks = DFSTestUtil.getAllBlocks(in);
-      LocatedBlock lb = blocks.get(0);
-      DFSTestUtil.waitForReplication(cluster, lb.getBlock(), 1, 2, 0);
-      blocks = DFSTestUtil.getAllBlocks(in);
-      DatanodeInfo[] locations = null;
-      for (LocatedBlock locatedBlock : blocks) {
-        locations = locatedBlock.getLocations();
-        DFSClient.LOG
-            .info(locatedBlock.getBlock() + " " + Arrays.toString(locations));
-      }
-      final DatanodeInfo validDownLocation = locations[0];
-      final DFSClient client = dfs.getClient();
-      DFSClient dfsClient = Mockito.spy(client);
-      // Keep the valid location as last in the locations list for second
-      // requests
-      // onwards.
-      final AtomicInteger count = new AtomicInteger(0);
-      Mockito.doAnswer(new Answer<LocatedBlocks>() {
-        @Override
-        public LocatedBlocks answer(InvocationOnMock invocation)
-            throws Throwable {
-          if (count.compareAndSet(0, 1)) {
-            return (LocatedBlocks) invocation.callRealMethod();
-          }
-          Object obj = invocation.callRealMethod();
-          LocatedBlocks locatedBlocks = (LocatedBlocks) obj;
-          LocatedBlock lb = locatedBlocks.get(0);
-          DatanodeInfo[] locations = lb.getLocations();
-          if (!(locations[0].getName().equals(validDownLocation.getName()))) {
-            // Latest location which is currently down, should be first
-            DatanodeInfo l = locations[0];
-            locations[0] = locations[locations.length - 1];
-            locations[locations.length - 1] = l;
-          }
-          return locatedBlocks;
-        }
-      }).when(dfsClient).getLocatedBlocks(p.toString(), 0);
-
-      // Findout target node to move the block to.
-      DatanodeInfo[] nodes =
-          cluster.getNameNodeRpc().getDatanodeReport(DatanodeReportType.LIVE);
-      DatanodeInfo toMove = null;
-      List<DatanodeInfo> locationsList = Arrays.asList(locations);
-      for (DatanodeInfo node : nodes) {
-        if (locationsList.contains(node)) {
-          continue;
-        }
-        toMove = node;
-        break;
-      }
-      // STEP 2: Open stream
-      DFSInputStream din = dfsClient.open(p.toString());
-      // STEP 3: Move replica
-      final DatanodeInfo source = locations[1];
-      final DatanodeInfo destination = toMove;
-      DFSTestUtil.replaceBlock(lb.getBlock(), source, locations[1], toMove);
-      // Wait for replica to get deleted
-      GenericTestUtils.waitFor(new Supplier<Boolean>() {
-
-        @Override
-        public Boolean get() {
-          try {
-            LocatedBlocks lbs = dfsClient.getLocatedBlocks(p.toString(), 0);
-            LocatedBlock lb = lbs.get(0);
-            List<DatanodeInfo> locations = Arrays.asList(lb.getLocations());
-            DFSClient.LOG
-                .info("Source :" + source + ", destination: " + destination);
-            DFSClient.LOG.info("Got updated locations :" + locations);
-            return locations.contains(destination)
-                && !locations.contains(source);
-          } catch (IOException e) {
-            DFSClient.LOG.error("Problem in getting block locations", e);
-          }
-          return null;
-        }
-      }, 1000, 10000);
-      DFSTestUtil.waitForReplication(cluster, lb.getBlock(), 1, 2, 0);
-      // STEP 4: Stop first node in new locations
-      cluster.stopDataNode(validDownLocation.getName());
-      DFSClient.LOG.info("Starting read");
-      byte[] buf = new byte[1024];
-      int n = din.read(0, buf, 0, data.length());
-      assertEquals(data.length(), n);
-      assertEquals("Data should be read", data, new String(buf, 0, n));
-      DFSClient.LOG.info("Read completed");
     }
   }
 

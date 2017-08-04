@@ -18,24 +18,14 @@
 package org.apache.hadoop.hdfs.server.datanode.fsdataset.impl;
 
 import java.io.File;
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
 import java.io.FilenameFilter;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
-import java.net.URI;
 import java.util.Arrays;
 
-import com.google.common.base.Preconditions;
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.protocol.Block;
-import org.apache.hadoop.hdfs.protocol.HdfsConstants;
+import org.apache.hadoop.hdfs.server.common.GenerationStamp;
 import org.apache.hadoop.hdfs.server.datanode.DatanodeUtil;
-import org.apache.hadoop.hdfs.server.datanode.FinalizedReplica;
-import org.apache.hadoop.hdfs.server.datanode.ReplicaInfo;
-import org.apache.hadoop.io.IOUtils;
 
 /** Utility methods. */
 @InterfaceAudience.Private
@@ -81,40 +71,24 @@ public class FsDatasetUtil {
     return matches[0];
   }
 
-  public static FileDescriptor openAndSeek(File file, long offset)
-      throws IOException {
-    RandomAccessFile raf = null;
-    try {
-      raf = new RandomAccessFile(file, "r");
-      if (offset > 0) {
-        raf.seek(offset);
-      }
-      return raf.getFD();
-    } catch(IOException ioe) {
-      IOUtils.cleanup(null, raf);
-      throw ioe;
-    }
-  }
-
   /**
    * Find the meta-file for the specified block file
    * and then return the generation stamp from the name of the meta-file.
    */
-  static long getGenerationStampFromFile(File[] listdir, File blockFile)
-      throws IOException {
+  static long getGenerationStampFromFile(File[] listdir, File blockFile) {
     String blockName = blockFile.getName();
     for (int j = 0; j < listdir.length; j++) {
       String path = listdir[j].getName();
       if (!path.startsWith(blockName)) {
         continue;
       }
-      if (blockFile.getCanonicalPath().equals(listdir[j].getCanonicalPath())) {
+      if (blockFile == listdir[j]) {
         continue;
       }
       return Block.getGenerationStamp(listdir[j].getName());
     }
     FsDatasetImpl.LOG.warn("Block " + blockFile + " does not have a metafile!");
-    return HdfsConstants.GRANDFATHER_GENERATION_STAMP;
+    return GenerationStamp.GRANDFATHER_GENERATION_STAMP;
   }
 
   /** Find the corresponding meta data file from a given block file */
@@ -129,31 +103,5 @@ public class FsDatasetUtil {
       throw new IOException("Failed to parse generation stamp: blockFile="
           + blockFile + ", metaFile=" + metaFile, nfe);
     }
-  }
-
-  /**
-   * Compute the checksum for a block file that does not already have
-   * its checksum computed, and save it to dstMeta file.
-   */
-  public static void computeChecksum(File srcMeta, File dstMeta, File blockFile,
-      int smallBufferSize, Configuration conf) throws IOException {
-    Preconditions.checkNotNull(srcMeta);
-    Preconditions.checkNotNull(dstMeta);
-    Preconditions.checkNotNull(blockFile);
-    // Create a dummy ReplicaInfo object pointing to the blockFile.
-    ReplicaInfo wrapper = new FinalizedReplica(0, 0, 0, null, null) {
-      @Override
-      public URI getMetadataURI() {
-        return srcMeta.toURI();
-      }
-
-      @Override
-      public InputStream getDataInputStream(long seekOffset)
-          throws IOException {
-        return new FileInputStream(blockFile);
-      }
-    };
-
-    FsDatasetImpl.computeChecksum(wrapper, dstMeta, smallBufferSize, conf);
   }
 }

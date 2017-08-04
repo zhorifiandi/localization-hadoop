@@ -18,12 +18,9 @@ package org.apache.hadoop.hdfs.nfs.nfs3;
 
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
-import java.net.SocketException;
 
 import org.apache.commons.daemon.Daemon;
 import org.apache.commons.daemon.DaemonContext;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.hdfs.nfs.conf.NfsConfigKeys;
 import org.apache.hadoop.hdfs.nfs.conf.NfsConfiguration;
 
@@ -37,7 +34,7 @@ import org.apache.hadoop.hdfs.nfs.conf.NfsConfiguration;
  * Debian: https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=594880
  */
 public class PrivilegedNfsGatewayStarter implements Daemon {
-  static final Log LOG = LogFactory.getLog(PrivilegedNfsGatewayStarter.class);
+	
   private String[] args = null;
   private DatagramSocket registrationSocket = null;
 
@@ -52,17 +49,9 @@ public class PrivilegedNfsGatewayStarter implements Daemon {
           NfsConfigKeys.DFS_NFS_REGISTRATION_PORT_KEY + "' configured to a " +
           "privileged port.");
     }
-
-    try {
-      InetSocketAddress socketAddress =
-                new InetSocketAddress("localhost", clientPort);
-      registrationSocket = new DatagramSocket(null);
-      registrationSocket.setReuseAddress(true);
-      registrationSocket.bind(socketAddress);
-    } catch (SocketException e) {
-      LOG.error("Init failed for port=" + clientPort, e);
-      throw e;
-    }
+    registrationSocket = new DatagramSocket(
+        new InetSocketAddress("localhost", clientPort));
+    registrationSocket.setReuseAddress(true);
     args = context.getArguments();
   }
 

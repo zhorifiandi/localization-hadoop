@@ -20,11 +20,7 @@ package org.apache.hadoop.hdfs.server.datanode.fsdataset.impl;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.DFSUtilClient;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
-import org.apache.hadoop.hdfs.server.datanode.ReplicaInfo;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeReference;
 
 import java.io.File;
@@ -55,12 +51,9 @@ class RamDiskAsyncLazyPersistService {
   private static final long THREADS_KEEP_ALIVE_SECONDS = 60;
 
   private final DataNode datanode;
-  private final Configuration conf;
-
   private final ThreadGroup threadGroup;
-  private Map<String, ThreadPoolExecutor> executors
-      = new HashMap<String, ThreadPoolExecutor>();
-  private final static HdfsConfiguration EMPTY_HDFS_CONF = new HdfsConfiguration();
+  private Map<File, ThreadPoolExecutor> executors
+      = new HashMap<File, ThreadPoolExecutor>();
 
   /**
    * Create a RamDiskAsyncLazyPersistService with a set of volumes (specified by their
@@ -69,20 +62,18 @@ class RamDiskAsyncLazyPersistService {
    * The RamDiskAsyncLazyPersistService uses one ThreadPool per volume to do the async
    * disk operations.
    */
-  RamDiskAsyncLazyPersistService(DataNode datanode, Configuration conf) {
+  RamDiskAsyncLazyPersistService(DataNode datanode) {
     this.datanode = datanode;
-    this.conf = conf;
     this.threadGroup = new ThreadGroup(getClass().getSimpleName());
   }
 
-  private void addExecutorForVolume(final String storageId) {
+  private void addExecutorForVolume(final File volume) {
     ThreadFactory threadFactory = new ThreadFactory() {
 
       @Override
       public Thread newThread(Runnable r) {
         Thread t = new Thread(threadGroup, r);
-        t.setName("Async RamDisk lazy persist worker " +
-            " for volume with id " + storageId);
+        t.setName("Async RamDisk lazy persist worker for volume " + volume);
         return t;
       }
     };
@@ -94,41 +85,39 @@ class RamDiskAsyncLazyPersistService {
 
     // This can reduce the number of running threads
     executor.allowCoreThreadTimeOut(true);
-    executors.put(storageId, executor);
+    executors.put(volume, executor);
   }
 
   /**
    * Starts AsyncLazyPersistService for a new volume
    * @param volume the root of the new data volume.
    */
-  synchronized void addVolume(FsVolumeImpl volume) {
-    String storageId = volume.getStorageID();
+  synchronized void addVolume(File volume) {
     if (executors == null) {
       throw new RuntimeException("AsyncLazyPersistService is already shutdown");
     }
-    ThreadPoolExecutor executor = executors.get(storageId);
+    ThreadPoolExecutor executor = executors.get(volume);
     if (executor != null) {
       throw new RuntimeException("Volume " + volume + " is already existed.");
     }
-    addExecutorForVolume(storageId);
+    addExecutorForVolume(volume);
   }
 
   /**
    * Stops AsyncLazyPersistService for a volume.
    * @param volume the root of the volume.
    */
-  synchronized void removeVolume(FsVolumeImpl volume) {
-    String storageId = volume.getStorageID();
+  synchronized void removeVolume(File volume) {
     if (executors == null) {
       throw new RuntimeException("AsyncDiskService is already shutdown");
     }
-    ThreadPoolExecutor executor = executors.get(storageId);
+    ThreadPoolExecutor executor = executors.get(volume);
     if (executor == null) {
-      throw new RuntimeException("Can not find volume with storage id " +
-          storageId + " to remove.");
+      throw new RuntimeException("Can not find volume " + volume
+        + " to remove.");
     } else {
       executor.shutdown();
-      executors.remove(storageId);
+      executors.remove(volume);
     }
   }
 
@@ -138,28 +127,25 @@ class RamDiskAsyncLazyPersistService {
    * @return true if there is one thread pool for the volume
    *         false otherwise
    */
-  synchronized boolean queryVolume(FsVolumeImpl volume) {
-    String storageId = volume.getStorageID();
+  synchronized boolean queryVolume(File volume) {
     if (executors == null) {
-      throw new RuntimeException(
-          "AsyncLazyPersistService is already shutdown");
+      throw new RuntimeException("AsyncLazyPersistService is already shutdown");
     }
-    ThreadPoolExecutor executor = executors.get(storageId);
+    ThreadPoolExecutor executor = executors.get(volume);
     return (executor != null);
   }
 
   /**
    * Execute the task sometime in the future, using ThreadPools.
    */
-  synchronized void execute(String storageId, Runnable task) {
+  synchronized void execute(File root, Runnable task) {
     if (executors == null) {
-      throw new RuntimeException(
-          "AsyncLazyPersistService is already shutdown");
+      throw new RuntimeException("AsyncLazyPersistService is already shutdown");
     }
-    ThreadPoolExecutor executor = executors.get(storageId);
+    ThreadPoolExecutor executor = executors.get(root);
     if (executor == null) {
-      throw new RuntimeException("Cannot find root storage volume with id " +
-          storageId + " for execution of task " + task);
+      throw new RuntimeException("Cannot find root " + root
+          + " for execution of task " + task);
     } else {
       executor.execute(task);
     }
@@ -175,7 +161,7 @@ class RamDiskAsyncLazyPersistService {
     } else {
       LOG.info("Shutting down all async lazy persist service threads");
 
-      for (Map.Entry<String, ThreadPoolExecutor> e : executors.entrySet()) {
+      for (Map.Entry<File, ThreadPoolExecutor> e : executors.entrySet()) {
         e.getValue().shutdown();
       }
       // clear the executor map so that calling execute again will fail.
@@ -189,37 +175,49 @@ class RamDiskAsyncLazyPersistService {
    */
   void submitLazyPersistTask(String bpId, long blockId,
       long genStamp, long creationTime,
-      ReplicaInfo replica, FsVolumeReference target) throws IOException {
+      File metaFile, File blockFile,
+      FsVolumeReference target) throws IOException {
     if (LOG.isDebugEnabled()) {
       LOG.debug("LazyWriter schedule async task to persist RamDisk block pool id: "
           + bpId + " block id: " + blockId);
     }
 
-    ReplicaLazyPersistTask lazyPersistTask = new ReplicaLazyPersistTask(
-        bpId, blockId, genStamp, creationTime, replica, target);
-
     FsVolumeImpl volume = (FsVolumeImpl)target.getVolume();
-    execute(volume.getStorageID(), lazyPersistTask);
+    File lazyPersistDir  = volume.getLazyPersistDir(bpId);
+    if (!lazyPersistDir.exists() && !lazyPersistDir.mkdirs()) {
+      FsDatasetImpl.LOG.warn("LazyWriter failed to create " + lazyPersistDir);
+      throw new IOException("LazyWriter fail to find or create lazy persist dir: "
+          + lazyPersistDir.toString());
+    }
+
+    ReplicaLazyPersistTask lazyPersistTask = new ReplicaLazyPersistTask(
+        bpId, blockId, genStamp, creationTime, blockFile, metaFile,
+        target, lazyPersistDir);
+    execute(volume.getCurrentDir(), lazyPersistTask);
   }
 
   class ReplicaLazyPersistTask implements Runnable {
-    private final String bpId;
-    private final long blockId;
-    private final long genStamp;
-    private final long creationTime;
-    private final ReplicaInfo replicaInfo;
-    private final FsVolumeReference targetVolume;
+    final String bpId;
+    final long blockId;
+    final long genStamp;
+    final long creationTime;
+    final File blockFile;
+    final File metaFile;
+    final FsVolumeReference targetVolume;
+    final File lazyPersistDir;
 
     ReplicaLazyPersistTask(String bpId, long blockId,
         long genStamp, long creationTime,
-        ReplicaInfo replicaInfo,
-        FsVolumeReference targetVolume) {
+        File blockFile, File metaFile,
+        FsVolumeReference targetVolume, File lazyPersistDir) {
       this.bpId = bpId;
       this.blockId = blockId;
       this.genStamp = genStamp;
       this.creationTime = creationTime;
-      this.replicaInfo = replicaInfo;
+      this.blockFile = blockFile;
+      this.metaFile = metaFile;
       this.targetVolume = targetVolume;
+      this.lazyPersistDir = lazyPersistDir;
     }
 
     @Override
@@ -227,25 +225,21 @@ class RamDiskAsyncLazyPersistService {
       // Called in AsyncLazyPersistService.execute for displaying error messages.
       return "LazyWriter async task of persist RamDisk block pool id:"
           + bpId + " block pool id: "
-          + blockId + " with block file " + replicaInfo.getBlockURI()
-          + " and meta file " + replicaInfo.getMetadataURI()
-          + " to target volume " + targetVolume;
-    }
+          + blockId + " with block file " + blockFile
+          + " and meta file " + metaFile + " to target volume " + targetVolume;}
 
     @Override
     public void run() {
       boolean succeeded = false;
       final FsDatasetImpl dataset = (FsDatasetImpl)datanode.getFSDataset();
-      try (FsVolumeReference ref = this.targetVolume) {
-        int smallBufferSize = DFSUtilClient.getSmallBufferSize(EMPTY_HDFS_CONF);
-
-        FsVolumeImpl volume = (FsVolumeImpl)ref.getVolume();
-        File[] targetFiles = volume.copyBlockToLazyPersistLocation(bpId,
-            blockId, genStamp, replicaInfo, smallBufferSize, conf);
+      try {
+        // No FsDatasetImpl lock for the file copy
+        File targetFiles[] = FsDatasetImpl.copyBlockFiles(
+            blockId, genStamp, metaFile, blockFile, lazyPersistDir, true);
 
         // Lock FsDataSetImpl during onCompleteLazyPersist callback
         dataset.onCompleteLazyPersist(bpId, blockId,
-                creationTime, targetFiles, volume);
+            creationTime, targetFiles, (FsVolumeImpl) targetVolume.getVolume());
         succeeded = true;
       } catch (Exception e){
         FsDatasetImpl.LOG.warn(

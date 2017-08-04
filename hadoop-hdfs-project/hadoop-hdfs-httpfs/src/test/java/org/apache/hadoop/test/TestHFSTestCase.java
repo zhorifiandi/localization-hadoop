@@ -38,9 +38,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.util.Time;
-import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.junit.Test;
-import org.eclipse.jetty.server.Server;
+import org.mortbay.jetty.Server;
+import org.mortbay.jetty.servlet.Context;
 
 public class TestHFSTestCase extends HFSTestCase {
 
@@ -165,11 +165,11 @@ public class TestHFSTestCase extends HFSTestCase {
   @Test
   @TestJetty
   public void testJetty() throws Exception {
-    ServletContextHandler context = new ServletContextHandler();
+    Context context = new Context();
     context.setContextPath("/");
     context.addServlet(MyServlet.class, "/bar");
     Server server = TestJettyHelper.getJettyServer();
-    server.setHandler(context);
+    server.addHandler(context);
     server.start();
     URL url = new URL(TestJettyHelper.getJettyURL(), "/bar");
     HttpURLConnection conn = (HttpURLConnection) url.openConnection();

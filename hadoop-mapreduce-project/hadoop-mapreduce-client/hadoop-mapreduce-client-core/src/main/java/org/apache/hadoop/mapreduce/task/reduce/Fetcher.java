@@ -65,13 +65,8 @@ class Fetcher<K,V> extends Thread {
   /* Default read timeout (in milliseconds) */
   private final static int DEFAULT_READ_TIMEOUT = 3 * 60 * 1000;
 
-  // This should be kept in sync with ShuffleHandler.FETCH_RETRY_DELAY.
-  private static final long FETCH_RETRY_DELAY_DEFAULT = 1000L;
-  static final int TOO_MANY_REQ_STATUS_CODE = 429;
-  private static final String FETCH_RETRY_AFTER_HEADER = "Retry-After";
-
   protected final Reporter reporter;
-  private enum ShuffleErrors{IO_ERROR, WRONG_LENGTH, BAD_ID, WRONG_MAP,
+  private static enum ShuffleErrors{IO_ERROR, WRONG_LENGTH, BAD_ID, WRONG_MAP,
                                     CONNECTION, WRONG_REDUCE}
   
   private final static String SHUFFLE_ERR_GRP_NAME = "Shuffle Errors";
@@ -268,18 +263,11 @@ class Fetcher<K,V> extends Thread {
     DataInputStream input = null;
 
     try {
-      setupConnectionsWithRetry(url);
+      setupConnectionsWithRetry(host, remaining, url);
       if (stopped) {
         abortConnect(host, remaining);
       } else {
         input = new DataInputStream(connection.getInputStream());
-      }
-    } catch (TryAgainLaterException te) {
-      LOG.warn("Connection rejected by the host " + te.host +
-          ". Will retry later.");
-      scheduler.penalize(host, te.backoff);
-      for (TaskAttemptID left : remaining) {
-        scheduler.putBackKnownMapOutput(host, left);
       }
     } catch (IOException ie) {
       boolean connectExcpt = ie instanceof ConnectException;
@@ -347,7 +335,6 @@ class Fetcher<K,V> extends Thread {
         try {
           failedTasks = copyMapOutput(host, input, remaining, fetchRetryEnabled);
         } catch (IOException e) {
-          IOUtils.cleanup(LOG, input);
           //
           // Setup connection again if disconnected by NM
           connection.disconnect();
@@ -386,8 +373,9 @@ class Fetcher<K,V> extends Thread {
     }
   }
 
-  private void setupConnectionsWithRetry(URL url) throws IOException {
-    openConnectionWithRetry(url);
+  private void setupConnectionsWithRetry(MapHost host,
+      Set<TaskAttemptID> remaining, URL url) throws IOException {
+    openConnectionWithRetry(host, remaining, url);
     if (stopped) {
       return;
     }
@@ -407,7 +395,8 @@ class Fetcher<K,V> extends Thread {
     verifyConnection(url, msgToEncode, encHash);
   }
 
-  private void openConnectionWithRetry(URL url) throws IOException {
+  private void openConnectionWithRetry(MapHost host,
+      Set<TaskAttemptID> remaining, URL url) throws IOException {
     long startTime = Time.monotonicNow();
     boolean shouldWait = true;
     while (shouldWait) {
@@ -439,19 +428,6 @@ class Fetcher<K,V> extends Thread {
       throws IOException {
     // Validate response code
     int rc = connection.getResponseCode();
-    // See if the shuffleHandler rejected the connection due to too many
-    // reducer requests. If so, signal fetchers to back off.
-    if (rc == TOO_MANY_REQ_STATUS_CODE) {
-      long backoff = connection.getHeaderFieldLong(FETCH_RETRY_AFTER_HEADER,
-          FETCH_RETRY_DELAY_DEFAULT);
-      // in case we get a negative backoff from ShuffleHandler
-      if (backoff < 0) {
-        backoff = FETCH_RETRY_DELAY_DEFAULT;
-        LOG.warn("Get a negative backoff value from ShuffleHandler. Setting" +
-            " it to the default value " + FETCH_RETRY_DELAY_DEFAULT);
-      }
-      throw new TryAgainLaterException(backoff, url.getHost());
-    }
     if (rc != HttpURLConnection.HTTP_OK) {
       throw new IOException(
           "Got invalid response code " + rc + " from " + url +
@@ -472,7 +448,7 @@ class Fetcher<K,V> extends Thread {
     LOG.debug("url="+msgToEncode+";encHash="+encHash+";replyHash="+replyHash);
     // verify that replyHash is HMac of encHash
     SecureShuffleUtils.verifyReply(replyHash, encHash, shuffleSecretKey);
-    LOG.debug("for url="+msgToEncode+" sent hash and received reply");
+    LOG.info("for url="+msgToEncode+" sent hash and received reply");
   }
 
   private void setupShuffleConnection(String encHash) {
@@ -560,7 +536,7 @@ class Fetcher<K,V> extends Thread {
             + " len: " + compressedLength + " to " + mapOutput.getDescription());
         mapOutput.shuffle(host, is, compressedLength, decompressedLength,
             metrics, reporter);
-      } catch (java.lang.InternalError | Exception e) {
+      } catch (java.lang.InternalError e) {
         LOG.warn("Failed to shuffle for fetcher#"+id, e);
         throw new IOException(e);
       }
@@ -751,17 +727,6 @@ class Fetcher<K,V> extends Thread {
         // update the total remaining connect-timeout
         lastTime = Time.monotonicNow();
       }
-    }
-  }
-
-  private static class TryAgainLaterException extends IOException {
-    public final long backoff;
-    public final String host;
-
-    public TryAgainLaterException(long backoff, String host) {
-      super("Too many requests to a map host");
-      this.backoff = backoff;
-      this.host = host;
     }
   }
 }

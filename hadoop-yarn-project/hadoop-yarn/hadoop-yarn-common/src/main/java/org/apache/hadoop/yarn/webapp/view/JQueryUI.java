@@ -26,7 +26,7 @@ import static org.apache.hadoop.yarn.util.StringHelper.split;
 import java.util.List;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.yarn.webapp.hamlet2.HamletSpec.HTML;
+import org.apache.hadoop.yarn.webapp.hamlet.HamletSpec.HTML;
 
 import com.google.common.collect.Lists;
 
@@ -65,14 +65,14 @@ public class JQueryUI extends HtmlBlock {
 
   @Override
   protected void render(Block html) {
-    html.link(root_url("static/jquery/themes-1.9.1/base/jquery-ui.css"))
-        .link(root_url("static/dt-1.9.4/css/jui-dt.css"))
-        .script(root_url("static/jquery/jquery-1.8.2.min.js"))
-        .script(root_url("static/jquery/jquery-ui-1.9.1.custom.min.js"))
-        .script(root_url("static/dt-1.9.4/js/jquery.dataTables.min.js"))
-        .script(root_url("static/yarn.dt.plugins.js"))
-        .script(root_url("static/dt-sorting/natural.js"))
-        .style("#jsnotice { padding: 0.2em; text-align: center; }",
+    html.
+      link(root_url("static/jquery/themes-1.9.1/base/jquery-ui.css")).
+      link(root_url("static/dt-1.9.4/css/jui-dt.css")).
+      script(root_url("static/jquery/jquery-1.8.2.min.js")).
+      script(root_url("static/jquery/jquery-ui-1.9.1.custom.min.js")).
+      script(root_url("static/dt-1.9.4/js/jquery.dataTables.min.js")).
+      script(root_url("static/yarn.dt.plugins.js")).
+      style("#jsnotice { padding: 0.2em; text-align: center; }",
             ".ui-progressbar { height: 1em; min-width: 5em }"); // required
 
     List<String> list = Lists.newArrayList();
@@ -82,19 +82,20 @@ public class JQueryUI extends HtmlBlock {
     initProgressBars(list);
 
     if (!list.isEmpty()) {
-      html.script().$type("text/javascript").__("$(function() {")
-          .__(list.toArray()).__("});").__();
+      html.
+        script().$type("text/javascript").
+          _("$(function() {")._(list.toArray())._("});")._();
     }
   }
 
   public static void jsnotice(HTML html) {
     html.
       div("#jsnotice.ui-state-error").
-        __("This page will not function without javascript enabled."
-            + " Please enable javascript on your browser.").__();
+          _("This page will not function without javascript enabled."
+            + " Please enable javascript on your browser.")._();
     html.
       script().$type("text/javascript").
-        __("$('#jsnotice').hide();").__();
+        _("$('#jsnotice').hide();")._();
   }
 
   protected void initAccordions(List<String> list) {
@@ -130,7 +131,7 @@ public class JQueryUI extends HtmlBlock {
         // for inserting stateSaveInit
         int pos = init.indexOf('{') + 1;  
         init = new StringBuffer(init).insert(pos, stateSaveInit).toString(); 
-        list.add(join(id, "DataTable =  $('#", id, "').dataTable(", init,
+        list.add(join(id,"DataTable =  $('#", id, "').dataTable(", init,
                       ").fnSetFilteringDelay(188);"));
         String postInit = $(postInitID(DATATABLES, id));
         if(!postInit.isEmpty()) {

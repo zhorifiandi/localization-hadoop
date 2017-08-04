@@ -104,8 +104,8 @@ public class TestRMWebServicesHttpStaticUserPermissions {
     rmconf.setBoolean(YarnConfiguration.YARN_ACL_ENABLE, true);
     rmconf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
       "kerberos");
-    rmconf.set(YarnConfiguration.RM_PRINCIPAL, spnegoPrincipal);
-    rmconf.set(YarnConfiguration.RM_KEYTAB,
+    rmconf.set("yarn.resourcemanager.principal", spnegoPrincipal);
+    rmconf.set("yarn.resourcemanager.keytab",
         spnegoKeytabFile.getAbsolutePath());
     rmconf.setBoolean("mockrm.webapp.enabled", true);
     UserGroupInformation.setConfiguration(rmconf);

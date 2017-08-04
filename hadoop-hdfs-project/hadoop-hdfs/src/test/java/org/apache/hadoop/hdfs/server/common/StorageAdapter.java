@@ -33,7 +33,7 @@ public abstract class StorageAdapter {
       Storage s, int idx) {
 
     StorageDirectory dir = Mockito.spy(s.getStorageDir(idx));
-    s.getStorageDirs().set(idx, dir);
+    s.storageDirs.set(idx, dir);
     return dir;
   }
 }

@@ -17,66 +17,37 @@
  */
 package org.apache.hadoop.fs;
 
-import com.google.common.base.Preconditions;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem.Statistics;
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.test.GenericTestUtils;
-import org.apache.hadoop.test.LambdaTestUtils;
 import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.util.Shell;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
 import static org.apache.hadoop.fs.FileSystemTestHelper.*;
 
 import java.io.*;
 import java.net.URI;
 import java.util.Arrays;
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Random;
-import java.util.Set;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
-import static org.apache.hadoop.test.PlatformAssumptions.assumeWindows;
 import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
+import static org.junit.Assume.assumeTrue;
 
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.Rule;
 import org.junit.Test;
-import org.junit.rules.Timeout;
-import org.mockito.internal.util.reflection.Whitebox;
-
-import javax.annotation.Nonnull;
-
 
 /**
  * This class tests the local file system via the FileSystem abstraction.
  */
 public class TestLocalFileSystem {
-  private static final File base =
-      GenericTestUtils.getTestDir("work-dir/localfs");
+  private static final String TEST_ROOT_DIR
+    = System.getProperty("test.build.data","build/test/data") + "/work-dir/localfs";
 
-  private static final String TEST_ROOT_DIR = base.getAbsolutePath();
+  private final File base = new File(TEST_ROOT_DIR);
   private final Path TEST_PATH = new Path(TEST_ROOT_DIR, "test-file");
   private Configuration conf;
   private LocalFileSystem fileSys;
-
-  /**
-   * standard test timeout: {@value}.
-   */
-  public static final int DEFAULT_TEST_TIMEOUT = 60 * 1000;
-
-  /**
-   * Set the timeout for every test.
-   */
-  @Rule
-  public Timeout testTimeout = new Timeout(DEFAULT_TEST_TIMEOUT);
 
   private void cleanupFile(FileSystem fs, Path name) throws IOException {
     assertTrue(fs.exists(name));
@@ -97,13 +68,12 @@ public class TestLocalFileSystem {
     FileUtil.setWritable(base, true);
     FileUtil.fullyDelete(base);
     assertTrue(!base.exists());
-    RawLocalFileSystem.useStatIfAvailable();
   }
 
   /**
    * Test the capability of setting the working directory.
    */
-  @Test
+  @Test(timeout = 10000)
   public void testWorkingDirectory() throws IOException {
     Path origDir = fileSys.getWorkingDirectory();
     Path subdir = new Path(TEST_ROOT_DIR, "new");
@@ -157,7 +127,7 @@ public class TestLocalFileSystem {
    * test Syncable interface on raw local file system
    * @throws IOException
    */
-  @Test
+  @Test(timeout = 1000)
   public void testSyncable() throws IOException {
     FileSystem fs = fileSys.getRawFileSystem();
     Path file = new Path(TEST_ROOT_DIR, "syncable");
@@ -190,7 +160,7 @@ public class TestLocalFileSystem {
     }
   }
   
-  @Test
+  @Test(timeout = 10000)
   public void testCopy() throws IOException {
     Path src = new Path(TEST_ROOT_DIR, "dingo");
     Path dst = new Path(TEST_ROOT_DIR, "yak");
@@ -216,7 +186,7 @@ public class TestLocalFileSystem {
     }
   }
 
-  @Test
+  @Test(timeout = 1000)
   public void testHomeDirectory() throws IOException {
     Path home = new Path(System.getProperty("user.home"))
       .makeQualified(fileSys);
@@ -224,7 +194,7 @@ public class TestLocalFileSystem {
     assertEquals(home, fsHome);
   }
 
-  @Test
+  @Test(timeout = 1000)
   public void testPathEscapes() throws IOException {
     Path path = new Path(TEST_ROOT_DIR, "foo%bar");
     writeFile(fileSys, path, 1);
@@ -233,7 +203,7 @@ public class TestLocalFileSystem {
     cleanupFile(fileSys, path);
   }
   
-  @Test
+  @Test(timeout = 1000)
   public void testCreateFileAndMkdirs() throws IOException {
     Path test_dir = new Path(TEST_ROOT_DIR, "test_dir");
     Path test_file = new Path(test_dir, "file1");
@@ -269,7 +239,7 @@ public class TestLocalFileSystem {
   }
 
   /** Test deleting a file, directory, and non-existent path */
-  @Test
+  @Test(timeout = 1000)
   public void testBasicDelete() throws IOException {
     Path dir1 = new Path(TEST_ROOT_DIR, "dir1");
     Path file1 = new Path(TEST_ROOT_DIR, "file1");
@@ -284,7 +254,7 @@ public class TestLocalFileSystem {
     assertTrue("Did not delete non-empty dir", fileSys.delete(dir1));
   }
   
-  @Test
+  @Test(timeout = 1000)
   public void testStatistics() throws Exception {
     int fileSchemeCount = 0;
     for (Statistics stats : FileSystem.getAllStatistics()) {
@@ -295,23 +265,19 @@ public class TestLocalFileSystem {
     assertEquals(1, fileSchemeCount);
   }
 
-  @Test
+  @Test(timeout = 1000)
   public void testHasFileDescriptor() throws IOException {
     Path path = new Path(TEST_ROOT_DIR, "test-file");
     writeFile(fileSys, path, 1);
-    BufferedFSInputStream bis = null;
-    try {
-      bis = new BufferedFSInputStream(new RawLocalFileSystem()
-        .new LocalFSFileInputStream(path), 1024);
-      assertNotNull(bis.getFileDescriptor());
-    } finally {
-      IOUtils.cleanup(null, bis);
-    }
+    BufferedFSInputStream bis = new BufferedFSInputStream(
+        new RawLocalFileSystem().new LocalFSFileInputStream(path), 1024);
+    assertNotNull(bis.getFileDescriptor());
+    bis.close();
   }
 
-  @Test
+  @Test(timeout = 1000)
   public void testListStatusWithColons() throws IOException {
-    assumeNotWindows();
+    assumeTrue(!Shell.WINDOWS);
     File colonFile = new File(TEST_ROOT_DIR, "foo:bar");
     colonFile.mkdirs();
     FileStatus[] stats = fileSys.listStatus(new Path(TEST_ROOT_DIR));
@@ -322,7 +288,7 @@ public class TestLocalFileSystem {
   
   @Test
   public void testListStatusReturnConsistentPathOnWindows() throws IOException {
-    assumeWindows();
+    assumeTrue(Shell.WINDOWS);
     String dirNoDriveSpec = TEST_ROOT_DIR;
     if (dirNoDriveSpec.charAt(1) == ':')
     	dirNoDriveSpec = dirNoDriveSpec.substring(2);
@@ -335,7 +301,7 @@ public class TestLocalFileSystem {
         stats[0].getPath().toUri().getPath());
   }
   
-  @Test
+  @Test(timeout = 10000)
   public void testReportChecksumFailure() throws IOException {
     base.mkdirs();
     assertTrue(base.exists() && base.isDirectory());
@@ -407,15 +373,8 @@ public class TestLocalFileSystem {
     assertTrue(dataFileFound);
     assertTrue(checksumFileFound);
   }
-
-  private void checkTimesStatus(Path path,
-    long expectedModTime, long expectedAccTime) throws IOException {
-    FileStatus status = fileSys.getFileStatus(path);
-    assertEquals(expectedModTime, status.getModificationTime());
-    assertEquals(expectedAccTime, status.getAccessTime());
-  }
-
-  @Test
+  
+  @Test(timeout = 1000)
   public void testSetTimes() throws Exception {
     Path path = new Path(TEST_ROOT_DIR, "set-times");
     writeFile(fileSys, path, 1);
@@ -423,24 +382,15 @@ public class TestLocalFileSystem {
     // test only to the nearest second, as the raw FS may not
     // support millisecond timestamps
     long newModTime = 12345000;
-    long newAccTime = 23456000;
 
     FileStatus status = fileSys.getFileStatus(path);
     assertTrue("check we're actually changing something", newModTime != status.getModificationTime());
-    assertTrue("check we're actually changing something", newAccTime != status.getAccessTime());
-
-    fileSys.setTimes(path, newModTime, newAccTime);
-    checkTimesStatus(path, newModTime, newAccTime);
-
-    newModTime = 34567000;
+    long accessTime = status.getAccessTime();
 
     fileSys.setTimes(path, newModTime, -1);
-    checkTimesStatus(path, newModTime, newAccTime);
-
-    newAccTime = 45678000;
-
-    fileSys.setTimes(path, -1, newAccTime);
-    checkTimesStatus(path, newModTime, newAccTime);
+    status = fileSys.getFileStatus(path);
+    assertEquals(newModTime, status.getModificationTime());
+    assertEquals(accessTime, status.getAccessTime());
   }
 
   /**
@@ -605,172 +555,5 @@ public class TestLocalFileSystem {
     Path resolved = fs.resolvePath(pathWithFragment);
     assertEquals("resolvePath did not strip fragment from Path", pathQualified,
         resolved);
-  }
-
-  @Test
-  public void testAppendSetsPosCorrectly() throws Exception {
-    FileSystem fs = fileSys.getRawFileSystem();
-    Path file = new Path(TEST_ROOT_DIR, "test-append");
-
-    fs.delete(file, true);
-    FSDataOutputStream out = fs.create(file);
-
-    try {
-      out.write("text1".getBytes());
-    } finally {
-      out.close();
-    }
-
-    // Verify the position
-    out = fs.append(file);
-    try {
-      assertEquals(5, out.getPos());
-      out.write("text2".getBytes());
-    } finally {
-      out.close();
-    }
-
-    // Verify the content
-    FSDataInputStream in = fs.open(file);
-    try {
-      byte[] buf = new byte[in.available()];
-      in.readFully(buf);
-      assertEquals("text1text2", new String(buf));
-    } finally {
-      in.close();
-    }
-  }
-
-  @Test
-  public void testFileStatusPipeFile() throws Exception {
-    RawLocalFileSystem origFs = new RawLocalFileSystem();
-    RawLocalFileSystem fs = spy(origFs);
-    Configuration conf = mock(Configuration.class);
-    fs.setConf(conf);
-    Whitebox.setInternalState(fs, "useDeprecatedFileStatus", false);
-    Path path = new Path("/foo");
-    File pipe = mock(File.class);
-    when(pipe.isFile()).thenReturn(false);
-    when(pipe.isDirectory()).thenReturn(false);
-    when(pipe.exists()).thenReturn(true);
-
-    FileStatus stat = mock(FileStatus.class);
-    doReturn(pipe).when(fs).pathToFile(path);
-    doReturn(stat).when(fs).getFileStatus(path);
-    FileStatus[] stats = fs.listStatus(path);
-    assertTrue(stats != null && stats.length == 1 && stats[0] == stat);
-  }
-
-  @Test
-  public void testFSOutputStreamBuilder() throws Exception {
-    Path path = new Path(TEST_ROOT_DIR, "testBuilder");
-
-    try {
-      FSDataOutputStreamBuilder builder =
-          fileSys.createFile(path).recursive();
-      FSDataOutputStream out = builder.build();
-      String content = "Create with a generic type of createFile!";
-      byte[] contentOrigin = content.getBytes("UTF8");
-      out.write(contentOrigin);
-      out.close();
-
-      FSDataInputStream input = fileSys.open(path);
-      byte[] buffer =
-          new byte[(int) (fileSys.getFileStatus(path).getLen())];
-      input.readFully(0, buffer);
-      input.close();
-      Assert.assertArrayEquals("The data be read should equals with the "
-          + "data written.", contentOrigin, buffer);
-    } catch (IOException e) {
-      throw e;
-    }
-
-    // Test value not being set for replication, block size, buffer size
-    // and permission
-    FSDataOutputStreamBuilder builder =
-        fileSys.createFile(path);
-    builder.build();
-    Assert.assertEquals("Should be default block size",
-        builder.getBlockSize(), fileSys.getDefaultBlockSize());
-    Assert.assertEquals("Should be default replication factor",
-        builder.getReplication(), fileSys.getDefaultReplication());
-    Assert.assertEquals("Should be default buffer size",
-        builder.getBufferSize(),
-        fileSys.getConf().getInt(IO_FILE_BUFFER_SIZE_KEY,
-            IO_FILE_BUFFER_SIZE_DEFAULT));
-    Assert.assertEquals("Should be default permission",
-        builder.getPermission(), FsPermission.getFileDefault());
-
-    // Test set 0 to replication, block size and buffer size
-    builder = fileSys.createFile(path);
-    builder.bufferSize(0).blockSize(0).replication((short) 0);
-    Assert.assertEquals("Block size should be 0",
-        builder.getBlockSize(), 0);
-    Assert.assertEquals("Replication factor should be 0",
-        builder.getReplication(), 0);
-    Assert.assertEquals("Buffer size should be 0",
-        builder.getBufferSize(), 0);
-  }
-
-  /**
-   * A builder to verify configuration keys are supported.
-   */
-  private static class BuilderWithSupportedKeys
-      extends FSDataOutputStreamBuilder<FSDataOutputStream,
-      BuilderWithSupportedKeys> {
-
-    private final Set<String> supportedKeys = new HashSet<>();
-
-    BuilderWithSupportedKeys(@Nonnull final Collection<String> supportedKeys,
-        @Nonnull FileSystem fileSystem, @Nonnull Path p) {
-      super(fileSystem, p);
-      this.supportedKeys.addAll(supportedKeys);
-    }
-
-    @Override
-    protected BuilderWithSupportedKeys getThisBuilder() {
-      return this;
-    }
-
-    @Override
-    public FSDataOutputStream build()
-        throws IllegalArgumentException, IOException {
-      Set<String> unsupported = new HashSet<>(getMandatoryKeys());
-      unsupported.removeAll(supportedKeys);
-      Preconditions.checkArgument(unsupported.isEmpty(),
-          "unsupported key found: " + supportedKeys);
-      return getFS().create(
-          getPath(), getPermission(), getFlags(), getBufferSize(),
-          getReplication(), getBlockSize(), getProgress(), getChecksumOpt());
-    }
-  }
-
-  @Test
-  public void testFSOutputStreamBuilderOptions() throws Exception {
-    Path path = new Path(TEST_ROOT_DIR, "testBuilderOpt");
-    final List<String> supportedKeys = Arrays.asList("strM");
-
-    FSDataOutputStreamBuilder<?, ?> builder =
-        new BuilderWithSupportedKeys(supportedKeys, fileSys, path);
-    builder.opt("strKey", "value");
-    builder.opt("intKey", 123);
-    builder.opt("strM", "ignored");
-    // Over-write an optional value with a mandatory value.
-    builder.must("strM", "value");
-    builder.must("unsupported", 12.34);
-
-    assertEquals("Optional value should be overwrite by a mandatory value",
-        "value", builder.getOptions().get("strM"));
-
-    Set<String> mandatoryKeys = builder.getMandatoryKeys();
-    Set<String> expectedKeys = new HashSet<>();
-    expectedKeys.add("strM");
-    expectedKeys.add("unsupported");
-    assertEquals(expectedKeys, mandatoryKeys);
-    assertEquals(2, mandatoryKeys.size());
-
-    LambdaTestUtils.intercept(IllegalArgumentException.class,
-        "unsupported key found", builder::build
-    );
   }
 }

@@ -90,11 +90,9 @@ public class TestSafeMode {
   public void tearDown() throws IOException {
     if (fs != null) {
       fs.close();
-      fs = null;
     }
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 
@@ -200,7 +198,7 @@ public class TestSafeMode {
     
     String status = nn.getNamesystem().getSafemode();
     assertEquals("Safe mode is ON. The reported blocks 0 needs additional " +
-        "14 blocks to reach the threshold 0.9990 of total blocks 15." + NEWLINE +
+        "15 blocks to reach the threshold 0.9990 of total blocks 15." + NEWLINE +
         "The number of live datanodes 0 has reached the minimum number 0. " +
         "Safe mode will be turned off automatically once the thresholds " +
         "have been reached.", status);
@@ -216,12 +214,12 @@ public class TestSafeMode {
     GenericTestUtils.waitFor(new Supplier<Boolean>() {
       @Override
       public Boolean get() {
-        return getLongCounter("StorageBlockReportNumOps",
-            getMetrics(NN_METRICS)) == cluster.getStoragesPerDatanode();
+        return getLongCounter("StorageBlockReportOps", getMetrics(NN_METRICS)) ==
+            cluster.getStoragesPerDatanode();
       }
     }, 10, 10000);
 
-    final long safe = NameNodeAdapter.getSafeModeSafeBlocks(nn);
+    final int safe = NameNodeAdapter.getSafeModeSafeBlocks(nn);
     assertTrue("Expected first block report to make some blocks safe.", safe > 0);
     assertTrue("Did not expect first block report to make all blocks safe.", safe < 15);
 
@@ -297,34 +295,10 @@ public class TestSafeMode {
       fail(msg);
     } catch (RemoteException re) {
       assertEquals(SafeModeException.class.getName(), re.getClassName());
-      GenericTestUtils.assertExceptionContains("Name node is in safe mode", re);
-    } catch (SafeModeException ignored) {
+      GenericTestUtils.assertExceptionContains(
+          "Name node is in safe mode", re);
     } catch (IOException ioe) {
       fail(msg + " " + StringUtils.stringifyException(ioe));
-    }
-  }
-
-  @Test
-  public void testSafeModeExceptionText() throws Exception {
-    final Path file1 = new Path("/file1");
-    DFSTestUtil.createFile(fs, file1, 1024, (short)1, 0);
-    assertTrue("Could not enter SM",
-        dfs.setSafeMode(SafeModeAction.SAFEMODE_ENTER));
-    try {
-      FSRun fsRun = new FSRun() {
-        @Override
-        public void run(FileSystem fileSystem) throws IOException {
-          ((DistributedFileSystem)fileSystem).setQuota(file1, 1, 1);
-        }
-      };
-      fsRun.run(fs);
-      fail("Should not succeed with no exceptions!");
-    } catch (RemoteException re) {
-      assertEquals(SafeModeException.class.getName(), re.getClassName());
-      GenericTestUtils.assertExceptionContains(
-          NameNode.getServiceAddress(conf, true).getHostName(), re);
-    } catch (IOException ioe) {
-      fail("Encountered exception" + " " + StringUtils.stringifyException(ioe));
     }
   }
 
@@ -506,7 +480,6 @@ public class TestSafeMode {
    * Tests some utility methods that surround the SafeMode's state.
    * @throws IOException when there's an issue connecting to the test DFS.
    */
-  @Test
   public void testSafeModeUtils() throws IOException {
     dfs = cluster.getFileSystem();
 
@@ -579,7 +552,7 @@ public class TestSafeMode {
       if(cluster!= null) cluster.shutdown();
     }
   }
-
+  
   void checkGetBlockLocationsWorks(FileSystem fs, Path fileName) throws IOException {
     FileStatus stat = fs.getFileStatus(fileName);
     try {  
@@ -587,7 +560,7 @@ public class TestSafeMode {
     } catch (SafeModeException e) {
       assertTrue("Should have not got safemode exception", false);
     } catch (RemoteException re) {
-      assertTrue("Should have not got remote exception", false);
+      assertTrue("Should have not got safemode exception", false);   
     }    
   }
 }

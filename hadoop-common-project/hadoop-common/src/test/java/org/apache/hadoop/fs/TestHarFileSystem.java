@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.fs;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.permission.AclEntry;
 import org.apache.hadoop.fs.permission.AclStatus;
@@ -28,13 +30,10 @@ import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.util.Progressable;
 import org.junit.Assert;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
@@ -48,14 +47,14 @@ import static org.junit.Assert.assertTrue;
 
 @SuppressWarnings("deprecation")
 public class TestHarFileSystem {
-  public static final Logger LOG =
-      LoggerFactory.getLogger(TestHarFileSystem.class);
+  public static final Log LOG = LogFactory.getLog(TestHarFileSystem.class);
 
   /**
    * FileSystem methods that must not be overwritten by
    * {@link HarFileSystem}. Either because there is a default implementation
    * already available or because it is not relevant.
    */
+  @SuppressWarnings("deprecation")
   private interface MustNotImplement {
     public BlockLocation[] getFileBlockLocations(Path p, long start, long len);
     public long getLength(Path f);
@@ -113,10 +112,8 @@ public class TestHarFileSystem {
     public short getReplication(Path src);
     public void processDeleteOnExit();
     public ContentSummary getContentSummary(Path f);
-    public QuotaUsage getQuotaUsage(Path f);
     public FsStatus getStatus();
     public FileStatus[] listStatus(Path f, PathFilter filter);
-    public FileStatus[] listStatusBatch(Path f, byte[] token);
     public FileStatus[] listStatus(Path[] files);
     public FileStatus[] listStatus(Path[] files, PathFilter filter);
     public FileStatus[] globStatus(Path pathPattern);
@@ -208,22 +205,6 @@ public class TestHarFileSystem {
     public AclStatus getAclStatus(Path path) throws IOException;
 
     public void access(Path path, FsAction mode) throws IOException;
-
-    public void setStoragePolicy(Path src, String policyName)
-        throws IOException;
-
-    public void unsetStoragePolicy(Path src) throws IOException;
-
-    public BlockStoragePolicySpi getStoragePolicy(final Path src)
-        throws IOException;
-
-    public Collection<? extends BlockStoragePolicySpi> getAllStoragePolicies()
-        throws IOException;
-
-    public Path getTrashRoot(Path path) throws IOException;
-
-    public Collection<FileStatus> getTrashRoots(boolean allUsers) throws IOException;
-    StorageStatistics getStorageStatistics();
   }
 
   @Test

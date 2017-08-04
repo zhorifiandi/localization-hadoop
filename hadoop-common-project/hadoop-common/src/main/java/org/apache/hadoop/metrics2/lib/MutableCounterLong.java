@@ -34,7 +34,7 @@ public class MutableCounterLong extends MutableCounter {
 
   private AtomicLong value = new AtomicLong();
 
-  public MutableCounterLong(MetricsInfo info, long initValue) {
+  MutableCounterLong(MetricsInfo info, long initValue) {
     super(info);
     this.value.set(initValue);
   }

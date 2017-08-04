@@ -36,7 +36,6 @@ import org.apache.hadoop.mapreduce.v2.api.records.TaskId;
 import org.apache.hadoop.mapreduce.v2.api.records.TaskType;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.AccessControlList;
-import org.apache.hadoop.yarn.api.records.Priority;
 
 
 /**
@@ -101,5 +100,4 @@ public interface Job {
   boolean checkAccess(UserGroupInformation callerUGI, JobACL jobOperation);
   
   public void setQueueName(String queueName);
-  public void setJobPriority(Priority priority);
 }

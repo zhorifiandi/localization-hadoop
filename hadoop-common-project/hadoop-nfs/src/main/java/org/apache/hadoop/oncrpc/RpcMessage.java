@@ -22,7 +22,7 @@ package org.apache.hadoop.oncrpc;
  */
 public abstract class RpcMessage {
   /** Message type */
-  public enum Type {
+  public static enum Type {
     // the order of the values below are significant.
     RPC_CALL,
     RPC_REPLY;

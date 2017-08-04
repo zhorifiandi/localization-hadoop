@@ -19,6 +19,7 @@
 package org.apache.hadoop.util.curator;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Sets;
 import org.apache.curator.framework.recipes.locks.Reaper;
 import org.apache.curator.utils.CloseableUtils;
 import org.apache.curator.framework.CuratorFramework;
@@ -33,7 +34,6 @@ import org.slf4j.LoggerFactory;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -82,7 +82,7 @@ public class ChildReaper implements Closeable
    * @since 15.0
    */
   public static <E> Set<E> newConcurrentHashSet() {
-    return Collections.newSetFromMap(new ConcurrentHashMap<E, Boolean>());
+    return Sets.newSetFromMap(new ConcurrentHashMap<E, Boolean>());
   }
 
   private enum State

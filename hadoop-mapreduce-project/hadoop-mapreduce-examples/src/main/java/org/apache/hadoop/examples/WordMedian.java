@@ -1,3 +1,5 @@
+package org.apache.hadoop.examples;
+
 /**
  * Licensed to the Apache Software Foundation (ASF) under one
  * or more contributor license agreements.  See the NOTICE file
@@ -15,8 +17,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-package org.apache.hadoop.examples;
 
 import java.io.BufferedReader;
 import java.io.IOException;

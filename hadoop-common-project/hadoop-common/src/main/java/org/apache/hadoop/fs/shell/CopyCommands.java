@@ -26,11 +26,7 @@ import java.net.URISyntaxException;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.TimeUnit;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.FSDataInputStream;
@@ -57,29 +53,24 @@ class CopyCommands {
   /** merge multiple files together */
   public static class Merge extends FsCommand {
     public static final String NAME = "getmerge";    
-    public static final String USAGE = "[-nl] [-skip-empty-file] "
-        + "<src> <localdst>";
+    public static final String USAGE = "[-nl] <src> <localdst>";
     public static final String DESCRIPTION =
-        "Get all the files in the directories that "
-        + "match the source file pattern and merge and sort them to only "
-        + "one file on local fs. <src> is kept.\n"
-        + "-nl: Add a newline character at the end of each file.\n"
-        + "-skip-empty-file: Do not add new line character for empty file.";
+      "Get all the files in the directories that " +
+      "match the source file pattern and merge and sort them to only " +
+      "one file on local fs. <src> is kept.\n" +
+      "-nl: Add a newline character at the end of each file.";
 
     protected PathData dst = null;
     protected String delimiter = null;
-    private boolean skipEmptyFileDelimiter;
     protected List<PathData> srcs = null;
 
     @Override
     protected void processOptions(LinkedList<String> args) throws IOException {
       try {
-        CommandFormat cf = new CommandFormat(2, Integer.MAX_VALUE, "nl",
-            "skip-empty-file");
+        CommandFormat cf = new CommandFormat(2, Integer.MAX_VALUE, "nl");
         cf.parse(args);
 
         delimiter = cf.getOpt("nl") ? "\n" : null;
-        skipEmptyFileDelimiter = cf.getOpt("skip-empty-file");
 
         dst = new PathData(new URI(args.removeLast()), getConf());
         if (dst.exists && dst.stat.isDirectory()) {
@@ -101,26 +92,21 @@ class CopyCommands {
       FSDataOutputStream out = dst.fs.create(dst.path);
       try {
         for (PathData src : srcs) {
-          if (src.stat.getLen() != 0) {
-            try (FSDataInputStream in = src.fs.open(src.path)) {
-              IOUtils.copyBytes(in, out, getConf(), false);
-              writeDelimiter(out);
+          FSDataInputStream in = src.fs.open(src.path);
+          try {
+            IOUtils.copyBytes(in, out, getConf(), false);
+            if (delimiter != null) {
+              out.write(delimiter.getBytes("UTF-8"));
             }
-          } else if (!skipEmptyFileDelimiter) {
-            writeDelimiter(out);
+          } finally {
+            in.close();
           }
         }
       } finally {
         out.close();
-      }
+      }      
     }
-
-    private void writeDelimiter(FSDataOutputStream out) throws IOException {
-      if (delimiter != null) {
-        out.write(delimiter.getBytes("UTF-8"));
-      }
-    }
-
+ 
     @Override
     protected void processNonexistentPath(PathData item) throws IOException {
       exitCode = 1; // flag that a path is bad
@@ -147,8 +133,7 @@ class CopyCommands {
 
   static class Cp extends CommandWithDestination {
     public static final String NAME = "cp";
-    public static final String USAGE =
-        "[-f] [-p | -p[topax]] [-d] <src> ... <dst>";
+    public static final String USAGE = "[-f] [-p | -p[topax]] <src> ... <dst>";
     public static final String DESCRIPTION =
       "Copy files that match the file pattern <src> to a " +
       "destination.  When copying multiple files, the destination " +
@@ -162,15 +147,13 @@ class CopyCommands {
       "if (1) they are supported (HDFS only) and, (2) all of the source and " +
       "target pathnames are in the /.reserved/raw hierarchy. raw namespace " +
       "xattr preservation is determined solely by the presence (or absence) " +
-        "of the /.reserved/raw prefix and not by the -p option. Passing -d "+
-        "will skip creation of temporary file(<dst>._COPYING_).\n";
+      "of the /.reserved/raw prefix and not by the -p option.\n";
 
     @Override
     protected void processOptions(LinkedList<String> args) throws IOException {
       popPreserveOption(args);
-      CommandFormat cf = new CommandFormat(2, Integer.MAX_VALUE, "f", "d");
+      CommandFormat cf = new CommandFormat(2, Integer.MAX_VALUE, "f");
       cf.parse(args);
-      setDirectWrite(cf.getOpt("d"));
       setOverwrite(cf.getOpt("f"));
       // should have a -r option
       setRecursive(true);
@@ -205,12 +188,11 @@ class CopyCommands {
   public static class Get extends CommandWithDestination {
     public static final String NAME = "get";
     public static final String USAGE =
-      "[-f] [-p] [-ignoreCrc] [-crc] <src> ... <localdst>";
+      "[-p] [-ignoreCrc] [-crc] <src> ... <localdst>";
     public static final String DESCRIPTION =
       "Copy files that match the file pattern <src> " +
       "to the local name.  <src> is kept.  When copying multiple " +
       "files, the destination must be a directory. Passing " +
-      "-f overwrites the destination if it already exists and " +
       "-p preserves access and modification times, " +
       "ownership and the mode.\n";
 
@@ -218,12 +200,11 @@ class CopyCommands {
     protected void processOptions(LinkedList<String> args)
     throws IOException {
       CommandFormat cf = new CommandFormat(
-          1, Integer.MAX_VALUE, "crc", "ignoreCrc", "p", "f");
+          1, Integer.MAX_VALUE, "crc", "ignoreCrc", "p");
       cf.parse(args);
       setWriteChecksum(cf.getOpt("crc"));
       setVerifyChecksum(!cf.getOpt("ignoreCrc"));
       setPreserve(cf.getOpt("p"));
-      setOverwrite(cf.getOpt("f"));
       setRecursive(true);
       getLocalDestination(args);
     }
@@ -234,8 +215,7 @@ class CopyCommands {
    */
   public static class Put extends CommandWithDestination {
     public static final String NAME = "put";
-    public static final String USAGE =
-        "[-f] [-p] [-l] [-d] <localsrc> ... <dst>";
+    public static final String USAGE = "[-f] [-p] [-l] <localsrc> ... <dst>";
     public static final String DESCRIPTION =
       "Copy files from the local file system " +
       "into fs. Copying fails if the file already " +
@@ -245,18 +225,15 @@ class CopyCommands {
       "  -f : Overwrites the destination if it already exists.\n" +
       "  -l : Allow DataNode to lazily persist the file to disk. Forces\n" +
       "       replication factor of 1. This flag will result in reduced\n" +
-      "       durability. Use with care.\n" +
-        "  -d : Skip creation of temporary file(<dst>._COPYING_).\n";
+      "       durability. Use with care.\n";
 
     @Override
     protected void processOptions(LinkedList<String> args) throws IOException {
-      CommandFormat cf =
-          new CommandFormat(1, Integer.MAX_VALUE, "f", "p", "l", "d");
+      CommandFormat cf = new CommandFormat(1, Integer.MAX_VALUE, "f", "p", "l");
       cf.parse(args);
       setOverwrite(cf.getOpt("f"));
       setPreserve(cf.getOpt("p"));
       setLazyPersist(cf.getOpt("l"));
-      setDirectWrite(cf.getOpt("d"));
       getRemoteDestination(args);
       // should have a -r option
       setRecursive(true);
@@ -292,113 +269,9 @@ class CopyCommands {
   }
 
   public static class CopyFromLocal extends Put {
-    private ThreadPoolExecutor executor = null;
-    private int numThreads = 1;
-
-    private static final int MAX_THREADS =
-        Runtime.getRuntime().availableProcessors() * 2;
     public static final String NAME = "copyFromLocal";
-    public static final String USAGE =
-        "[-f] [-p] [-l] [-d] [-t <thread count>] <localsrc> ... <dst>";
-    public static final String DESCRIPTION =
-        "Copy files from the local file system " +
-        "into fs. Copying fails if the file already " +
-        "exists, unless the -f flag is given.\n" +
-        "Flags:\n" +
-        "  -p : Preserves access and modification times, ownership and the" +
-        " mode.\n" +
-        "  -f : Overwrites the destination if it already exists.\n" +
-        "  -t <thread count> : Number of threads to be used, default is 1.\n" +
-        "  -l : Allow DataNode to lazily persist the file to disk. Forces" +
-        " replication factor of 1. This flag will result in reduced" +
-        " durability. Use with care.\n" +
-        "  -d : Skip creation of temporary file(<dst>._COPYING_).\n";
-
-    private void setNumberThreads(String numberThreadsString) {
-      if (numberThreadsString == null) {
-        numThreads = 1;
-      } else {
-        int parsedValue = Integer.parseInt(numberThreadsString);
-        if (parsedValue <= 1) {
-          numThreads = 1;
-        } else if (parsedValue > MAX_THREADS) {
-          numThreads = MAX_THREADS;
-        } else {
-          numThreads = parsedValue;
-        }
-      }
-    }
-
-    @Override
-    protected void processOptions(LinkedList<String> args) throws IOException {
-      CommandFormat cf =
-          new CommandFormat(1, Integer.MAX_VALUE, "f", "p", "l", "d");
-      cf.addOptionWithValue("t");
-      cf.parse(args);
-      setNumberThreads(cf.getOptValue("t"));
-      setOverwrite(cf.getOpt("f"));
-      setPreserve(cf.getOpt("p"));
-      setLazyPersist(cf.getOpt("l"));
-      setDirectWrite(cf.getOpt("d"));
-      getRemoteDestination(args);
-      // should have a -r option
-      setRecursive(true);
-    }
-
-    private void copyFile(PathData src, PathData target) throws IOException {
-      if (isPathRecursable(src)) {
-        throw new PathIsDirectoryException(src.toString());
-      }
-      super.copyFileToTarget(src, target);
-    }
-
-    @Override
-    protected void copyFileToTarget(PathData src, PathData target)
-        throws IOException {
-      // if number of thread is 1, mimic put and avoid threading overhead
-      if (numThreads == 1) {
-        copyFile(src, target);
-        return;
-      }
-
-      Runnable task = () -> {
-        try {
-          copyFile(src, target);
-        } catch (IOException e) {
-          displayError(e);
-        }
-      };
-      executor.submit(task);
-    }
-
-    @Override
-    protected void processArguments(LinkedList<PathData> args)
-        throws IOException {
-      executor = new ThreadPoolExecutor(numThreads, numThreads, 1,
-          TimeUnit.SECONDS, new ArrayBlockingQueue<>(1024),
-          new ThreadPoolExecutor.CallerRunsPolicy());
-      super.processArguments(args);
-
-      // issue the command and then wait for it to finish
-      executor.shutdown();
-      try {
-        executor.awaitTermination(Long.MAX_VALUE, TimeUnit.MINUTES);
-      } catch (InterruptedException e) {
-        executor.shutdownNow();
-        displayError(e);
-        Thread.currentThread().interrupt();
-      }
-    }
-
-    @VisibleForTesting
-    public int getNumThreads() {
-      return numThreads;
-    }
-
-    @VisibleForTesting
-    public ThreadPoolExecutor getExecutor() {
-      return executor;
-    }
+    public static final String USAGE = Put.USAGE;
+    public static final String DESCRIPTION = "Identical to the -put command.";
   }
  
   public static class CopyToLocal extends Get {

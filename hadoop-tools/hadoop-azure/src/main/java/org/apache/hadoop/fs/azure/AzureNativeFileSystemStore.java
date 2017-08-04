@@ -19,12 +19,13 @@
 package org.apache.hadoop.fs.azure;
 import static org.apache.hadoop.fs.azure.NativeAzureFileSystem.PATH_DELIMITER;
 
+import java.io.BufferedInputStream;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
-import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
@@ -32,16 +33,20 @@ import java.net.URLEncoder;
 import java.security.InvalidKeyException;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -50,17 +55,14 @@ import org.apache.hadoop.fs.azure.StorageInterface.CloudBlobDirectoryWrapper;
 import org.apache.hadoop.fs.azure.StorageInterface.CloudBlobWrapper;
 import org.apache.hadoop.fs.azure.StorageInterface.CloudBlockBlobWrapper;
 import org.apache.hadoop.fs.azure.StorageInterface.CloudPageBlobWrapper;
+import org.apache.hadoop.fs.azure.StorageInterfaceImpl.CloudPageBlobWrapperImpl;
 import org.apache.hadoop.fs.azure.metrics.AzureFileSystemInstrumentation;
 import org.apache.hadoop.fs.azure.metrics.BandwidthGaugeUpdater;
 import org.apache.hadoop.fs.azure.metrics.ErrorMetricUpdater;
 import org.apache.hadoop.fs.azure.metrics.ResponseReceivedMetricUpdater;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
-import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.util.VersionInfo;
-import org.eclipse.jetty.util.ajax.JSON;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.mortbay.util.ajax.JSON;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.microsoft.azure.storage.CloudStorageAccount;
@@ -72,14 +74,9 @@ import com.microsoft.azure.storage.StorageCredentialsAccountAndKey;
 import com.microsoft.azure.storage.StorageCredentialsSharedAccessSignature;
 import com.microsoft.azure.storage.StorageErrorCode;
 import com.microsoft.azure.storage.StorageException;
-import com.microsoft.azure.storage.Constants;
-import com.microsoft.azure.storage.StorageEvent;
-import com.microsoft.azure.storage.core.BaseRequest;
-import com.microsoft.azure.storage.SendingRequestEvent;
 import com.microsoft.azure.storage.blob.BlobListingDetails;
 import com.microsoft.azure.storage.blob.BlobProperties;
 import com.microsoft.azure.storage.blob.BlobRequestOptions;
-import com.microsoft.azure.storage.blob.BlobType;
 import com.microsoft.azure.storage.blob.CloudBlob;
 import com.microsoft.azure.storage.blob.CopyStatus;
 import com.microsoft.azure.storage.blob.DeleteSnapshotsOption;
@@ -88,13 +85,13 @@ import com.microsoft.azure.storage.core.Utility;
 
 /**
  * Core implementation of Windows Azure Filesystem for Hadoop.
- * Provides the bridging logic between Hadoop's abstract filesystem and Azure Storage
+ * Provides the bridging logic between Hadoop's abstract filesystem and Azure Storage 
  *
  */
 @InterfaceAudience.Private
 @VisibleForTesting
 public class AzureNativeFileSystemStore implements NativeFileSystemStore {
-
+  
   /**
    * Configuration knob on whether we do block-level MD5 validation on
    * upload/download.
@@ -107,13 +104,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   static final String DEFAULT_STORAGE_EMULATOR_ACCOUNT_NAME = "storageemulator";
   static final String STORAGE_EMULATOR_ACCOUNT_NAME_PROPERTY_NAME = "fs.azure.storage.emulator.account.name";
 
-  /**
-   * Configuration for User-Agent field.
-   */
-  static final String USER_AGENT_ID_KEY = "fs.azure.user.agent.prefix";
-  static final String USER_AGENT_ID_DEFAULT = "unknown";
-
-  public static final Logger LOG = LoggerFactory.getLogger(AzureNativeFileSystemStore.class);
+  public static final Log LOG = LogFactory
+      .getLog(AzureNativeFileSystemStore.class);
 
   private StorageInterface storageInteractionLayer;
   private CloudBlobDirectoryWrapper rootDirectory;
@@ -131,8 +123,6 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   private static final String KEY_STREAM_MIN_READ_SIZE = "fs.azure.read.request.size";
   private static final String KEY_STORAGE_CONNECTION_TIMEOUT = "fs.azure.storage.timeout";
   private static final String KEY_WRITE_BLOCK_SIZE = "fs.azure.write.request.size";
-  @VisibleForTesting
-  static final String KEY_INPUT_STREAM_VERSION = "fs.azure.input.stream.version.for.internal.use.only";
 
   // Property controlling whether to allow reads on blob which are concurrently
   // appended out-of-band.
@@ -144,38 +134,19 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   private static final String KEY_MAX_BACKOFF_INTERVAL = "fs.azure.io.retry.max.backoff.interval";
   private static final String KEY_BACKOFF_INTERVAL = "fs.azure.io.retry.backoff.interval";
   private static final String KEY_MAX_IO_RETRIES = "fs.azure.io.retry.max.retries";
-
-  private static final String KEY_COPYBLOB_MIN_BACKOFF_INTERVAL =
+  
+  private static final String KEY_COPYBLOB_MIN_BACKOFF_INTERVAL = 
     "fs.azure.io.copyblob.retry.min.backoff.interval";
-  private static final String KEY_COPYBLOB_MAX_BACKOFF_INTERVAL =
+  private static final String KEY_COPYBLOB_MAX_BACKOFF_INTERVAL = 
     "fs.azure.io.copyblob.retry.max.backoff.interval";
-  private static final String KEY_COPYBLOB_BACKOFF_INTERVAL =
+  private static final String KEY_COPYBLOB_BACKOFF_INTERVAL = 
     "fs.azure.io.copyblob.retry.backoff.interval";
-  private static final String KEY_COPYBLOB_MAX_IO_RETRIES =
-    "fs.azure.io.copyblob.retry.max.retries";
+  private static final String KEY_COPYBLOB_MAX_IO_RETRIES = 
+    "fs.azure.io.copyblob.retry.max.retries";  
 
   private static final String KEY_SELF_THROTTLE_ENABLE = "fs.azure.selfthrottling.enable";
   private static final String KEY_SELF_THROTTLE_READ_FACTOR = "fs.azure.selfthrottling.read.factor";
   private static final String KEY_SELF_THROTTLE_WRITE_FACTOR = "fs.azure.selfthrottling.write.factor";
-
-  private static final String KEY_AUTO_THROTTLE_ENABLE = "fs.azure.autothrottling.enable";
-
-  private static final String KEY_ENABLE_STORAGE_CLIENT_LOGGING = "fs.azure.storage.client.logging";
-
-  /**
-   * Configuration keys to identify if WASB needs to run in Secure mode. In Secure mode
-   * all interactions with Azure storage is performed using SAS uris. There are two sub modes
-   * within the Secure mode , one is remote SAS key mode where the SAS keys are generated
-   * from a remote process and local mode where SAS keys are generated within WASB.
-   */
-  @VisibleForTesting
-  public static final String KEY_USE_SECURE_MODE = "fs.azure.secure.mode";
-
-  /**
-   * By default the SAS Key mode is expected to run in Romote key mode. This flags sets it
-   * to run on the local mode.
-   */
-  public static final String KEY_USE_LOCAL_SAS_KEY_MODE = "fs.azure.local.sas.key.mode";
 
   private static final String PERMISSION_METADATA_KEY = "hdi_permission";
   private static final String OLD_PERMISSION_METADATA_KEY = "asv_permission";
@@ -201,19 +172,13 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * The set of directories where we should store files as page blobs.
    */
   private Set<String> pageBlobDirs;
-
+  
   /**
    * Configuration key to indicate the set of directories in WASB where
    * we should do atomic folder rename synchronized with createNonRecursive.
    */
   public static final String KEY_ATOMIC_RENAME_DIRECTORIES =
       "fs.azure.atomic.rename.dir";
-
-  /**
-   * Configuration key to enable flat listing of blobs. This config is useful
-   * only if listing depth is AZURE_UNBOUNDED_DEPTH.
-   */
-  public static final String KEY_ENABLE_FLAT_LISTING = "fs.azure.flatlist.enable";
 
   /**
    * The set of directories where we should apply atomic folder rename
@@ -236,20 +201,18 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   public static final int DEFAULT_DOWNLOAD_BLOCK_SIZE = 4 * 1024 * 1024;
   public static final int DEFAULT_UPLOAD_BLOCK_SIZE = 4 * 1024 * 1024;
 
-  private static final int DEFAULT_INPUT_STREAM_VERSION = 2;
-
   // Retry parameter defaults.
   //
 
-  private static final int DEFAULT_MIN_BACKOFF_INTERVAL = 3 * 1000; // 1s
+  private static final int DEFAULT_MIN_BACKOFF_INTERVAL = 1 * 1000; // 1s
   private static final int DEFAULT_MAX_BACKOFF_INTERVAL = 30 * 1000; // 30s
-  private static final int DEFAULT_BACKOFF_INTERVAL = 3 * 1000; // 1s
-  private static final int DEFAULT_MAX_RETRY_ATTEMPTS = 30;
-
+  private static final int DEFAULT_BACKOFF_INTERVAL = 1 * 1000; // 1s
+  private static final int DEFAULT_MAX_RETRY_ATTEMPTS = 15;
+  
   private static final int DEFAULT_COPYBLOB_MIN_BACKOFF_INTERVAL = 3  * 1000;
   private static final int DEFAULT_COPYBLOB_MAX_BACKOFF_INTERVAL = 90 * 1000;
   private static final int DEFAULT_COPYBLOB_BACKOFF_INTERVAL = 30 * 1000;
-  private static final int DEFAULT_COPYBLOB_MAX_RETRY_ATTEMPTS = 15;
+  private static final int DEFAULT_COPYBLOB_MAX_RETRY_ATTEMPTS = 15;  
 
   // Self-throttling defaults. Allowed range = (0,1.0]
   // Value of 1.0 means no self-throttling.
@@ -258,22 +221,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   private static final float DEFAULT_SELF_THROTTLE_READ_FACTOR = 1.0f;
   private static final float DEFAULT_SELF_THROTTLE_WRITE_FACTOR = 1.0f;
 
-  private static final boolean DEFAULT_AUTO_THROTTLE_ENABLE = false;
-
   private static final int STORAGE_CONNECTION_TIMEOUT_DEFAULT = 90;
 
-  /**
-   * Default values to control SAS Key mode.
-   * By default we set the values to false.
-   */
-  public static final boolean DEFAULT_USE_SECURE_MODE = false;
-  private static final boolean DEFAULT_USE_LOCAL_SAS_KEY_MODE = false;
-
-  /**
-   * Enable flat listing of blobs as default option. This is useful only if
-   * listing depth is AZURE_UNBOUNDED_DEPTH.
-   */
-  public static final boolean DEFAULT_ENABLE_FLAT_LISTING = false;
 
   /**
    * MEMBER VARIABLES
@@ -287,7 +236,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   private boolean connectingUsingSAS = false;
   private AzureFileSystemInstrumentation instrumentation;
   private BandwidthGaugeUpdater bandwidthGaugeUpdater;
-  private static final JSON PERMISSION_JSON_SERIALIZER = createPermissionJsonSerializer();
+  private final static JSON PERMISSION_JSON_SERIALIZER = createPermissionJsonSerializer();
 
   private boolean suppressRetryPolicy = false;
   private boolean canCreateOrModifyContainer = false;
@@ -298,7 +247,6 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   private int downloadBlockSizeBytes = DEFAULT_DOWNLOAD_BLOCK_SIZE;
   private int uploadBlockSizeBytes = DEFAULT_UPLOAD_BLOCK_SIZE;
-  private int inputStreamVersion = DEFAULT_INPUT_STREAM_VERSION;
 
   // Bandwidth throttling exponential back-off parameters
   //
@@ -312,34 +260,16 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   private float selfThrottlingReadFactor;
   private float selfThrottlingWriteFactor;
 
-  private boolean autoThrottlingEnabled;
-
   private TestHookOperationContext testHookOperationContext = null;
 
   // Set if we're running against a storage emulator..
   private boolean isStorageEmulator = false;
 
-  // Configs controlling WASB SAS key mode.
-  private boolean useSecureMode = false;
-  private boolean useLocalSasKeyMode = false;
-
-  // User-Agent
-  private String userAgentId;
-
-  private String delegationToken;
-
-  /** The error message template when container is not accessible. */
-  static final String NO_ACCESS_TO_CONTAINER_MSG = "No credentials found for "
-      + "account %s in the configuration, and its container %s is not "
-      + "accessible using anonymous credentials. Please check if the container "
-      + "exists first. If it is not publicly available, you have to provide "
-      + "account credentials.";
-
   /**
    * A test hook interface that can modify the operation context we use for
    * Azure Storage operations, e.g. to inject errors.
    */
-  @VisibleForTesting
+  @VisibleForTesting 
   interface TestHookOperationContext {
     OperationContext modifyOperationContext(OperationContext original);
   }
@@ -356,11 +286,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   /**
    * Add a test hook to modify the operation context we use for Azure Storage
    * operations.
-   *
+   * 
    * @param testHook
    *          The test hook, or null to unset previous hooks.
    */
-  @VisibleForTesting
+  @VisibleForTesting 
   void addTestHookToOperationContext(TestHookOperationContext testHook) {
     this.testHookOperationContext = testHook;
   }
@@ -378,7 +308,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   /**
    * Creates a JSON serializer that can serialize a PermissionStatus object into
    * the JSON string we want in the blob metadata.
-   *
+   * 
    * @return The JSON serializer.
    */
   private static JSON createPermissionJsonSerializer() {
@@ -445,7 +375,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   /**
    * Check if concurrent reads and writes on the same blob are allowed.
-   *
+   * 
    * @return true if concurrent reads and OOB writes has been configured, false
    *         otherwise.
    */
@@ -457,22 +387,26 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * Method for the URI and configuration object necessary to create a storage
    * session with an Azure session. It parses the scheme to ensure it matches
    * the storage protocol supported by this file system.
-   *
+   * 
    * @param uri - URI for target storage blob.
    * @param conf - reference to configuration object.
    * @param instrumentation - the metrics source that will keep track of operations here.
-   *
+   * 
    * @throws IllegalArgumentException if URI or job object is null, or invalid scheme.
    */
   @Override
   public void initialize(URI uri, Configuration conf, AzureFileSystemInstrumentation instrumentation)
       throws IllegalArgumentException, AzureException, IOException  {
-
+    
     if (null == instrumentation) {
       throw new IllegalArgumentException("Null instrumentation");
     }
     this.instrumentation = instrumentation;
 
+    if (null == this.storageInteractionLayer) {
+      this.storageInteractionLayer = new StorageInterfaceImpl();
+    }
+    
     // Check that URI exists.
     //
     if (null == uri) {
@@ -487,7 +421,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
           "Cannot initialize WASB file system, conf is null");
     }
 
-    if (!conf.getBoolean(
+    if(!conf.getBoolean(
         NativeAzureFileSystem.SKIP_AZURE_METRICS_PROPERTY_NAME, false)) {
       //If not skip azure metrics, create bandwidthGaugeUpdater
       this.bandwidthGaugeUpdater = new BandwidthGaugeUpdater(instrumentation);
@@ -499,33 +433,13 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     sessionUri = uri;
     sessionConfiguration = conf;
 
-    useSecureMode = conf.getBoolean(KEY_USE_SECURE_MODE,
-        DEFAULT_USE_SECURE_MODE);
-    useLocalSasKeyMode = conf.getBoolean(KEY_USE_LOCAL_SAS_KEY_MODE,
-        DEFAULT_USE_LOCAL_SAS_KEY_MODE);
-
-    if (null == this.storageInteractionLayer) {
-      if (!useSecureMode) {
-        this.storageInteractionLayer = new StorageInterfaceImpl();
-      } else {
-        this.storageInteractionLayer = new SecureStorageInterfaceImpl(
-            useLocalSasKeyMode, conf);
-      }
-    }
-
-    // Configure Azure storage session.
-    configureAzureStorageSession();
-
     // Start an Azure storage session.
     //
     createAzureStorageSession();
 
     // Extract the directories that should contain page blobs
     pageBlobDirs = getDirectorySet(KEY_PAGE_BLOB_DIRECTORIES);
-    LOG.debug("Page blob directories:  {}", setToString(pageBlobDirs));
-
-    // User-agent
-    userAgentId = conf.get(USER_AGENT_ID_KEY, USER_AGENT_ID_DEFAULT);
+    LOG.debug("Page blob directories:  " + setToString(pageBlobDirs));
 
     // Extract directories that should have atomic rename applied.
     atomicRenameDirs = getDirectorySet(KEY_ATOMIC_RENAME_DIRECTORIES);
@@ -535,13 +449,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       // Add to this the hbase root directory, or /hbase is that is not set.
       hbaseRoot = verifyAndConvertToStandardFormat(
           sessionConfiguration.get("hbase.rootdir", "hbase"));
-      if (hbaseRoot != null) {
-        atomicRenameDirs.add(hbaseRoot);
-      }
+      atomicRenameDirs.add(hbaseRoot);
     } catch (URISyntaxException e) {
       LOG.warn("Unable to initialize HBase root as an atomic rename directory.");
     }
-    LOG.debug("Atomic rename directories: {} ", setToString(atomicRenameDirs));
+    LOG.debug("Atomic rename directories:  " + setToString(atomicRenameDirs));
   }
 
   /**
@@ -562,7 +474,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   /**
    * Method to extract the account name from an Azure URI.
-   *
+   * 
    * @param uri
    *          -- WASB blob URI
    * @returns accountName -- the account name for the URI.
@@ -613,7 +525,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   /**
    * Method to extract the container name from an Azure URI.
-   *
+   * 
    * @param uri
    *          -- WASB blob URI
    * @returns containerName -- the container name for the URI. May be null.
@@ -664,15 +576,15 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   /**
    * Get the appropriate return the appropriate scheme for communicating with
    * Azure depending on whether wasb or wasbs is specified in the target URI.
-   *
+   * 
    * return scheme - HTTPS or HTTP as appropriate.
    */
   private String getHTTPScheme() {
     String sessionScheme = sessionUri.getScheme();
     // Check if we're on a secure URI scheme: wasbs or the legacy asvs scheme.
-    if (sessionScheme != null
-        && (sessionScheme.equalsIgnoreCase("asvs")
-         || sessionScheme.equalsIgnoreCase("wasbs"))) {
+    if (sessionScheme != null &&
+        (sessionScheme.equalsIgnoreCase("asvs") ||
+         sessionScheme.equalsIgnoreCase("wasbs"))) {
       return HTTPS_SCHEME;
     } else {
       // At this point the scheme should be either null or asv or wasb.
@@ -686,7 +598,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   /**
    * Set the configuration parameters for this client storage session with
    * Azure.
-   *
+   * 
    * @throws AzureException
    */
   private void configureAzureStorageSession() throws AzureException {
@@ -717,9 +629,6 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         KEY_STREAM_MIN_READ_SIZE, DEFAULT_DOWNLOAD_BLOCK_SIZE);
     this.uploadBlockSizeBytes = sessionConfiguration.getInt(
         KEY_WRITE_BLOCK_SIZE, DEFAULT_UPLOAD_BLOCK_SIZE);
-
-    this.inputStreamVersion = sessionConfiguration.getInt(
-        KEY_INPUT_STREAM_VERSION, DEFAULT_INPUT_STREAM_VERSION);
 
     // The job may want to specify a timeout to use when engaging the
     // storage service. The default is currently 90 seconds. It may
@@ -772,36 +681,24 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     selfThrottlingWriteFactor = sessionConfiguration.getFloat(
         KEY_SELF_THROTTLE_WRITE_FACTOR, DEFAULT_SELF_THROTTLE_WRITE_FACTOR);
 
-    if (!selfThrottlingEnabled) {
-      autoThrottlingEnabled = sessionConfiguration.getBoolean(
-          KEY_AUTO_THROTTLE_ENABLE,
-          DEFAULT_AUTO_THROTTLE_ENABLE);
-      if (autoThrottlingEnabled) {
-        ClientThrottlingIntercept.initializeSingleton();
-      }
-    } else {
-      // cannot enable both self-throttling and client-throttling
-      autoThrottlingEnabled = false;
+    if (LOG.isDebugEnabled()) {
+      LOG.debug(String
+          .format(
+              "AzureNativeFileSystemStore init. Settings=%d,%b,%d,{%d,%d,%d,%d},{%b,%f,%f}",
+              concurrentWrites, tolerateOobAppends,
+              ((storageConnectionTimeout > 0) ? storageConnectionTimeout
+                  : STORAGE_CONNECTION_TIMEOUT_DEFAULT), minBackoff,
+              deltaBackoff, maxBackoff, maxRetries, selfThrottlingEnabled,
+              selfThrottlingReadFactor, selfThrottlingWriteFactor));
     }
-
-    OperationContext.setLoggingEnabledByDefault(sessionConfiguration.
-        getBoolean(KEY_ENABLE_STORAGE_CLIENT_LOGGING, false));
-
-    LOG.debug(
-        "AzureNativeFileSystemStore init. Settings={},{},{},{{},{},{},{}},{{},{},{}}",
-        concurrentWrites, tolerateOobAppends,
-        ((storageConnectionTimeout > 0) ? storageConnectionTimeout
-          : STORAGE_CONNECTION_TIMEOUT_DEFAULT), minBackoff,
-        deltaBackoff, maxBackoff, maxRetries, selfThrottlingEnabled,
-        selfThrottlingReadFactor, selfThrottlingWriteFactor);
   }
 
   /**
    * Connect to Azure storage using anonymous credentials.
-   *
+   * 
    * @param uri
    *          - URI to target blob (R/O access to public blob)
-   *
+   * 
    * @throws StorageException
    *           raised on errors communicating with Azure storage.
    * @throws IOException
@@ -828,22 +725,25 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     rootDirectory = container.getDirectoryReference("");
 
     // Check for container existence, and our ability to access it.
-    boolean canAccess;
     try {
-      canAccess = container.exists(getInstrumentedContext());
+      if (!container.exists(getInstrumentedContext())) {
+        throw new AzureException("Container " + containerName + " in account "
+            + accountName + " not found, and we can't create "
+            + " it using anoynomous credentials.");
+      }
     } catch (StorageException ex) {
-      LOG.error("Service returned StorageException when checking existence "
-          + "of container {} in account {}", containerName, accountName, ex);
-      canAccess = false;
-    }
-    if (!canAccess) {
-      throw new AzureException(String.format(NO_ACCESS_TO_CONTAINER_MSG,
-          accountName, containerName));
+      throw new AzureException("Unable to access container " + containerName
+          + " in account " + accountName
+          + " using anonymous credentials, and no credentials found for them "
+          + " in the configuration.", ex);
     }
 
     // Accessing the storage server unauthenticated using
     // anonymous credentials.
     isAnonymousCredentials = true;
+
+    // Configure Azure storage session.
+    configureAzureStorageSession();
   }
 
   private void connectUsingCredentials(String accountName,
@@ -857,7 +757,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
           CloudStorageAccount.getDevelopmentStorageAccount();
       storageInteractionLayer.createBlobClient(account);
     } else {
-      blobEndPoint = new URI(getHTTPScheme() + "://" + accountName);
+      blobEndPoint = new URI(getHTTPScheme() + "://" +
+          accountName);
       storageInteractionLayer.createBlobClient(blobEndPoint, credentials);
     }
     suppressRetryPolicyInClientIfNeeded();
@@ -868,31 +769,9 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
     // Can only create container if using account key credentials
     canCreateOrModifyContainer = credentials instanceof StorageCredentialsAccountAndKey;
-  }
 
-  /**
-   * Method to set up the Storage Interaction layer in Secure mode.
-   * @param accountName - Storage account provided in the initializer
-   * @param containerName - Container name provided in the initializer
-   * @param sessionUri - URI provided in the initializer
-   */
-  private void connectToAzureStorageInSecureMode(String accountName,
-      String containerName, URI sessionUri)
-          throws AzureException, StorageException, URISyntaxException {
-
-    // Assertion: storageInteractionLayer instance has to be a SecureStorageInterfaceImpl
-    if (!(this.storageInteractionLayer instanceof SecureStorageInterfaceImpl)) {
-      throw new AssertionError("connectToAzureStorageInSASKeyMode() should be called only"
-        + " for SecureStorageInterfaceImpl instances");
-    }
-
-    ((SecureStorageInterfaceImpl) this.storageInteractionLayer).
-      setStorageAccountName(accountName);
-
-    container = storageInteractionLayer.getContainerReference(containerName);
-    rootDirectory = container.getDirectoryReference("");
-
-    canCreateOrModifyContainer = true;
+    // Configure Azure storage session.
+    configureAzureStorageSession();
   }
 
   /**
@@ -927,7 +806,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         STORAGE_EMULATOR_ACCOUNT_NAME_PROPERTY_NAME,
         DEFAULT_STORAGE_EMULATOR_ACCOUNT_NAME));
   }
-
+  
   @VisibleForTesting
   public static String getAccountKeyFromConfiguration(String accountName,
       Configuration conf) throws KeyProviderException {
@@ -964,11 +843,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * Establish a session with Azure blob storage based on the target URI. The
    * method determines whether or not the URI target contains an explicit
    * account or an implicit default cluster-wide account.
-   *
+   * 
    * @throws AzureException
    * @throws IOException
    */
-  private void createAzureStorageSession()
+  private void createAzureStorageSession ()
       throws AzureException, IOException {
 
     // Make sure this object was properly initialized with references to
@@ -1017,20 +896,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       instrumentation.setAccountName(accountName);
       String containerName = getContainerFromAuthority(sessionUri);
       instrumentation.setContainerName(containerName);
-
+      
       // Check whether this is a storage emulator account.
       if (isStorageEmulatorAccount(accountName)) {
         // It is an emulator account, connect to it with no credentials.
         connectUsingCredentials(accountName, null, containerName);
-        return;
-      }
-
-      // If the securemode flag is set, WASB uses SecureStorageInterfaceImpl instance
-      // to communicate with Azure storage. In SecureStorageInterfaceImpl SAS keys
-      // are used to communicate with Azure storage, so connectToAzureStorageInSecureMode
-      // instantiates the default container using a SAS Key.
-      if (useSecureMode) {
-        connectToAzureStorageInSecureMode(accountName, containerName, sessionUri);
         return;
       }
 
@@ -1046,17 +916,22 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       // Check whether the account is configured with an account key.
       propertyValue = getAccountKeyFromConfiguration(accountName,
           sessionConfiguration);
-      if (StringUtils.isNotEmpty(propertyValue)) {
+      if (propertyValue != null) {
+
         // Account key was found.
         // Create the Azure storage session using the account key and container.
         connectUsingConnectionStringCredentials(
             getAccountFromAuthority(sessionUri),
             getContainerFromAuthority(sessionUri), propertyValue);
-      } else {
-        LOG.debug("The account access key is not configured for {}. "
-            + "Now try anonymous access.", sessionUri);
-        connectUsingAnonymousCredentials(sessionUri);
+
+        // Return to caller
+        return;
       }
+
+      // The account access is not configured for this cluster. Try anonymous
+      // access.
+      connectUsingAnonymousCredentials(sessionUri);
+
     } catch (Exception e) {
       // Caught exception while attempting to initialize the Azure File
       // System store, re-throw the exception.
@@ -1120,7 +995,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    */
   private String verifyAndConvertToStandardFormat(String rawDir) throws URISyntaxException {
     URI asUri = new URI(rawDir);
-    if (asUri.getAuthority() == null
+    if (asUri.getAuthority() == null 
         || asUri.getAuthority().toLowerCase(Locale.ENGLISH).equalsIgnoreCase(
       sessionUri.getAuthority().toLowerCase(Locale.ENGLISH))) {
       // Applies to me.
@@ -1145,8 +1020,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         myDir = verifyAndConvertToStandardFormat(currentDir);
       } catch (URISyntaxException ex) {
         throw new AzureException(String.format(
-            "The directory %s specified in the configuration entry %s is not"
-            + " a valid URI.",
+            "The directory %s specified in the configuration entry %s is not" +
+            " a valid URI.",
             currentDir, configVar));
       }
       if (myDir != null) {
@@ -1176,7 +1051,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   public boolean isKeyForDirectorySet(String key, Set<String> dirSet) {
     String defaultFS = FileSystem.getDefaultUri(sessionConfiguration).toString();
     for (String dir : dirSet) {
-      if (dir.isEmpty() || key.startsWith(dir + "/")) {
+      if (dir.isEmpty() ||
+          key.startsWith(dir + "/")) {
         return true;
       }
 
@@ -1184,7 +1060,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       // system.
       //
       try {
-        URI uriPageBlobDir = new URI(dir);
+        URI uriPageBlobDir = new URI (dir);
         if (null == uriPageBlobDir.getAuthority()) {
           // Concatenate the default file system prefix with the relative
           // page blob directory path.
@@ -1194,14 +1070,15 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
           }
         }
       } catch (URISyntaxException e) {
-        LOG.info("URI syntax error creating URI for {}", dir);
+        LOG.info(String.format(
+                   "URI syntax error creating URI for %s", dir));
       }
     }
     return false;
   }
 
-
-
+  
+  
   /**
    * This should be called from any method that does any modifications to the
    * underlying container: it makes sure to put the WASB current version in the
@@ -1234,8 +1111,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         container.downloadAttributes(getInstrumentedContext());
         currentKnownContainerState = ContainerState.Unknown;
       } catch (StorageException ex) {
-        if (StorageErrorCode.RESOURCE_NOT_FOUND.toString()
-            .equals(ex.getErrorCode())) {
+        if (ex.getErrorCode().equals(
+            StorageErrorCode.RESOURCE_NOT_FOUND.toString())) {
           currentKnownContainerState = ContainerState.DoesntExist;
         } else {
           throw ex;
@@ -1397,11 +1274,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
        *      could mean either:
        *        (1) container=mycontainer; blob=myblob.txt
        *        (2) container=$root; blob=mycontainer/myblob.txt
-       *
+       * 
        * To avoid this type of ambiguity the Azure blob storage prevents
        * arbitrary path under $root. For a simple and more consistent user
        * experience it was decided to eliminate the opportunity for creating
-       * such paths by making the $root container read-only under WASB.
+       * such paths by making the $root container read-only under WASB. 
        */
 
       // Check that no attempt is made to write to blobs on default
@@ -1438,9 +1315,9 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    */
   private OutputStream openOutputStream(final CloudBlobWrapper blob)
       throws StorageException {
-    if (blob instanceof CloudPageBlobWrapper){
+    if (blob instanceof CloudPageBlobWrapperImpl){
       return new PageBlobOutputStream(
-          (CloudPageBlobWrapper) blob, getInstrumentedContext(), sessionConfiguration);
+          (CloudPageBlobWrapper)blob, getInstrumentedContext(), sessionConfiguration);
     } else {
 
       // Handle both ClouldBlockBlobWrapperImpl and (only for the test code path)
@@ -1457,18 +1334,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   private InputStream openInputStream(CloudBlobWrapper blob)
       throws StorageException, IOException {
     if (blob instanceof CloudBlockBlobWrapper) {
-      LOG.debug("Using stream seek algorithm {}", inputStreamVersion);
-      switch(inputStreamVersion) {
-      case 1:
-        return blob.openInputStream(getDownloadOptions(),
-            getInstrumentedContext(isConcurrentOOBAppendAllowed()));
-      case 2:
-        return new BlockBlobInputStream((CloudBlockBlobWrapper) blob,
-            getDownloadOptions(),
-            getInstrumentedContext(isConcurrentOOBAppendAllowed()));
-      default:
-        throw new IOException("Unknown seek algorithm: " + inputStreamVersion);
-      }
+      return blob.openInputStream(getDownloadOptions(),
+          getInstrumentedContext(isConcurrentOOBAppendAllowed()));
     } else {
       return new PageBlobInputStream(
           (CloudPageBlobWrapper) blob, getInstrumentedContext(
@@ -1478,7 +1345,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   /**
    * Default permission to use when no permission metadata is found.
-   *
+   * 
    * @return The default permission to use.
    */
   private static PermissionStatus defaultPermissionNoBlobMetadata() {
@@ -1635,23 +1502,10 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       storePermissionStatus(blob, permissionStatus);
       storeFolderAttribute(blob);
       openOutputStream(blob).close();
-    } catch (StorageException e) {
+    } catch (Exception e) {
       // Caught exception while attempting upload. Re-throw as an Azure
       // storage exception.
       throw new AzureException(e);
-    } catch (URISyntaxException e) {
-      throw new AzureException(e);
-    } catch (IOException e) {
-      Throwable t = e.getCause();
-      if (t != null && t instanceof StorageException) {
-        StorageException se = (StorageException) t;
-        // If we got this exception, the blob should have already been created
-        if (!"LeaseIdMissing".equals(se.getErrorCode())) {
-          throw new AzureException(e);
-        }
-      } else {
-        throw new AzureException(e);
-      }
     }
   }
 
@@ -1721,7 +1575,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   /**
    * Private method to check for authenticated access.
-   *
+   * 
    * @ returns boolean -- true if access is credentialed and authenticated and
    * false otherwise.
    */
@@ -1741,27 +1595,24 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * original file system object was constructed with a short- or long-form URI.
    * If the root directory is non-null the URI in the file constructor was in
    * the long form.
-   *
+   * 
    * @param includeMetadata
    *          if set, the listed items will have their metadata populated
    *          already.
-   * @param useFlatBlobListing
-   *          if set the list is flat, otherwise it is hierarchical.
-   *
+   * 
    * @returns blobItems : iterable collection of blob items.
    * @throws URISyntaxException
-   *
+   * 
    */
-  private Iterable<ListBlobItem> listRootBlobs(boolean includeMetadata,
-      boolean useFlatBlobListing) throws StorageException, URISyntaxException {
+  private Iterable<ListBlobItem> listRootBlobs(boolean includeMetadata)
+      throws StorageException, URISyntaxException {
     return rootDirectory.listBlobs(
+        null, false,
+        includeMetadata ?
+            EnumSet.of(BlobListingDetails.METADATA) :
+              EnumSet.noneOf(BlobListingDetails.class),
         null,
-        useFlatBlobListing,
-        includeMetadata
-            ? EnumSet.of(BlobListingDetails.METADATA)
-            : EnumSet.noneOf(BlobListingDetails.class),
-        null,
-        getInstrumentedContext());
+              getInstrumentedContext());
   }
 
   /**
@@ -1770,29 +1621,27 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * the directory depending on whether the original file system object was
    * constructed with a short- or long-form URI. If the root directory is
    * non-null the URI in the file constructor was in the long form.
-   *
+   * 
    * @param aPrefix
    *          : string name representing the prefix of containing blobs.
    * @param includeMetadata
    *          if set, the listed items will have their metadata populated
    *          already.
-   * @param useFlatBlobListing
-   *          if set the list is flat, otherwise it is hierarchical.
-   *
+   * 
    * @returns blobItems : iterable collection of blob items.
    * @throws URISyntaxException
-   *
+   * 
    */
-  private Iterable<ListBlobItem> listRootBlobs(String aPrefix, boolean includeMetadata,
-      boolean useFlatBlobListing) throws StorageException, URISyntaxException {
+  private Iterable<ListBlobItem> listRootBlobs(String aPrefix,
+      boolean includeMetadata) throws StorageException, URISyntaxException {
 
     Iterable<ListBlobItem> list = rootDirectory.listBlobs(aPrefix,
-        useFlatBlobListing,
-        includeMetadata
-            ? EnumSet.of(BlobListingDetails.METADATA)
-            : EnumSet.noneOf(BlobListingDetails.class),
-        null,
-        getInstrumentedContext());
+        false,
+        includeMetadata ?
+            EnumSet.of(BlobListingDetails.METADATA) :
+              EnumSet.noneOf(BlobListingDetails.class),
+              null,
+              getInstrumentedContext());
     return list;
   }
 
@@ -1803,7 +1652,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * constructed with a short- or long-form URI. It also uses the specified flat
    * or hierarchical option, listing details options, request options, and
    * operation context.
-   *
+   * 
    * @param aPrefix
    *          string name representing the prefix of containing blobs.
    * @param useFlatBlobListing
@@ -1818,7 +1667,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    *          - context of the current operation
    * @returns blobItems : iterable collection of blob items.
    * @throws URISyntaxException
-   *
+   * 
    */
   private Iterable<ListBlobItem> listRootBlobs(String aPrefix, boolean useFlatBlobListing,
       EnumSet<BlobListingDetails> listingDetails, BlobRequestOptions options,
@@ -1838,13 +1687,13 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * get the block blob reference depending on whether the original file system
    * object was constructed with a short- or long-form URI. If the root
    * directory is non-null the URI in the file constructor was in the long form.
-   *
+   * 
    * @param aKey
    *          : a key used to query Azure for the block blob.
    * @returns blob : a reference to the Azure block blob corresponding to the
    *          key.
    * @throws URISyntaxException
-   *
+   * 
    */
   private CloudBlobWrapper getBlobReference(String aKey)
       throws StorageException, URISyntaxException {
@@ -1865,10 +1714,10 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * This private method normalizes the key by stripping the container name from
    * the path and returns a path relative to the root directory of the
    * container.
-   *
+   * 
    * @param keyUri
    *          - adjust this key to a path relative to the root directory
-   *
+   * 
    * @returns normKey
    */
   private String normalizeKey(URI keyUri) {
@@ -1887,11 +1736,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * This private method normalizes the key by stripping the container name from
    * the path and returns a path relative to the root directory of the
    * container.
-   *
+   * 
    * @param blob
    *          - adjust the key to this blob to a path relative to the root
    *          directory
-   *
+   * 
    * @returns normKey
    */
   private String normalizeKey(CloudBlobWrapper blob) {
@@ -1902,11 +1751,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * This private method normalizes the key by stripping the container name from
    * the path and returns a path relative to the root directory of the
    * container.
-   *
+   * 
    * @param directory
    *          - adjust the key to this directory to a path relative to the root
    *          directory
-   *
+   * 
    * @returns normKey
    */
   private String normalizeKey(CloudBlobDirectoryWrapper directory) {
@@ -1923,7 +1772,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * operation that has listeners hooked to it that will update the metrics for
    * this file system. This method does not bind to receive send request
    * callbacks by default.
-   *
+   * 
    * @return The OperationContext object to use.
    */
   private OperationContext getInstrumentedContext() {
@@ -1934,35 +1783,22 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   /**
    * Creates a new OperationContext for the Azure Storage operation that has
    * listeners hooked to it that will update the metrics for this file system.
-   *
+   * 
    * @param bindConcurrentOOBIo
    *          - bind to intercept send request call backs to handle OOB I/O.
-   *
+   * 
    * @return The OperationContext object to use.
    */
   private OperationContext getInstrumentedContext(boolean bindConcurrentOOBIo) {
 
     OperationContext operationContext = new OperationContext();
 
-    // Set User-Agent
-    operationContext.getSendingRequestEventHandler().addListener(new StorageEvent<SendingRequestEvent>() {
-      @Override
-      public void eventOccurred(SendingRequestEvent eventArg) {
-        HttpURLConnection connection = (HttpURLConnection) eventArg.getConnectionObject();
-        String userAgentInfo = String.format(Utility.LOCALE_US, "WASB/%s (%s) %s",
-                VersionInfo.getVersion(), userAgentId, BaseRequest.getUserAgent());
-        connection.setRequestProperty(Constants.HeaderConstants.USER_AGENT, userAgentInfo);
-      }
-    });
-
     if (selfThrottlingEnabled) {
       SelfThrottlingIntercept.hook(operationContext, selfThrottlingReadFactor,
           selfThrottlingWriteFactor);
-    } else if (autoThrottlingEnabled) {
-      ClientThrottlingIntercept.hook(operationContext);
     }
 
-    if (bandwidthGaugeUpdater != null) {
+    if(bandwidthGaugeUpdater != null) {
       //bandwidthGaugeUpdater is null when we config to skip azure metrics
       ResponseReceivedMetricUpdater.hook(
          operationContext,
@@ -1974,7 +1810,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     // If reads concurrent to OOB writes are allowed, the interception will reset
     // the conditional header on all Azure blob storage read requests.
     if (bindConcurrentOOBIo) {
-      SendRequestIntercept.bind(operationContext);
+      SendRequestIntercept.bind(storageInteractionLayer.getCredentials(),
+          operationContext, true);
     }
 
     if (testHookOperationContext != null) {
@@ -2001,7 +1838,9 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       throw new AssertionError(errMsg);
     }
 
-    LOG.debug("Retrieving metadata for {}", key);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Retrieving metadata for " + key);
+    }
 
     try {
       if (checkContainer(ContainerAccessType.PureRead) == ContainerState.DoesntExist) {
@@ -2025,7 +1864,10 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       // exists.
       if (null != blob && blob.exists(getInstrumentedContext())) {
 
-        LOG.debug("Found {} as an explicit blob. Checking if it's a file or folder.", key);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Found " + key
+              + " as an explicit blob. Checking if it's a file or folder.");
+        }
 
         // The blob exists, so capture the metadata from the blob
         // properties.
@@ -2033,12 +1875,15 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         BlobProperties properties = blob.getProperties();
 
         if (retrieveFolderAttribute(blob)) {
-          LOG.debug("{} is a folder blob.", key);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(key + " is a folder blob.");
+          }
           return new FileMetadata(key, properties.getLastModified().getTime(),
               getPermissionStatus(blob), BlobMaterialization.Explicit);
         } else {
-
-          LOG.debug("{} is a normal blob.", key);
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(key + " is a normal blob.");
+          }
 
           return new FileMetadata(
               key, // Always return denormalized key with metadata.
@@ -2064,8 +1909,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       for (ListBlobItem blobItem : objects) {
         if (blobItem instanceof CloudBlockBlobWrapper
             || blobItem instanceof CloudPageBlobWrapper) {
-          LOG.debug("Found blob as a directory-using this file under it to infer its properties {}",
-              blobItem.getUri());
+          LOG.debug("Found blob as a directory-using this file under it to infer its properties "
+              + blobItem.getUri());
 
           blob = (CloudBlobWrapper) blobItem;
           // The key specifies a directory. Create a FileMetadata object which
@@ -2087,12 +1932,34 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   }
 
   @Override
-  public InputStream retrieve(String key) throws AzureException, IOException {
-    return retrieve(key, 0);
+  public DataInputStream retrieve(String key) throws AzureException, IOException {
+      try {
+        // Check if a session exists, if not create a session with the
+        // Azure storage server.
+        if (null == storageInteractionLayer) {
+          final String errMsg = String.format(
+              "Storage session expected for URI '%s' but does not exist.",
+              sessionUri);
+          throw new AssertionError(errMsg);
+        }
+        checkContainer(ContainerAccessType.PureRead);
+
+        // Get blob reference and open the input buffer stream.
+        CloudBlobWrapper blob = getBlobReference(key);
+      BufferedInputStream inBufStream = new BufferedInputStream(
+          openInputStream(blob));
+
+        // Return a data input stream.
+        DataInputStream inDataStream = new DataInputStream(inBufStream);
+        return inDataStream;
+    } catch (Exception e) {
+      // Re-throw as an Azure storage exception.
+      throw new AzureException(e);
+    }
   }
 
   @Override
-  public InputStream retrieve(String key, long startByteOffset)
+  public DataInputStream retrieve(String key, long startByteOffset)
       throws AzureException, IOException {
       try {
         // Check if a session exists, if not create a session with the
@@ -2105,19 +1972,24 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         }
         checkContainer(ContainerAccessType.PureRead);
 
-        InputStream inputStream = openInputStream(getBlobReference(key));
-        if (startByteOffset > 0) {
-          // Skip bytes and ignore return value. This is okay
-          // because if you try to skip too far you will be positioned
-          // at the end and reads will not return data.
-          inputStream.skip(startByteOffset);
-        }
-        return inputStream;
-    } catch (IOException e) {
-        throw e;
+        // Get blob reference and open the input buffer stream.
+        CloudBlobWrapper blob = getBlobReference(key);
+
+        // Open input stream and seek to the start offset.
+        InputStream in = blob.openInputStream(
+          getDownloadOptions(), getInstrumentedContext(isConcurrentOOBAppendAllowed()));
+
+        // Create a data input stream.
+	    DataInputStream inDataStream = new DataInputStream(in);
+	    
+	    // Skip bytes and ignore return value. This is okay
+	    // because if you try to skip too far you will be positioned
+	    // at the end and reads will not return data.
+	    inDataStream.skip(startByteOffset);
+        return inDataStream;
     } catch (Exception e) {
-        // Re-throw as an Azure storage exception.
-        throw new AzureException(e);
+      // Re-throw as an Azure storage exception.
+      throw new AzureException(e);
     }
   }
 
@@ -2143,17 +2015,17 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   /**
    * Searches the given list of {@link FileMetadata} objects for a directory
    * with the given key.
-   *
+   * 
    * @param list
    *          The list to search.
    * @param key
    *          The key to search for.
    * @return The wanted directory, or null if not found.
    */
-  private static FileMetadata getFileMetadataInList(
+  private static FileMetadata getDirectoryInList(
       final Iterable<FileMetadata> list, String key) {
     for (FileMetadata current : list) {
-      if (current.getKey().equals(key)) {
+      if (current.isDir() && current.getKey().equals(key)) {
         return current;
       }
     }
@@ -2170,19 +2042,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
         prefix += PATH_DELIMITER;
       }
 
-      // Enable flat listing option only if depth is unbounded and config
-      // KEY_ENABLE_FLAT_LISTING is enabled.
-      boolean enableFlatListing = false;
-      if (maxListingDepth < 0 && sessionConfiguration.getBoolean(
-        KEY_ENABLE_FLAT_LISTING, DEFAULT_ENABLE_FLAT_LISTING)) {
-        enableFlatListing = true;
-      }
-
       Iterable<ListBlobItem> objects;
       if (prefix.equals("/")) {
-        objects = listRootBlobs(true, enableFlatListing);
+        objects = listRootBlobs(true);
       } else {
-        objects = listRootBlobs(prefix, true, enableFlatListing);
+        objects = listRootBlobs(prefix, true);
       }
 
       ArrayList<FileMetadata> fileMetadata = new ArrayList<FileMetadata>();
@@ -2219,7 +2083,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
           // Add the metadata to the list, but remove any existing duplicate
           // entries first that we may have added by finding nested files.
-          FileMetadata existing = getFileMetadataInList(fileMetadata, blobKey);
+          FileMetadata existing = getDirectoryInList(fileMetadata, blobKey);
           if (existing != null) {
             fileMetadata.remove(existing);
           }
@@ -2246,16 +2110,14 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
           // Add the directory metadata to the list only if it's not already
           // there.
-          if (getFileMetadataInList(fileMetadata, dirKey) == null) {
+          if (getDirectoryInList(fileMetadata, dirKey) == null) {
             fileMetadata.add(directoryMetadata);
           }
 
-          if (!enableFlatListing) {
-            // Currently at a depth of one, decrement the listing depth for
-            // sub-directories.
-            buildUpList(directory, fileMetadata, maxListingCount,
-                maxListingDepth - 1);
-          }
+          // Currently at a depth of one, decrement the listing depth for
+          // sub-directories.
+          buildUpList(directory, fileMetadata, maxListingCount,
+              maxListingDepth - 1);
         }
       }
       // Note: Original code indicated that this may be a hack.
@@ -2276,7 +2138,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    * Build up a metadata list of blobs in an Azure blob directory. This method
    * uses a in-order first traversal of blob directory structures to maintain
    * the sorted order of the blob names.
-   *
+   * 
    * @param aCloudBlobDirectory Azure blob directory
    * @param aFileMetadataList a list of file metadata objects for each
    *                          non-directory blob.
@@ -2354,7 +2216,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
           // Add the directory metadata to the list only if it's not already
           // there.
-          FileMetadata existing = getFileMetadataInList(aFileMetadataList, blobKey);
+          FileMetadata existing = getDirectoryInList(aFileMetadataList, blobKey);
           if (existing != null) {
             aFileMetadataList.remove(existing);
           }
@@ -2383,7 +2245,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
             // absolute path is being used or not.
             String dirKey = normalizeKey(directory);
 
-            if (getFileMetadataInList(aFileMetadataList, dirKey) == null) {
+            if (getDirectoryInList(aFileMetadataList, dirKey) == null) {
               // Reached the targeted listing depth. Return metadata for the
               // directory using default permissions.
               //
@@ -2434,7 +2296,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     throws AzureException {
     if (blob instanceof CloudPageBlobWrapper) {
       try {
-        return PageBlobInputStream.getPageBlobDataSize((CloudPageBlobWrapper) blob,
+        return PageBlobInputStream.getPageBlobSize((CloudPageBlobWrapper) blob,
             getInstrumentedContext(
                 isConcurrentOOBAppendAllowed()));
       } catch (Exception e) {
@@ -2459,17 +2321,17 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     try {
       blob.delete(operationContext, lease);
     } catch (StorageException e) {
-      LOG.error("Encountered Storage Exception for delete on Blob: {}, Exception Details: {} Error Code: {}",
-          blob.getUri(), e.getMessage(), e.getErrorCode());
       // On exception, check that if:
       // 1. It's a BlobNotFound exception AND
       // 2. It got there after one-or-more retries THEN
       // we swallow the exception.
-      if (e.getErrorCode() != null
-          && "BlobNotFound".equals(e.getErrorCode())
-          && operationContext.getRequestResults().size() > 1
-          && operationContext.getRequestResults().get(0).getException() != null) {
-        LOG.debug("Swallowing delete exception on retry: {}", e.getMessage());
+      if (e.getErrorCode() != null &&
+          e.getErrorCode().equals("BlobNotFound") &&
+          operationContext.getRequestResults().size() > 1 &&
+          operationContext.getRequestResults().get(0).getException() != null) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Swallowing delete exception on retry: " + e.getMessage());
+        }
         return;
       } else {
         throw e;
@@ -2481,24 +2343,18 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     }
   }
 
-  /**
-   * API implementation to delete a blob in the back end azure storage.
-   */
   @Override
-  public boolean delete(String key, SelfRenewingLease lease) throws IOException {
+  public void delete(String key, SelfRenewingLease lease) throws IOException {
     try {
       if (checkContainer(ContainerAccessType.ReadThenWrite) == ContainerState.DoesntExist) {
         // Container doesn't exist, no need to do anything
-        return true;
+        return;
       }
 
       // Get the blob reference and delete it.
       CloudBlobWrapper blob = getBlobReference(key);
       if (blob.exists(getInstrumentedContext())) {
         safeDelete(blob, lease);
-        return true;
-      } else {
-        return false;
       }
     } catch (Exception e) {
       // Re-throw as an Azure storage exception.
@@ -2506,42 +2362,9 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
     }
   }
 
-  /**
-   * API implementation to delete a blob in the back end azure storage.
-   */
   @Override
-  public boolean delete(String key) throws IOException {
-    try {
-      return delete(key, null);
-    } catch (IOException e) {
-      Throwable t = e.getCause();
-      if (t != null && t instanceof StorageException) {
-        StorageException se = (StorageException) t;
-        if ("LeaseIdMissing".equals(se.getErrorCode())){
-          SelfRenewingLease lease = null;
-          try {
-            lease = acquireLease(key);
-            return delete(key, lease);
-          } catch (AzureException e3) {
-            LOG.warn("Got unexpected exception trying to acquire lease on "
-                + key + "." + e3.getMessage());
-            throw e3;
-          } finally {
-            try {
-              if (lease != null){
-                lease.free();
-              }
-            } catch (Exception e4){
-              LOG.error("Unable to free lease on " + key, e4);
-            }
-          }
-        } else {
-          throw e;
-        }
-      } else {
-        throw e;
-      }
-    }
+  public void delete(String key) throws IOException {
+    delete(key, null);
   }
 
   @Override
@@ -2553,15 +2376,14 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
   public void rename(String srcKey, String dstKey, boolean acquireLease,
       SelfRenewingLease existingLease) throws IOException {
 
-    LOG.debug("Moving {} to {}", srcKey, dstKey);
+    if (LOG.isDebugEnabled()) {
+      LOG.debug("Moving " + srcKey + " to " + dstKey);
+    }
 
     if (acquireLease && existingLease != null) {
       throw new IOException("Cannot acquire new lease if one already exists.");
     }
 
-    CloudBlobWrapper srcBlob = null;
-    CloudBlobWrapper dstBlob = null;
-    SelfRenewingLease lease = null;
     try {
       // Attempts rename may occur before opening any streams so first,
       // check if a session exists, if not create a session with the Azure
@@ -2577,10 +2399,11 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       // Get the source blob and assert its existence. If the source key
       // needs to be normalized then normalize it.
       //
+      CloudBlobWrapper srcBlob = getBlobReference(srcKey);
 
-      srcBlob = getBlobReference(srcKey);
       if (!srcBlob.exists(getInstrumentedContext())) {
-        throw new AzureException("Source blob " + srcKey + " does not exist.");
+        throw new AzureException ("Source blob " + srcKey +
+            " does not exist.");
       }
 
       /**
@@ -2594,6 +2417,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
        * when HBase runs on HDFS, where the region server recovers the lease
        * on a log file, to gain exclusive access to it, before it splits it.
        */
+      SelfRenewingLease lease = null;
       if (acquireLease) {
         lease = srcBlob.acquireLease();
       } else if (existingLease != null) {
@@ -2603,40 +2427,50 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       // Get the destination blob. The destination key always needs to be
       // normalized.
       //
-      dstBlob = getBlobReference(dstKey);
+      CloudBlobWrapper dstBlob = getBlobReference(dstKey);
+
+      // TODO: Remove at the time when we move to Azure Java SDK 1.2+.
+      // This is the workaround provided by Azure Java SDK team to
+      // mitigate the issue with un-encoded x-ms-copy-source HTTP
+      // request header. Azure sdk version before 1.2+ does not encode this
+      // header what causes all URIs that have special (category "other")
+      // characters in the URI not to work with startCopyFromBlob when
+      // specified as source (requests fail with HTTP 403).
+      URI srcUri = new URI(srcBlob.getUri().toASCIIString());
 
       // Rename the source blob to the destination blob by copying it to
       // the destination blob then deleting it.
       //
       // Copy blob operation in Azure storage is very costly. It will be highly
       // likely throttled during Azure storage gc. Short term fix will be using
-      // a more intensive exponential retry policy when the cluster is getting
+      // a more intensive exponential retry policy when the cluster is getting 
       // throttled.
       try {
-        dstBlob.startCopyFromBlob(srcBlob, null, getInstrumentedContext());
+        dstBlob.startCopyFromBlob(srcUri, null, getInstrumentedContext());
       } catch (StorageException se) {
-        if (se.getHttpStatusCode() == HttpURLConnection.HTTP_UNAVAILABLE) {
+        if (se.getErrorCode().equals(
+		  StorageErrorCode.SERVER_BUSY.toString())) {
           int copyBlobMinBackoff = sessionConfiguration.getInt(
             KEY_COPYBLOB_MIN_BACKOFF_INTERVAL,
-            DEFAULT_COPYBLOB_MIN_BACKOFF_INTERVAL);
+			DEFAULT_COPYBLOB_MIN_BACKOFF_INTERVAL);
 
           int copyBlobMaxBackoff = sessionConfiguration.getInt(
             KEY_COPYBLOB_MAX_BACKOFF_INTERVAL,
-            DEFAULT_COPYBLOB_MAX_BACKOFF_INTERVAL);
+			DEFAULT_COPYBLOB_MAX_BACKOFF_INTERVAL);
 
           int copyBlobDeltaBackoff = sessionConfiguration.getInt(
             KEY_COPYBLOB_BACKOFF_INTERVAL,
-            DEFAULT_COPYBLOB_BACKOFF_INTERVAL);
+			DEFAULT_COPYBLOB_BACKOFF_INTERVAL);
 
           int copyBlobMaxRetries = sessionConfiguration.getInt(
             KEY_COPYBLOB_MAX_IO_RETRIES,
-            DEFAULT_COPYBLOB_MAX_RETRY_ATTEMPTS);
-
+			DEFAULT_COPYBLOB_MAX_RETRY_ATTEMPTS);
+	        
           BlobRequestOptions options = new BlobRequestOptions();
           options.setRetryPolicyFactory(new RetryExponentialRetry(
-            copyBlobMinBackoff, copyBlobDeltaBackoff, copyBlobMaxBackoff,
-            copyBlobMaxRetries));
-          dstBlob.startCopyFromBlob(srcBlob, options, getInstrumentedContext());
+            copyBlobMinBackoff, copyBlobDeltaBackoff, copyBlobMaxBackoff, 
+			copyBlobMaxRetries));
+          dstBlob.startCopyFromBlob(srcUri, options, getInstrumentedContext());
         } else {
           throw se;
         }
@@ -2644,36 +2478,8 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       waitForCopyToComplete(dstBlob, getInstrumentedContext());
       safeDelete(srcBlob, lease);
     } catch (StorageException e) {
-      if (e.getHttpStatusCode() == HttpURLConnection.HTTP_UNAVAILABLE) {
-        LOG.warn("Rename: CopyBlob: StorageException: ServerBusy: Retry complete, will attempt client side copy for page blob");
-        InputStream ipStream = null;
-        OutputStream opStream = null;
-        try {
-          if (srcBlob.getProperties().getBlobType() == BlobType.PAGE_BLOB){
-            ipStream = openInputStream(srcBlob);
-            opStream = openOutputStream(dstBlob);
-            byte[] buffer = new byte[PageBlobFormatHelpers.PAGE_SIZE];
-            int len;
-            while ((len = ipStream.read(buffer)) != -1) {
-              opStream.write(buffer, 0, len);
-            }
-            opStream.flush();
-            opStream.close();
-            ipStream.close();
-          } else {
-            throw new AzureException(e);
-          }
-          safeDelete(srcBlob, lease);
-        } catch(StorageException se) {
-          LOG.warn("Rename: CopyBlob: StorageException: Failed");
-          throw new AzureException(se);
-        } finally {
-          IOUtils.closeStream(ipStream);
-          IOUtils.closeStream(opStream);
-        }
-      } else {
-        throw new AzureException(e);
-      }
+      // Re-throw exception as an Azure storage exception.
+      throw new AzureException(e);
     } catch (URISyntaxException e) {
       // Re-throw exception as an Azure storage exception.
       throw new AzureException(e);
@@ -2699,36 +2505,6 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
             //ignore
         }
       }
-    }
-  }
-
-  /**
-   * Checks whether an explicit file/folder exists.
-   * This is used by redo of atomic rename.
-   * There was a bug(apache jira HADOOP-12780) during atomic rename if
-   * process crashes after an inner directory has been renamed but still
-   * there are file under that directory to be renamed then after the
-   * process comes again it tries to redo the renames. It checks whether
-   * the directory exists or not by calling filesystem.exist.
-   * But filesystem.Exists will treat that directory as implicit directory
-   * and return true as file exists under that directory. So It will try
-   * try to rename that directory and will fail as the corresponding blob
-   * does not exist. So this method explicitly checks for the blob.
-   */
-  @Override
-  public boolean explicitFileExists(String key) throws AzureException {
-    CloudBlobWrapper blob;
-    try {
-      blob = getBlobReference(key);
-      if (null != blob && blob.exists(getInstrumentedContext())) {
-        return true;
-      }
-
-      return false;
-    } catch (StorageException e) {
-      throw new AzureException(e);
-    } catch (URISyntaxException e) {
-      throw new AzureException(e);
     }
   }
 
@@ -2769,7 +2545,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
       }
       // Get all blob items with the given prefix from the container and delete
       // them.
-      Iterable<ListBlobItem> objects = listRootBlobs(prefix, false, false);
+      Iterable<ListBlobItem> objects = listRootBlobs(prefix, false);
       for (ListBlobItem blobItem : objects) {
         ((CloudBlob) blobItem).delete(DeleteSnapshotsOption.NONE, null, null,
             getInstrumentedContext());
@@ -2787,7 +2563,7 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
    */
   @Override
   public SelfRenewingLease acquireLease(String key) throws AzureException {
-    LOG.debug("acquiring lease on {}", key);
+    LOG.debug("acquiring lease on " + key);
     try {
       checkContainer(ContainerAccessType.ReadThenWrite);
       CloudBlobWrapper blob = getBlobReference(key);
@@ -2835,37 +2611,17 @@ public class AzureNativeFileSystemStore implements NativeFileSystemStore {
 
   @Override
   public void close() {
-    if (bandwidthGaugeUpdater != null) {
+    if(bandwidthGaugeUpdater != null) {
       bandwidthGaugeUpdater.close();
       bandwidthGaugeUpdater = null;
     }
   }
-
+  
   // Finalizer to ensure complete shutdown
   @Override
   protected void finalize() throws Throwable {
     LOG.debug("finalize() called");
     close();
     super.finalize();
-  }
-
-  @Override
-  public DataOutputStream retrieveAppendStream(String key, int bufferSize) throws IOException {
-
-    try {
-
-      if (isPageBlobKey(key)) {
-        throw new UnsupportedOperationException("Append not supported for Page Blobs");
-      }
-
-      CloudBlobWrapper blob =  this.container.getBlockBlobReference(key);
-
-      BlockBlobAppendStream appendStream = new BlockBlobAppendStream((CloudBlockBlobWrapper) blob, key, bufferSize, getInstrumentedContext());
-      appendStream.initialize();
-
-      return new DataOutputStream(appendStream);
-    } catch(Exception ex) {
-      throw new AzureException(ex);
-    }
   }
 }

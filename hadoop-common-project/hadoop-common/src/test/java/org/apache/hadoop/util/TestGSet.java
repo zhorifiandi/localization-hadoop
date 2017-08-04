@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.util;
 
-import java.util.Collection;
 import java.util.ConcurrentModificationException;
 import java.util.Iterator;
 import java.util.Random;
@@ -42,15 +41,10 @@ public class TestGSet {
 
   @Test
   public void testExceptionCases() {
-    testExceptionCases(false);
-    testExceptionCases(true);
-  }
-
-  private void testExceptionCases(boolean resizable) {
     {
       //test contains
       final LightWeightGSet<Integer, Integer> gset
-        = createGSet(16, resizable);
+        = new LightWeightGSet<Integer, Integer>(16);
       try {
         //test contains with a null element
         gset.contains(null);
@@ -63,7 +57,7 @@ public class TestGSet {
     {
       //test get
       final LightWeightGSet<Integer, Integer> gset
-        = createGSet(16, resizable);
+        = new LightWeightGSet<Integer, Integer>(16);
       try {
         //test get with a null element
         gset.get(null);
@@ -76,7 +70,7 @@ public class TestGSet {
     {
       //test put
       final LightWeightGSet<Integer, Integer> gset
-        = createGSet(16, resizable);
+        = new LightWeightGSet<Integer, Integer>(16);
       try {
         //test put with a null element
         gset.put(null);
@@ -103,7 +97,7 @@ public class TestGSet {
       for(int v = 1; v < data.length-1; v++) {
         {
           //test remove while iterating
-          final GSet<IntElement, IntElement> gset = createGSet(data, resizable);
+          final GSet<IntElement, IntElement> gset = createGSet(data);
           for(IntElement i : gset) {
             if (i.value == v) {
               //okay because data[0] is not in gset
@@ -126,7 +120,7 @@ public class TestGSet {
 
         {
           //test put new element while iterating
-          final GSet<IntElement, IntElement> gset = createGSet(data, resizable);
+          final GSet<IntElement, IntElement> gset = createGSet(data);
           try {
             for(IntElement i : gset) {
               if (i.value == v) {
@@ -141,7 +135,7 @@ public class TestGSet {
 
         {
           //test put existing element while iterating
-          final GSet<IntElement, IntElement> gset = createGSet(data, resizable);
+          final GSet<IntElement, IntElement> gset = createGSet(data);
           try {
             for(IntElement i : gset) {
               if (i.value == v) {
@@ -157,17 +151,9 @@ public class TestGSet {
     }
   }
 
-  private static LightWeightGSet<Integer, Integer> createGSet(
-      int size, boolean resizable) {
-    return resizable ? new LightWeightResizableGSet<Integer, Integer>(size) :
-      new LightWeightGSet<Integer, Integer>(size);
-  }
-
-  private static GSet<IntElement, IntElement> createGSet(
-      final IntElement[] data, boolean resizable) {
+  private static GSet<IntElement, IntElement> createGSet(final IntElement[] data) {
     final GSet<IntElement, IntElement> gset
-      = resizable ? new LightWeightResizableGSet<IntElement, IntElement>(8) :
-        new LightWeightGSet<IntElement, IntElement>(8);
+      = new LightWeightGSet<IntElement, IntElement>(8);
     for(int i = 1; i < data.length; i++) {
       gset.put(data[i]);
     }
@@ -182,14 +168,6 @@ public class TestGSet {
     check(new GSetTestCase(255, 1 << 10, 65537));
   }
 
-  @Test
-  public void testResizableGSet() {
-    //The parameters are: table length, data size, modulus, resizable.
-    check(new GSetTestCase(1, 1 << 4, 65537, true));
-    check(new GSetTestCase(17, 1 << 16, 17, true));
-    check(new GSetTestCase(255, 1 << 10, 65537, true));
-  }
-
   /**
    * A long running test with various data sets and parameters.
    * It may take ~5 hours, 
@@ -199,25 +177,14 @@ public class TestGSet {
   //@Test
   public void runMultipleTestGSet() {
     for(int offset = -2; offset <= 2; offset++) {
-      runTestGSet(1, offset, false);
+      runTestGSet(1, offset);
       for(int i = 1; i < Integer.SIZE - 1; i++) {
-        runTestGSet((1 << i) + 1, offset, false);
+        runTestGSet((1 << i) + 1, offset);
       }
     }
   }
 
-  //@Test
-  public void runMultipleTestResizableGSet() {
-    for(int offset = -2; offset <= 2; offset++) {
-      runTestGSet(1, offset, true);
-      for(int i = 1; i < Integer.SIZE - 1; i++) {
-        runTestGSet((1 << i) + 1, offset, true);
-      }
-    }
-  }
-
-  private static void runTestGSet(final int modulus, final int offset,
-      boolean resizable) {
+  private static void runTestGSet(final int modulus, final int offset) {
     println("\n\nmodulus=" + modulus + ", offset=" + offset);
     for(int i = 0; i <= 16; i += 4) {
       final int tablelength = (1 << i) + offset;
@@ -227,7 +194,7 @@ public class TestGSet {
 
       for(int j = 0; j <= upper; j += steps) {
         final int datasize = 1 << j;
-        check(new GSetTestCase(tablelength, datasize, modulus, resizable));
+        check(new GSetTestCase(tablelength, datasize, modulus));
       }
     }
   }
@@ -298,10 +265,6 @@ public class TestGSet {
     int contain_count = 0;
 
     GSetTestCase(int tablelength, int datasize, int modulus) {
-      this(tablelength, datasize, modulus, false);
-    }
-
-    GSetTestCase(int tablelength, int datasize, int modulus, boolean resizable) {
       denominator = Math.min((datasize >> 7) + 1, 1 << 16);
       info = getClass().getSimpleName()
           + ": tablelength=" + tablelength
@@ -311,8 +274,7 @@ public class TestGSet {
       println(info);
 
       data  = new IntData(datasize, modulus);
-      gset = resizable ? new LightWeightResizableGSet<IntElement, IntElement>() :
-        new LightWeightGSet<IntElement, IntElement>(tablelength);
+      gset = new LightWeightGSet<IntElement, IntElement>(tablelength);
 
       Assert.assertEquals(0, gset.size());
     }
@@ -429,11 +391,6 @@ public class TestGSet {
       expected.clear();
       gset.clear();
       Assert.assertEquals(0, size());
-    }
-
-    @Override
-    public Collection<IntElement> values() {
-      throw new UnsupportedOperationException();
     }
   }
 

@@ -20,7 +20,7 @@ package org.apache.hadoop.mapred;
 
 import java.io.DataOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.io.UnsupportedEncodingException;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -43,16 +43,26 @@ public class TextOutputFormat<K, V> extends FileOutputFormat<K, V> {
 
   protected static class LineRecordWriter<K, V>
     implements RecordWriter<K, V> {
-    private static final byte[] NEWLINE =
-      "\n".getBytes(StandardCharsets.UTF_8);
+    private static final String utf8 = "UTF-8";
+    private static final byte[] newline;
+    static {
+      try {
+        newline = "\n".getBytes(utf8);
+      } catch (UnsupportedEncodingException uee) {
+        throw new IllegalArgumentException("can't find " + utf8 + " encoding");
+      }
+    }
 
     protected DataOutputStream out;
     private final byte[] keyValueSeparator;
 
     public LineRecordWriter(DataOutputStream out, String keyValueSeparator) {
       this.out = out;
-      this.keyValueSeparator =
-        keyValueSeparator.getBytes(StandardCharsets.UTF_8);
+      try {
+        this.keyValueSeparator = keyValueSeparator.getBytes(utf8);
+      } catch (UnsupportedEncodingException uee) {
+        throw new IllegalArgumentException("can't find " + utf8 + " encoding");
+      }
     }
 
     public LineRecordWriter(DataOutputStream out) {
@@ -70,7 +80,7 @@ public class TextOutputFormat<K, V> extends FileOutputFormat<K, V> {
         Text to = (Text) o;
         out.write(to.getBytes(), 0, to.getLength());
       } else {
-        out.write(o.toString().getBytes(StandardCharsets.UTF_8));
+        out.write(o.toString().getBytes(utf8));
       }
     }
 
@@ -91,7 +101,7 @@ public class TextOutputFormat<K, V> extends FileOutputFormat<K, V> {
       if (!nullValue) {
         writeObject(value);
       }
-      out.write(NEWLINE);
+      out.write(newline);
     }
 
     public synchronized void close(Reporter reporter) throws IOException {

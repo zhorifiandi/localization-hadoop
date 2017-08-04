@@ -18,7 +18,6 @@
 package org.apache.hadoop.hdfs.server.namenode;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -36,17 +35,13 @@ import org.apache.hadoop.hdfs.TestFileCreation;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfo;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockManager;
-import org.apache.hadoop.hdfs.server.blockmanagement.BlockUnderConstructionFeature;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguous;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguousUnderConstruction;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.BlockUCState;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import org.apache.hadoop.hdfs.protocol.proto.HdfsProtos.LocatedBlockProto;
-import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 
 public class TestBlockUnderConstruction {
   static final String BASE_DIR = "/test/TestBlockUnderConstruction";
@@ -96,12 +91,12 @@ public class TestBlockUnderConstruction {
         " isUnderConstruction = " + inode.isUnderConstruction() +
         " expected to be " + isFileOpen,
         inode.isUnderConstruction() == isFileOpen);
-    BlockInfo[] blocks = inode.getBlocks();
+    BlockInfoContiguous[] blocks = inode.getBlocks();
     assertTrue("File does not have blocks: " + inode.toString(),
         blocks != null && blocks.length > 0);
     
     int idx = 0;
-    BlockInfo curBlock;
+    BlockInfoContiguous curBlock;
     // all blocks but the last two should be regular blocks
     for(; idx < blocks.length - 2; idx++) {
       curBlock = blocks[idx];
@@ -161,7 +156,6 @@ public class TestBlockUnderConstruction {
   @Test
   public void testGetBlockLocations() throws IOException {
     final NamenodeProtocols namenode = cluster.getNameNodeRpc();
-    final BlockManager blockManager = cluster.getNamesystem().getBlockManager();
     final Path p = new Path(BASE_DIR, "file2.dat");
     final String src = p.toString();
     final FSDataOutputStream out = TestFileCreation.createFile(hdfs, p, 3);
@@ -176,7 +170,7 @@ public class TestBlockUnderConstruction {
       final List<LocatedBlock> blocks = lb.getLocatedBlocks();
       assertEquals(i, blocks.size());
       final Block b = blocks.get(blocks.size() - 1).getBlock().getLocalBlock();
-      assertFalse(blockManager.getStoredBlock(b).isComplete());
+      assertTrue(b instanceof BlockInfoContiguousUnderConstruction);
 
       if (++i < NUM_BLOCKS) {
         // write one more block
@@ -186,46 +180,5 @@ public class TestBlockUnderConstruction {
     }
     // close file
     out.close();
-  }
-
-  /**
-   * A storage ID can be invalid if the storage failed or the node
-   * reregisters. When the node heart-beats, the storage report in it
-   * causes storage volumes to be added back. An invalid storage ID
-   * should not cause an NPE.
-   */
-  @Test
-  public void testEmptyExpectedLocations() throws Exception {
-    final NamenodeProtocols namenode = cluster.getNameNodeRpc();
-    final FSNamesystem fsn = cluster.getNamesystem();
-    final BlockManager bm = fsn.getBlockManager();
-    final Path p = new Path(BASE_DIR, "file2.dat");
-    final String src = p.toString();
-    final FSDataOutputStream out = TestFileCreation.createFile(hdfs, p, 1);
-    writeFile(p, out, 256);
-    out.hflush();
-
-    // make sure the block is readable
-    LocatedBlocks lbs = namenode.getBlockLocations(src, 0, 256);
-    LocatedBlock lastLB = lbs.getLocatedBlocks().get(0);
-    final Block b = lastLB.getBlock().getLocalBlock();
-
-    // fake a block recovery
-    long blockRecoveryId = bm.nextGenerationStamp(false);
-    BlockUnderConstructionFeature uc = bm.getStoredBlock(b).
-        getUnderConstructionFeature();
-    uc.initializeBlockRecovery(null, blockRecoveryId, false);
-
-    try {
-      String[] storages = { "invalid-storage-id1" };
-      fsn.commitBlockSynchronization(lastLB.getBlock(), blockRecoveryId, 256L,
-          true, false, lastLB.getLocations(), storages);
-    } catch (java.lang.IllegalStateException ise) {
-       // Although a failure is expected as of now, future commit policy
-       // changes may make it not fail. This is not critical to the test.
-    }
-
-    // Invalid storage should not trigger an exception.
-    lbs = namenode.getBlockLocations(src, 0, 256);
   }
 }

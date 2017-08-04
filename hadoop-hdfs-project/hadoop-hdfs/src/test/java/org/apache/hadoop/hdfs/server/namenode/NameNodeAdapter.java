@@ -17,14 +17,12 @@
  */
 package org.apache.hadoop.hdfs.server.namenode;
 
-import org.apache.hadoop.hdfs.server.protocol.SlowDiskReports;
 import static org.mockito.Mockito.spy;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import org.apache.commons.lang.reflect.FieldUtils;
 import org.apache.hadoop.fs.UnresolvedLinkException;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
@@ -36,15 +34,14 @@ import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenSecretMan
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockManagerTestUtil;
 import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
-import org.apache.hadoop.hdfs.server.namenode.FSDirectory.DirOp;
 import org.apache.hadoop.hdfs.server.namenode.FSEditLogOp.MkdirOp;
+import org.apache.hadoop.hdfs.server.namenode.FSNamesystem.SafeModeInfo;
 import org.apache.hadoop.hdfs.server.namenode.LeaseManager.Lease;
 import org.apache.hadoop.hdfs.server.namenode.ha.EditLogTailer;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeRegistration;
 import org.apache.hadoop.hdfs.server.protocol.HeartbeatResponse;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeRegistration;
-import org.apache.hadoop.hdfs.server.protocol.SlowPeerReports;
 import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.ipc.StandbyException;
 import org.apache.hadoop.security.AccessControlException;
@@ -74,13 +71,8 @@ public class NameNodeAdapter {
   public static HdfsFileStatus getFileInfo(NameNode namenode, String src,
       boolean resolveLink) throws AccessControlException, UnresolvedLinkException,
         StandbyException, IOException {
-    namenode.getNamesystem().readLock();
-    try {
-      return FSDirStatAndListingOp.getFileInfo(namenode.getNamesystem()
-          .getFSDirectory(), src, resolveLink);
-    } finally {
-      namenode.getNamesystem().readUnlock();
-    }
+    return FSDirStatAndListingOp.getFileInfo(namenode.getNamesystem()
+            .getFSDirectory(), src, resolveLink);
   }
   
   public static boolean mkdirs(NameNode namenode, String src,
@@ -91,7 +83,7 @@ public class NameNodeAdapter {
   
   public static void saveNamespace(NameNode namenode)
       throws AccessControlException, IOException {
-    namenode.getNamesystem().saveNamespace(0, 0);
+    namenode.getNamesystem().saveNamespace();
   }
   
   public static void enterSafeMode(NameNode namenode, boolean resourcesLow)
@@ -100,7 +92,7 @@ public class NameNodeAdapter {
   }
   
   public static void leaveSafeMode(NameNode namenode) {
-    namenode.getNamesystem().leaveSafeMode(false);
+    namenode.getNamesystem().leaveSafeMode();
   }
   
   public static void abortEditLogs(NameNode nn) {
@@ -125,8 +117,7 @@ public class NameNodeAdapter {
       DatanodeDescriptor dd, FSNamesystem namesystem) throws IOException {
     return namesystem.handleHeartbeat(nodeReg,
         BlockManagerTestUtil.getStorageReportsForDatanode(dd),
-        dd.getCacheCapacity(), dd.getCacheRemaining(), 0, 0, 0, null, true,
-        SlowPeerReports.EMPTY_REPORT, SlowDiskReports.EMPTY_REPORT);
+        dd.getCacheCapacity(), dd.getCacheRemaining(), 0, 0, 0, null);
   }
 
   public static boolean setReplication(final FSNamesystem ns,
@@ -144,21 +135,8 @@ public class NameNodeAdapter {
     namesystem.leaseManager.triggerMonitorCheckNow();
   }
 
-  public static Lease getLeaseForPath(NameNode nn, String path) {
-    final FSNamesystem fsn = nn.getNamesystem();
-    INode inode;
-    try {
-      inode = fsn.getFSDirectory().getINode(path, DirOp.READ);
-    } catch (UnresolvedLinkException e) {
-      throw new RuntimeException("Lease manager should not support symlinks");
-    } catch (IOException ioe) {
-      return null; // unresolvable path, ex. parent dir is a file
-    }
-    return inode == null ? null : fsn.leaseManager.getLease((INodeFile) inode);
-  }
-
   public static String getLeaseHolderForPath(NameNode namenode, String path) {
-    Lease l = getLeaseForPath(namenode, path);
+    Lease l = namenode.getNamesystem().leaseManager.getLeaseByPath(path);
     return l == null? null: l.getHolder();
   }
 
@@ -167,8 +145,12 @@ public class NameNodeAdapter {
    *   or -1 in the case that the lease doesn't exist.
    */
   public static long getLeaseRenewalTime(NameNode nn, String path) {
-    Lease l = getLeaseForPath(nn, path);
-    return l == null ? -1 : l.getLastUpdate();
+    LeaseManager lm = nn.getNamesystem().leaseManager;
+    Lease l = lm.getLeaseByPath(path);
+    if (l == null) {
+      return -1;
+    }
+    return l.getLastUpdate();
   }
 
   /**
@@ -190,35 +172,7 @@ public class NameNodeAdapter {
   public static long[] getStats(final FSNamesystem fsn) {
     return fsn.getStats();
   }
-
-  public static FSNamesystem spyOnNamesystem(NameNode nn) {
-    FSNamesystem fsnSpy = Mockito.spy(nn.getNamesystem());
-    FSNamesystem fsnOld = nn.namesystem;
-    fsnOld.writeLock();
-    fsnSpy.writeLock();
-    nn.namesystem = fsnSpy;
-    try {
-      FieldUtils.writeDeclaredField(
-          (NameNodeRpcServer)nn.getRpcServer(), "namesystem", fsnSpy, true);
-      FieldUtils.writeDeclaredField(
-          fsnSpy.getBlockManager(), "namesystem", fsnSpy, true);
-      FieldUtils.writeDeclaredField(
-          fsnSpy.getLeaseManager(), "fsnamesystem", fsnSpy, true);
-      FieldUtils.writeDeclaredField(
-          fsnSpy.getBlockManager().getDatanodeManager(),
-          "namesystem", fsnSpy, true);
-      FieldUtils.writeDeclaredField(
-          BlockManagerTestUtil.getHeartbeatManager(fsnSpy.getBlockManager()),
-          "namesystem", fsnSpy, true);
-    } catch (IllegalAccessException e) {
-      throw new RuntimeException("Cannot set spy FSNamesystem", e);
-    } finally {
-      fsnSpy.writeUnlock();
-      fsnOld.writeUnlock();
-    }
-    return fsnSpy;
-  }
-
+  
   public static ReentrantReadWriteLock spyOnFsLock(FSNamesystem fsn) {
     ReentrantReadWriteLock spy = Mockito.spy(fsn.getFsLockForTests());
     fsn.setFsLockForTests(spy);
@@ -270,20 +224,19 @@ public class NameNodeAdapter {
    * @return the number of blocks marked safe by safemode, or -1
    * if safemode is not running.
    */
-  public static long getSafeModeSafeBlocks(NameNode nn) {
-    if (!nn.getNamesystem().isInSafeMode()) {
+  public static int getSafeModeSafeBlocks(NameNode nn) {
+    SafeModeInfo smi = nn.getNamesystem().getSafeModeInfoForTests();
+    if (smi == null) {
       return -1;
     }
-    Object bmSafeMode = Whitebox.getInternalState(
-        nn.getNamesystem().getBlockManager(), "bmSafeMode");
-    return (long)Whitebox.getInternalState(bmSafeMode, "blockSafe");
+    return smi.blockSafe;
   }
   
   /**
    * @return Replication queue initialization status
    */
   public static boolean safeModeInitializedReplQueues(NameNode nn) {
-    return nn.getNamesystem().getBlockManager().isPopulatingReplQueues();
+    return nn.getNamesystem().isPopulatingReplQueues();
   }
   
   public static File getInProgressEditsFile(StorageDirectory sd, long startTxId) {

@@ -17,17 +17,16 @@
   <parent>
     <artifactId>hadoop-yarn</artifactId>
     <groupId>org.apache.hadoop</groupId>
-    <version>3.0.0-beta1-SNAPSHOT</version>
+    <version>2.7.1</version>
   </parent>
+  <groupId>org.apache.hadoop</groupId>
   <artifactId>hadoop-yarn-client</artifactId>
-  <version>3.0.0-beta1-SNAPSHOT</version>
-  <name>Apache Hadoop YARN Client</name>
+  <version>2.7.1</version>
+  <name>hadoop-yarn-client</name>
 
   <properties>
     <!-- Needed for generating FindBugs warnings using parent pom -->
     <yarn.basedir>${project.parent.basedir}</yarn.basedir>
-    <should.run.jdiff>true</should.run.jdiff>
-    <dev-support.relative.dir>../dev-support</dev-support.relative.dir>
   </properties>
 
   <dependencies>
@@ -136,23 +135,12 @@
   <build>
     <plugins>
       <plugin>
-        <groupId>org.apache.rat</groupId>
-        <artifactId>apache-rat-plugin</artifactId>
-        <configuration>
-          <excludes>
-            <exclude>src/test/resources/application_1440536969523_0001.har/_index</exclude>
-            <exclude>src/test/resources/application_1440536969523_0001.har/part-0</exclude>
-            <exclude>src/test/resources/application_1440536969523_0001.har/_masterindex</exclude>
-            <exclude>src/test/resources/application_1440536969523_0001.har/_SUCCESS</exclude>
-          </excludes>
-        </configuration>
-      </plugin>
-      <plugin>
         <groupId>org.apache.hadoop</groupId>
         <artifactId>hadoop-maven-plugins</artifactId>
         <executions>
           <execution>
             <id>compile-protoc</id>
+            <phase>generate-sources</phase>
             <goals>
               <goal>protoc</goal>
             </goals>
@@ -170,6 +158,7 @@
                   <include>test_amrm_token.proto</include>
                 </includes>
               </source>
+              <output>${project.build.directory}/generated-sources/java</output>
             </configuration>
           </execution>
         </executions>

@@ -27,32 +27,29 @@ import org.apache.hadoop.classification.InterfaceAudience;
 public class SampleStat {
   private final MinMax minmax = new MinMax();
   private long numSamples = 0;
-  private double a0, a1, s0, s1, total;
+  private double a0, a1, s0, s1;
 
   /**
    * Construct a new running sample stat
    */
   public SampleStat() {
     a0 = s0 = 0.0;
-    total = 0.0;
   }
 
   public void reset() {
     numSamples = 0;
     a0 = s0 = 0.0;
-    total = 0.0;
     minmax.reset();
   }
 
   // We want to reuse the object, sometimes.
   void reset(long numSamples, double a0, double a1, double s0, double s1,
-      double total, MinMax minmax) {
+             MinMax minmax) {
     this.numSamples = numSamples;
     this.a0 = a0;
     this.a1 = a1;
     this.s0 = s0;
     this.s1 = s1;
-    this.total = total;
     this.minmax.reset(minmax);
   }
 
@@ -61,7 +58,7 @@ public class SampleStat {
    * @param other the destination to hold our values
    */
   public void copyTo(SampleStat other) {
-    other.reset(numSamples, a0, a1, s0, s1, total, minmax);
+    other.reset(numSamples, a0, a1, s0, s1, minmax);
   }
 
   /**
@@ -83,7 +80,6 @@ public class SampleStat {
    */
   public SampleStat add(long nSamples, double x) {
     numSamples += nSamples;
-    total += x;
 
     if (numSamples == 1) {
       a0 = a1 = x;
@@ -107,17 +103,10 @@ public class SampleStat {
   }
 
   /**
-   * @return the total of all samples added
-   */
-  public double total() {
-    return total;
-  }
-
-  /**
    * @return  the arithmetic mean of the samples
    */
   public double mean() {
-    return numSamples > 0 ? (total / numSamples) : 0.0;
+    return numSamples > 0 ? a1 : 0.0;
   }
 
   /**
@@ -146,19 +135,6 @@ public class SampleStat {
    */
   public double max() {
     return minmax.max();
-  }
-
-  @Override
-  public String toString() {
-    try {
-      return "Samples = " + numSamples() +
-          "  Min = " + min() +
-          "  Mean = " + mean() +
-          "  Std Dev = " + stddev() +
-          "  Max = " + max();
-    } catch (Throwable t) {
-      return super.toString();
-    }
   }
 
   /**

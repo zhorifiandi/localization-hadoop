@@ -34,6 +34,7 @@ import java.util.HashMap;
 import java.util.Random;
 
 import org.apache.commons.io.output.NullOutputStream;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -56,6 +57,7 @@ import org.apache.hadoop.hdfs.server.namenode.INodeDirectory;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.SnapshotTestHelper.TestDirectoryTree;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.SnapshotTestHelper.TestDirectoryTree.Node;
 import org.apache.hadoop.hdfs.tools.offlineImageViewer.PBImageXmlWriter;
+import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.Time;
@@ -73,7 +75,7 @@ import org.junit.rules.ExpectedException;
  */
 public class TestSnapshot {
   {
-    GenericTestUtils.setLogLevel(INode.LOG, Level.ALL);
+    ((Log4JLogger)INode.LOG).getLogger().setLevel(Level.ALL);
     SnapshotTestHelper.disableLogs();
   }
 
@@ -98,8 +100,8 @@ public class TestSnapshot {
   protected DistributedFileSystem hdfs;
   
   private static final String testDir =
-      GenericTestUtils.getTestDir().getAbsolutePath();
-
+      System.getProperty("test.build.data", "build/test/data");
+  
   @Rule
   public ExpectedException exception = ExpectedException.none();
   
@@ -131,7 +133,6 @@ public class TestSnapshot {
   public void tearDown() throws Exception {
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 
@@ -846,7 +847,7 @@ public class TestSnapshot {
 
     @Override
     void modify() throws Exception {
-      DFSTestUtil.createFile(fs, file, fileLen, fileLen, BLOCKSIZE,
+      DFSTestUtil.createFile(fs, file, fileLen,
           REPLICATION, seed);
     }
 

@@ -23,6 +23,8 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 
 import com.google.protobuf.BlockingService;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.ha.HAServiceProtocol.HAServiceState;
 import org.apache.hadoop.ha.protocolPB.HAServiceProtocolPB;
@@ -36,8 +38,6 @@ import org.apache.hadoop.security.AccessControlException;
 import org.mockito.Mockito;
 
 import com.google.common.collect.Lists;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.apache.hadoop.fs.CommonConfigurationKeys.HA_HM_RPC_TIMEOUT_DEFAULT;
 
@@ -46,14 +46,13 @@ import static org.apache.hadoop.fs.CommonConfigurationKeys.HA_HM_RPC_TIMEOUT_DEF
  * a mock implementation.
  */
 class DummyHAService extends HAServiceTarget {
-  public static final Logger LOG = LoggerFactory.getLogger(DummyHAService
-      .class);
+  public static final Log LOG = LogFactory.getLog(DummyHAService.class);
   private static final String DUMMY_FENCE_KEY = "dummy.fence.key";
   volatile HAServiceState state;
-  HAServiceProtocol proxy, healthMonitorProxy;
+  HAServiceProtocol proxy;
   ZKFCProtocol zkfcProxy = null;
   NodeFencer fencer;
-  InetSocketAddress address, healthMonitorAddress;
+  InetSocketAddress address;
   boolean isHealthy = true;
   boolean actUnreachable = false;
   boolean failToBecomeActive, failToBecomeStandby, failToFence;
@@ -81,7 +80,6 @@ class DummyHAService extends HAServiceTarget {
     }
     Configuration conf = new Configuration();
     this.proxy = makeMock(conf, HA_HM_RPC_TIMEOUT_DEFAULT);
-    this.healthMonitorProxy = makeHealthMonitorMock(conf, HA_HM_RPC_TIMEOUT_DEFAULT);
     try {
       conf.set(DUMMY_FENCE_KEY, DummyFencer.class.getName());
       this.fencer = Mockito.spy(
@@ -94,18 +92,7 @@ class DummyHAService extends HAServiceTarget {
       this.index = instances.size();
     }
   }
-
-  DummyHAService(HAServiceState state, InetSocketAddress address,
-        InetSocketAddress healthMonitorAddress, boolean testWithProtoBufRPC) {
-    this(state, address, testWithProtoBufRPC);
-    if (testWithProtoBufRPC) {
-      this.healthMonitorAddress = startAndGetRPCServerAddress(
-          healthMonitorAddress);
-    } else {
-      this.healthMonitorAddress = healthMonitorAddress;
-    }
-  }
-
+  
   public void setSharedResource(DummySharedResource rsrc) {
     this.sharedResource = rsrc;
   }
@@ -147,29 +134,9 @@ class DummyHAService extends HAServiceTarget {
     return Mockito.spy(service);
   }
 
-  private HAServiceProtocol makeHealthMonitorMock(Configuration conf,
-      int timeoutMs) {
-    HAServiceProtocol service;
-    if (!testWithProtoBufRPC) {
-      service = new MockHAProtocolImpl();
-    } else {
-      try {
-        service = super.getHealthMonitorProxy(conf, timeoutMs);
-      } catch (IOException e) {
-        return null;
-      }
-    }
-    return Mockito.spy(service);
-  }
-
   @Override
   public InetSocketAddress getAddress() {
     return address;
-  }
-
-  @Override
-  public InetSocketAddress getHealthMonitorAddress() {
-    return healthMonitorAddress;
   }
 
   @Override
@@ -182,15 +149,6 @@ class DummyHAService extends HAServiceTarget {
       throws IOException {
     if (testWithProtoBufRPC) {
       proxy = makeMock(conf, timeout);
-    }
-    return proxy;
-  }
-
-  @Override
-  public HAServiceProtocol getHealthMonitorProxy(Configuration conf,
-      int timeout) throws IOException {
-    if (testWithProtoBufRPC) {
-      proxy = makeHealthMonitorMock(conf, timeout);
     }
     return proxy;
   }

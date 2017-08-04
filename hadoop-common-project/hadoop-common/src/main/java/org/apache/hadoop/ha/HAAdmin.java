@@ -28,6 +28,8 @@ import org.apache.commons.cli.Options;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.GnuParser;
 import org.apache.commons.cli.ParseException;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
@@ -41,8 +43,6 @@ import org.apache.hadoop.util.ToolRunner;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * A command-line tool for making calls in the HAServiceProtocol.
@@ -62,7 +62,7 @@ public abstract class HAAdmin extends Configured implements Tool {
    * operation, which is why it is not documented in the usage below.
    */
   private static final String FORCEMANUAL = "forcemanual";
-  private static final Logger LOG = LoggerFactory.getLogger(HAAdmin.class);
+  private static final Log LOG = LogFactory.getLog(HAAdmin.class);
 
   private int rpcTimeoutForChecks = -1;
   
@@ -80,8 +80,6 @@ public abstract class HAAdmin extends Configured implements Tool {
             "--" + FORCEACTIVE + " option is used."))
     .put("-getServiceState",
         new UsageInfo("<serviceId>", "Returns the state of the service"))
-      .put("-getAllServiceState",
-          new UsageInfo(null, "Returns the state of all the services"))
     .put("-checkHealth",
         new UsageInfo("<serviceId>",
             "Requests that the service perform a health check.\n" + 
@@ -121,11 +119,7 @@ public abstract class HAAdmin extends Configured implements Tool {
       String cmd = e.getKey();
       UsageInfo usage = e.getValue();
       
-      if (usage.args == null) {
-        errOut.println("    [" + cmd + "]");
-      } else {
-        errOut.println("    [" + cmd + " " + usage.args + "]");
-      }
+      errOut.println("    [" + cmd + " " + usage.args + "]"); 
     }
     errOut.println();
     ToolRunner.printGenericCommandUsage(errOut);    
@@ -136,11 +130,7 @@ public abstract class HAAdmin extends Configured implements Tool {
     if (usage == null) {
       throw new RuntimeException("No usage for cmd " + cmd);
     }
-    if (usage.args == null) {
-      errOut.println(getUsageString() + " [" + cmd + "]");
-    } else {
-      errOut.println(getUsageString() + " [" + cmd + " " + usage.args + "]");
-    }
+    errOut.println(getUsageString() + " [" + cmd + " " + usage.args + "]");
   }
 
   private int transitionToActive(final CommandLine cmd)
@@ -449,7 +439,7 @@ public abstract class HAAdmin extends Configured implements Tool {
     
     if (cmdLine.hasOption(FORCEMANUAL)) {
       if (!confirmForceManual()) {
-        LOG.error("Aborted");
+        LOG.fatal("Aborted");
         return -1;
       }
       // Instruct the NNs to honor this request even if they're
@@ -465,8 +455,6 @@ public abstract class HAAdmin extends Configured implements Tool {
       return failover(cmdLine);
     } else if ("-getServiceState".equals(cmd)) {
       return getServiceState(cmdLine);
-    } else if ("-getAllServiceState".equals(cmd)) {
-      return getAllServiceState();
     } else if ("-checkHealth".equals(cmd)) {
       return checkHealth(cmdLine);
     } else if ("-help".equals(cmd)) {
@@ -477,30 +465,7 @@ public abstract class HAAdmin extends Configured implements Tool {
       throw new AssertionError("Should not get here, command: " + cmd);
     } 
   }
-
-  protected int getAllServiceState() {
-    Collection<String> targetIds = getTargetIds(null);
-    if (targetIds.isEmpty()) {
-      errOut.println("Failed to get service IDs");
-      return -1;
-    }
-    for (String targetId : targetIds) {
-      HAServiceTarget target = resolveTarget(targetId);
-      String address = target.getAddress().getHostName() + ":"
-          + target.getAddress().getPort();
-      try {
-        HAServiceProtocol proto = target.getProxy(getConf(),
-            rpcTimeoutForChecks);
-        out.println(String.format("%-50s %-10s", address, proto
-            .getServiceStatus().getState()));
-      } catch (IOException e) {
-        out.println(String.format("%-50s %-10s", address,
-            "Failed to connect: " + e.getMessage()));
-      }
-    }
-    return 0;
-  }
-
+  
   private boolean confirmForceManual() throws IOException {
      return ToolRunner.confirmPrompt(
         "You have specified the --" + FORCEMANUAL + " flag. This flag is " +
@@ -567,11 +532,7 @@ public abstract class HAAdmin extends Configured implements Tool {
       return -1;
     }
     
-    if (usageInfo.args == null) {
-      out.println(cmd + ": " + usageInfo.help);
-    } else {
-      out.println(cmd + " [" + usageInfo.args + "]: " + usageInfo.help);
-    }
+    out.println(cmd + " [" + usageInfo.args + "]: " + usageInfo.help);
     return 0;
   }
   

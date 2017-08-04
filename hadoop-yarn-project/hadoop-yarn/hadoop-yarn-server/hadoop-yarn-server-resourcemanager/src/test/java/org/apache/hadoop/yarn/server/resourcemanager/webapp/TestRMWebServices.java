@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.yarn.server.resourcemanager.webapp;
 
-import static org.apache.hadoop.yarn.webapp.WebServicesTestUtils.assertResponseStatusCode;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -27,9 +26,7 @@ import static org.mockito.Matchers.isA;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import java.io.File;
 import java.io.StringReader;
-import java.security.Principal;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Set;
@@ -40,9 +37,7 @@ import javax.ws.rs.core.MediaType;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.http.JettyUtils;
 import org.apache.hadoop.service.Service.STATE;
 import org.apache.hadoop.util.VersionInfo;
 import org.apache.hadoop.yarn.api.protocolrecords.GetApplicationsRequest;
@@ -56,19 +51,12 @@ import org.apache.hadoop.yarn.server.resourcemanager.ClusterMetrics;
 import org.apache.hadoop.yarn.server.resourcemanager.MockRM;
 import org.apache.hadoop.yarn.server.resourcemanager.RMContextImpl;
 import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
-import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMNodeLabelsManager;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.QueueMetrics;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceScheduler;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FairScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fifo.FifoScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.AppsInfo;
-import org.apache.hadoop.yarn.server.security.ApplicationACLsManager;
-import org.apache.hadoop.yarn.util.AdHocLogDumper;
 import org.apache.hadoop.yarn.util.YarnVersionInfo;
-import org.apache.hadoop.yarn.webapp.ForbiddenException;
 import org.apache.hadoop.yarn.webapp.GenericExceptionHandler;
-import org.apache.hadoop.yarn.webapp.GuiceServletConfig;
 import org.apache.hadoop.yarn.webapp.JerseyTestBase;
 import org.apache.hadoop.yarn.webapp.WebServicesTestUtils;
 import org.codehaus.jettison.json.JSONException;
@@ -82,6 +70,8 @@ import org.w3c.dom.NodeList;
 import org.xml.sax.InputSource;
 
 import com.google.inject.Guice;
+import com.google.inject.Injector;
+import com.google.inject.servlet.GuiceServletContextListener;
 import com.google.inject.servlet.ServletModule;
 import com.sun.jersey.api.client.ClientResponse;
 import com.sun.jersey.api.client.ClientResponse.Status;
@@ -94,7 +84,7 @@ public class TestRMWebServices extends JerseyTestBase {
 
   private static MockRM rm;
 
-  private static class WebServletModule extends ServletModule {
+  private Injector injector = Guice.createInjector(new ServletModule() {
     @Override
     protected void configureServlets() {
       bind(JAXBContextResolver.class);
@@ -107,19 +97,20 @@ public class TestRMWebServices extends JerseyTestBase {
       bind(ResourceManager.class).toInstance(rm);
       serve("/*").with(GuiceContainer.class);
     }
-  }
+  });
 
-  static {
-    GuiceServletConfig.setInjector(
-        Guice.createInjector(new WebServletModule()));
+  public class GuiceServletConfig extends GuiceServletContextListener {
+
+    @Override
+    protected Injector getInjector() {
+      return injector;
+    }
   }
 
   @Before
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    GuiceServletConfig.setInjector(
-        Guice.createInjector(new WebServletModule()));
   }
 
   public TestRMWebServices() {
@@ -145,8 +136,7 @@ public class TestRMWebServices extends JerseyTestBase {
     WebResource r = resource();
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .path("info").accept("application/xml").get(ClientResponse.class);
-    assertEquals(MediaType.APPLICATION_XML + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_XML_TYPE, response.getType());
     String xml = response.getEntity(String.class);
     verifyClusterInfoXML(xml);
   }
@@ -161,7 +151,7 @@ public class TestRMWebServices extends JerseyTestBase {
       fail("should have thrown exception on invalid uri");
     } catch (UniformInterfaceException ue) {
       ClientResponse response = ue.getResponse();
-      assertResponseStatusCode(Status.NOT_FOUND, response.getStatusInfo());
+      assertEquals(Status.NOT_FOUND, response.getClientResponseStatus());
 
       WebServicesTestUtils.checkStringMatch(
           "error string exists and shouldn't", "", responseStr);
@@ -177,7 +167,7 @@ public class TestRMWebServices extends JerseyTestBase {
       fail("should have thrown exception on invalid uri");
     } catch (UniformInterfaceException ue) {
       ClientResponse response = ue.getResponse();
-      assertResponseStatusCode(Status.NOT_FOUND, response.getStatusInfo());
+      assertEquals(Status.NOT_FOUND, response.getClientResponseStatus());
       WebServicesTestUtils.checkStringMatch(
           "error string exists and shouldn't", "", responseStr);
     }
@@ -193,8 +183,8 @@ public class TestRMWebServices extends JerseyTestBase {
       fail("should have thrown exception on invalid uri");
     } catch (UniformInterfaceException ue) {
       ClientResponse response = ue.getResponse();
-      assertResponseStatusCode(Status.INTERNAL_SERVER_ERROR,
-          response.getStatusInfo());
+      assertEquals(Status.INTERNAL_SERVER_ERROR,
+          response.getClientResponseStatus());
       WebServicesTestUtils.checkStringMatch(
           "error string exists and shouldn't", "", responseStr);
     }
@@ -206,8 +196,7 @@ public class TestRMWebServices extends JerseyTestBase {
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterInfo(json);
   }
@@ -219,8 +208,7 @@ public class TestRMWebServices extends JerseyTestBase {
     ClientResponse response = r.path("ws").path("v1").path("cluster/")
         .accept(MediaType.APPLICATION_JSON).get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterInfo(json);
   }
@@ -232,8 +220,7 @@ public class TestRMWebServices extends JerseyTestBase {
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterInfo(json);
   }
@@ -245,8 +232,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("info").accept(MediaType.APPLICATION_JSON)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterInfo(json);
   }
@@ -259,8 +245,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("info/").accept(MediaType.APPLICATION_JSON)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterInfo(json);
   }
@@ -271,8 +256,7 @@ public class TestRMWebServices extends JerseyTestBase {
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .path("info").get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterInfo(json);
   }
@@ -293,8 +277,6 @@ public class TestRMWebServices extends JerseyTestBase {
           WebServicesTestUtils.getXmlLong(element, "startedOn"),
           WebServicesTestUtils.getXmlString(element, "state"),
           WebServicesTestUtils.getXmlString(element, "haState"),
-          WebServicesTestUtils.getXmlString(
-              element, "haZooKeeperConnectionState"),
           WebServicesTestUtils.getXmlString(element, "hadoopVersionBuiltOn"),
           WebServicesTestUtils.getXmlString(element, "hadoopBuildVersion"),
           WebServicesTestUtils.getXmlString(element, "hadoopVersion"),
@@ -310,10 +292,9 @@ public class TestRMWebServices extends JerseyTestBase {
       Exception {
     assertEquals("incorrect number of elements", 1, json.length());
     JSONObject info = json.getJSONObject("clusterInfo");
-    assertEquals("incorrect number of elements", 12, info.length());
+    assertEquals("incorrect number of elements", 11, info.length());
     verifyClusterGeneric(info.getLong("id"), info.getLong("startedOn"),
         info.getString("state"), info.getString("haState"),
-        info.getString("haZooKeeperConnectionState"),
         info.getString("hadoopVersionBuiltOn"),
         info.getString("hadoopBuildVersion"), info.getString("hadoopVersion"),
         info.getString("resourceManagerVersionBuiltOn"),
@@ -323,8 +304,7 @@ public class TestRMWebServices extends JerseyTestBase {
   }
 
   public void verifyClusterGeneric(long clusterid, long startedon,
-      String state, String haState, String haZooKeeperConnectionState,
-      String hadoopVersionBuiltOn,
+      String state, String haState, String hadoopVersionBuiltOn,
       String hadoopBuildVersion, String hadoopVersion,
       String resourceManagerVersionBuiltOn, String resourceManagerBuildVersion,
       String resourceManagerVersion) {
@@ -360,8 +340,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("metrics").accept(MediaType.APPLICATION_JSON)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterMetricsJSON(json);
   }
@@ -373,8 +352,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("metrics/").accept(MediaType.APPLICATION_JSON)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterMetricsJSON(json);
   }
@@ -385,8 +363,7 @@ public class TestRMWebServices extends JerseyTestBase {
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .path("metrics").get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterMetricsJSON(json);
   }
@@ -396,8 +373,7 @@ public class TestRMWebServices extends JerseyTestBase {
     WebResource r = resource();
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .path("metrics").accept("application/xml").get(ClientResponse.class);
-    assertEquals(MediaType.APPLICATION_XML + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_XML_TYPE, response.getType());
     String xml = response.getEntity(String.class);
     verifyClusterMetricsXML(xml);
   }
@@ -432,8 +408,7 @@ public class TestRMWebServices extends JerseyTestBase {
           WebServicesTestUtils.getXmlInt(element, "unhealthyNodes"),
           WebServicesTestUtils.getXmlInt(element, "decommissionedNodes"),
           WebServicesTestUtils.getXmlInt(element, "rebootedNodes"),
-          WebServicesTestUtils.getXmlInt(element, "activeNodes"),
-          WebServicesTestUtils.getXmlInt(element, "shutdownNodes"));
+          WebServicesTestUtils.getXmlInt(element, "activeNodes"));
     }
   }
 
@@ -441,7 +416,7 @@ public class TestRMWebServices extends JerseyTestBase {
       Exception {
     assertEquals("incorrect number of elements", 1, json.length());
     JSONObject clusterinfo = json.getJSONObject("clusterMetrics");
-    assertEquals("incorrect number of elements", 25, clusterinfo.length());
+    assertEquals("incorrect number of elements", 23, clusterinfo.length());
     verifyClusterMetrics(
         clusterinfo.getInt("appsSubmitted"), clusterinfo.getInt("appsCompleted"),
         clusterinfo.getInt("reservedMB"), clusterinfo.getInt("availableMB"),
@@ -452,16 +427,16 @@ public class TestRMWebServices extends JerseyTestBase {
         clusterinfo.getInt("totalMB"), clusterinfo.getInt("totalNodes"),
         clusterinfo.getInt("lostNodes"), clusterinfo.getInt("unhealthyNodes"),
         clusterinfo.getInt("decommissionedNodes"),
-        clusterinfo.getInt("rebootedNodes"),clusterinfo.getInt("activeNodes"),
-        clusterinfo.getInt("shutdownNodes"));
+        clusterinfo.getInt("rebootedNodes"),clusterinfo.getInt("activeNodes"));
   }
 
   public void verifyClusterMetrics(int submittedApps, int completedApps,
-      int reservedMB, int availableMB, int allocMB, int reservedVirtualCores,
-      int availableVirtualCores, int allocVirtualCores, int totalVirtualCores,
-      int containersAlloc, int totalMB, int totalNodes, int lostNodes,
-      int unhealthyNodes, int decommissionedNodes, int rebootedNodes,
-      int activeNodes, int shutdownNodes) throws JSONException, Exception {
+      int reservedMB, int availableMB,
+      int allocMB, int reservedVirtualCores, int availableVirtualCores, 
+      int allocVirtualCores, int totalVirtualCores,
+      int containersAlloc, int totalMB, int totalNodes,
+      int lostNodes, int unhealthyNodes, int decommissionedNodes,
+      int rebootedNodes, int activeNodes) throws JSONException, Exception {
 
     ResourceScheduler rs = rm.getResourceScheduler();
     QueueMetrics metrics = rs.getRootQueueMetrics();
@@ -505,8 +480,6 @@ public class TestRMWebServices extends JerseyTestBase {
         clusterMetrics.getNumRebootedNMs(), rebootedNodes);
     assertEquals("activeNodes doesn't match", clusterMetrics.getNumActiveNMs(),
         activeNodes);
-    assertEquals("shutdownNodes doesn't match",
-        clusterMetrics.getNumShutdownNMs(), shutdownNodes);
   }
 
   @Test
@@ -516,8 +489,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("scheduler").accept(MediaType.APPLICATION_JSON)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterSchedulerFifo(json);
   }
@@ -529,8 +501,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("scheduler/").accept(MediaType.APPLICATION_JSON)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterSchedulerFifo(json);
   }
@@ -541,8 +512,7 @@ public class TestRMWebServices extends JerseyTestBase {
     ClientResponse response = r.path("ws").path("v1").path("cluster")
         .path("scheduler").get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_JSON_TYPE, response.getType());
     JSONObject json = response.getEntity(JSONObject.class);
     verifyClusterSchedulerFifo(json);
   }
@@ -554,8 +524,7 @@ public class TestRMWebServices extends JerseyTestBase {
         .path("scheduler").accept(MediaType.APPLICATION_XML)
         .get(ClientResponse.class);
 
-    assertEquals(MediaType.APPLICATION_XML + "; " + JettyUtils.UTF_8,
-        response.getType().toString());
+    assertEquals(MediaType.APPLICATION_XML_TYPE, response.getType());
     String xml = response.getEntity(String.class);
     verifySchedulerFifoXML(xml);
   }
@@ -654,7 +623,6 @@ public class TestRMWebServices extends JerseyTestBase {
         null, null, null, null, null);
     when(mockRM.getRMContext()).thenReturn(rmContext);
     when(mockRM.getClientRMService()).thenReturn(mockClientSvc);
-    rmContext.setNodeLabelManager(mock(RMNodeLabelsManager.class));
 
     RMWebServices webSvc = new RMWebServices(mockRM, new Configuration(),
         mock(HttpServletResponse.class));
@@ -665,92 +633,12 @@ public class TestRMWebServices extends JerseyTestBase {
     // verify we don't get any apps when querying
     HttpServletRequest mockHsr = mock(HttpServletRequest.class);
     AppsInfo appsInfo = webSvc.getApps(mockHsr, null, emptySet, null,
-        null, null, null, null, null, null, null, emptySet, emptySet, null);
+        null, null, null, null, null, null, null, emptySet, emptySet);
     assertTrue(appsInfo.getApps().isEmpty());
 
     // verify we don't get an NPE when specifying a final status query
     appsInfo = webSvc.getApps(mockHsr, null, emptySet, "FAILED",
-        null, null, null, null, null, null, null, emptySet, emptySet, null);
+        null, null, null, null, null, null, null, emptySet, emptySet);
     assertTrue(appsInfo.getApps().isEmpty());
-  }
-
-  @Test
-  public void testDumpingSchedulerLogs() throws Exception {
-
-    ResourceManager mockRM = mock(ResourceManager.class);
-    Configuration conf = new YarnConfiguration();
-    HttpServletRequest mockHsr = mock(HttpServletRequest.class);
-    ApplicationACLsManager aclsManager = new ApplicationACLsManager(conf);
-    when(mockRM.getApplicationACLsManager()).thenReturn(aclsManager);
-    RMWebServices webSvc =
-        new RMWebServices(mockRM, conf, mock(HttpServletResponse.class));
-
-    // nothing should happen
-    webSvc.dumpSchedulerLogs("1", mockHsr);
-    waitforLogDump(50);
-    checkSchedulerLogFileAndCleanup();
-
-    conf.setBoolean(YarnConfiguration.YARN_ACL_ENABLE, true);
-    conf.setStrings(YarnConfiguration.YARN_ADMIN_ACL, "admin");
-    aclsManager = new ApplicationACLsManager(conf);
-    when(mockRM.getApplicationACLsManager()).thenReturn(aclsManager);
-    webSvc = new RMWebServices(mockRM, conf, mock(HttpServletResponse.class));
-    boolean exceptionThrown = false;
-    try {
-      webSvc.dumpSchedulerLogs("1", mockHsr);
-      fail("Dumping logs should fail");
-    } catch (ForbiddenException ae) {
-      exceptionThrown = true;
-    }
-    assertTrue("ForbiddenException expected", exceptionThrown);
-    exceptionThrown = false;
-    when(mockHsr.getUserPrincipal()).thenReturn(new Principal() {
-      @Override
-      public String getName() {
-        return "testuser";
-      }
-    });
-    try {
-      webSvc.dumpSchedulerLogs("1", mockHsr);
-      fail("Dumping logs should fail");
-    } catch (ForbiddenException ae) {
-      exceptionThrown = true;
-    }
-    assertTrue("ForbiddenException expected", exceptionThrown);
-
-    when(mockHsr.getUserPrincipal()).thenReturn(new Principal() {
-      @Override
-      public String getName() {
-        return "admin";
-      }
-    });
-    webSvc.dumpSchedulerLogs("1", mockHsr);
-    waitforLogDump(50);
-    checkSchedulerLogFileAndCleanup();
-  }
-
-  private void checkSchedulerLogFileAndCleanup() {
-    String targetFile;
-    ResourceScheduler scheduler = rm.getResourceScheduler();
-    if (scheduler instanceof FairScheduler) {
-      targetFile = "yarn-fair-scheduler-debug.log";
-    } else if (scheduler instanceof CapacityScheduler) {
-      targetFile = "yarn-capacity-scheduler-debug.log";
-    } else {
-      targetFile = "yarn-scheduler-debug.log";
-    }
-    File logFile = new File(System.getProperty("yarn.log.dir"), targetFile);
-    assertTrue("scheduler log file doesn't exist", logFile.exists());
-    FileUtils.deleteQuietly(logFile);
-  }
-
-  private void waitforLogDump(int tickcount) throws InterruptedException {
-    while (tickcount > 0) {
-      Thread.sleep(100);
-      if (!AdHocLogDumper.getState()) {
-        return;
-      }
-      tickcount--;
-    }
   }
 }

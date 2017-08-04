@@ -27,11 +27,14 @@ import static org.mockito.AdditionalMatchers.geq;
 import static org.mockito.Mockito.*;
 
 import org.mockito.stubbing.Answer;
+import org.mockito.internal.matchers.GreaterThan;
 import org.mockito.invocation.InvocationOnMock;
 
 import org.mockito.ArgumentCaptor;
 import org.mockito.ArgumentMatcher;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.metrics2.MetricsInfo;
 import org.apache.hadoop.metrics2.MetricsCollector;
 import org.apache.hadoop.metrics2.MetricsSource;
@@ -40,8 +43,6 @@ import org.apache.hadoop.metrics2.MetricsSystem;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.metrics2.lib.MutableQuantiles;
 import org.apache.hadoop.metrics2.util.Quantile;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import static org.apache.hadoop.metrics2.lib.Interns.*;
 
@@ -50,7 +51,7 @@ import static org.apache.hadoop.metrics2.lib.Interns.*;
  */
 public class MetricsAsserts {
 
-  final static Logger LOG = LoggerFactory.getLogger(MetricsAsserts.class);
+  final static Log LOG = LogFactory.getLog(MetricsAsserts.class);
   private static final double EPSILON = 0.00001;
 
   public static MetricsSystem mockMetricsSystem() {
@@ -86,7 +87,7 @@ public class MetricsAsserts {
    * Call getMetrics on source and get a record builder mock to verify
    * @param source  the metrics source
    * @param all     if true, return all metrics even if not changed
-   * @return the record builder mock to verifyÏ
+   * @return the record builder mock to verify
    */
   public static MetricsRecordBuilder getMetrics(MetricsSource source,
                                                 boolean all) {
@@ -235,20 +236,6 @@ public class MetricsAsserts {
     return captor.getValue();
   }
 
-  public static long getLongCounterWithoutCheck(String name,
-    MetricsRecordBuilder rb) {
-    ArgumentCaptor<Long> captor = ArgumentCaptor.forClass(Long.class);
-    verify(rb, atLeast(0)).addCounter(eqName(info(name, "")), captor.capture());
-    return captor.getValue();
-  }
-
-  public static String getStringMetric(String name, MetricsRecordBuilder rb) {
-    ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-    verify(rb, atLeast(0)).tag(eqName(info(name, "")), captor.capture());
-    checkCaptured(captor, name);
-    return captor.getValue();
-  }
-
    /**
    * Assert a float gauge metric as expected
    * @param name  of the metric
@@ -328,8 +315,8 @@ public class MetricsAsserts {
    */
   public static void assertCounterGt(String name, long greater,
                                      MetricsRecordBuilder rb) {
-    Assert.assertTrue("Bad value for metric " + name,
-        getLongCounter(name, rb) > greater);
+    Assert.assertThat("Bad value for metric " + name, getLongCounter(name, rb),
+        new GreaterThan<Long>(greater));
   }
 
   /**
@@ -351,8 +338,8 @@ public class MetricsAsserts {
    */
   public static void assertGaugeGt(String name, double greater,
                                    MetricsRecordBuilder rb) {
-    Assert.assertTrue("Bad value for metric " + name,
-        getDoubleGauge(name, rb) > greater);
+    Assert.assertThat("Bad value for metric " + name, getDoubleGauge(name, rb),
+        new GreaterThan<Double>(greater));
   }
 
   /**

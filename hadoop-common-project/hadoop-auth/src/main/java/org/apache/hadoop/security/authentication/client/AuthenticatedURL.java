@@ -14,10 +14,7 @@
 package org.apache.hadoop.security.authentication.client;
 
 import org.apache.hadoop.security.authentication.server.AuthenticationFilter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -46,14 +43,14 @@ import java.util.Map;
  * URL url = new URL("http://foo:8080/bar");
  * AuthenticatedURL.Token token = new AuthenticatedURL.Token();
  * AuthenticatedURL aUrl = new AuthenticatedURL();
- * HttpURLConnection conn = new AuthenticatedURL().openConnection(url, token);
+ * HttpURLConnection conn = new AuthenticatedURL(url, token).openConnection();
  * ....
  * // use the 'conn' instance
  * ....
  *
  * // establishing a follow up connection using a token from the previous connection
  *
- * HttpURLConnection conn = new AuthenticatedURL().openConnection(url, token);
+ * HttpURLConnection conn = new AuthenticatedURL(url, token).openConnection();
  * ....
  * // use the 'conn' instance
  * ....
@@ -61,8 +58,6 @@ import java.util.Map;
  * </pre>
  */
 public class AuthenticatedURL {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(AuthenticatedURL.class);
 
   /**
    * Name of the HTTP cookie used for the authentication token between the client and the server.
@@ -269,24 +264,15 @@ public class AuthenticatedURL {
               value = value.substring(0, separator);
             }
             if (value.length() > 0) {
-              LOG.trace("Setting token value to {} ({}), resp={}", value,
-                  token, respCode);
               token.set(value);
             }
           }
         }
       }
-    } else if (respCode == HttpURLConnection.HTTP_NOT_FOUND) {
-      LOG.trace("Setting token value to null ({}), resp={}", token, respCode);
-      token.set(null);
-      throw new FileNotFoundException(conn.getURL().toString());
     } else {
-      LOG.trace("Setting token value to null ({}), resp={}", token, respCode);
       token.set(null);
-      throw new AuthenticationException("Authentication failed" +
-          ", URL: " + conn.getURL() +
-          ", status: " + conn.getResponseCode() +
-          ", message: " + conn.getResponseMessage());
+      throw new AuthenticationException("Authentication failed, status: " + conn.getResponseCode() +
+                                        ", message: " + conn.getResponseMessage());
     }
   }
 

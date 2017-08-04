@@ -20,12 +20,9 @@ package org.apache.hadoop.yarn.api.records;
 
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceAudience.Public;
-import org.apache.hadoop.classification.InterfaceStability.Evolving;
 import org.apache.hadoop.classification.InterfaceStability.Stable;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.yarn.util.Records;
-
-import java.util.List;
 
 /**
  * {@code ContainerStatus} represents the current status of a
@@ -34,11 +31,9 @@ import java.util.List;
  * It provides details such as:
  * <ul>
  *   <li>{@code ContainerId} of the container.</li>
- *   <li>{@code ExecutionType} of the container.</li>
  *   <li>{@code ContainerState} of the container.</li>
  *   <li><em>Exit status</em> of a completed container.</li>
  *   <li><em>Diagnostic</em> message for a failed container.</li>
- *   <li>{@link Resource} allocated to the container.</li>
  * </ul>
  */
 @Public
@@ -49,17 +44,7 @@ public abstract class ContainerStatus {
   @Unstable
   public static ContainerStatus newInstance(ContainerId containerId,
       ContainerState containerState, String diagnostics, int exitStatus) {
-    return newInstance(containerId, ExecutionType.GUARANTEED, containerState,
-        diagnostics, exitStatus);
-  }
-
-  @Private
-  @Unstable
-  public static ContainerStatus newInstance(ContainerId containerId,
-      ExecutionType executionType, ContainerState containerState,
-      String diagnostics, int exitStatus) {
     ContainerStatus containerStatus = Records.newRecord(ContainerStatus.class);
-    containerStatus.setExecutionType(executionType);
     containerStatus.setState(containerState);
     containerStatus.setContainerId(containerId);
     containerStatus.setDiagnostics(diagnostics);
@@ -78,24 +63,6 @@ public abstract class ContainerStatus {
   @Private
   @Unstable
   public abstract void setContainerId(ContainerId containerId);
-
-  /**
-   * Get the <code>ExecutionType</code> of the container.
-   * @return <code>ExecutionType</code> of the container
-   */
-  @Public
-  @Evolving
-  public ExecutionType getExecutionType() {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
-
-  @Private
-  @Unstable
-  public void setExecutionType(ExecutionType executionType) {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
 
   /**
    * Get the <code>ContainerState</code> of the container.
@@ -147,58 +114,4 @@ public abstract class ContainerStatus {
   @Private
   @Unstable
   public abstract void setDiagnostics(String diagnostics);
-
-  /**
-   * Get the <code>Resource</code> allocated to the container.
-   * @return <code>Resource</code> allocated to the container
-   */
-  @Public
-  @Unstable
-  public Resource getCapability() {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
-
-  @Private
-  @Unstable
-  public void setCapability(Resource capability) {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
-
-  /**
-   * Get all the IP addresses with which the container run.
-   * @return The IP address where the container runs.
-   */
-  @Public
-  @Unstable
-  public List<String> getIPs() {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
-
-  @Private
-  @Unstable
-  public void setIPs(List<String> ips) {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
-
-  /**
-   * Get the hostname where the container runs.
-   * @return The hostname where the container runs.
-   */
-  @Public
-  @Unstable
-  public String getHost() {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
-
-  @Private
-  @Unstable
-  public void setHost(String host) {
-    throw new UnsupportedOperationException(
-        "subclass must implement this method");
-  }
 }

@@ -19,7 +19,6 @@
 package org.apache.hadoop.mapreduce.v2.app;
 
 import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
@@ -31,7 +30,6 @@ import java.io.PrintStream;
 import java.net.Proxy;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.nio.channels.ClosedChannelException;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -55,7 +53,6 @@ import org.apache.hadoop.mapreduce.v2.app.rm.ContainerAllocatorEvent;
 import org.apache.hadoop.mapreduce.v2.app.rm.RMCommunicator;
 import org.apache.hadoop.mapreduce.v2.app.rm.RMHeartbeatHandler;
 import org.apache.hadoop.yarn.exceptions.YarnException;
-import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -124,20 +121,20 @@ public class TestJobEndNotifier extends JobEndNotifier {
       proxyToUse.type() == Proxy.Type.DIRECT);
     conf.set(MRJobConfig.MR_JOB_END_NOTIFICATION_PROXY, "somehost:1000");
     setConf(conf);
-    Assert.assertEquals("Proxy should have been set but wasn't ",
-      "HTTP @ somehost:1000", proxyToUse.toString());
+    Assert.assertTrue("Proxy should have been set but wasn't ",
+      proxyToUse.toString().equals("HTTP @ somehost:1000"));
     conf.set(MRJobConfig.MR_JOB_END_NOTIFICATION_PROXY, "socks@somehost:1000");
     setConf(conf);
-    Assert.assertEquals("Proxy should have been socks but wasn't ",
-      "SOCKS @ somehost:1000", proxyToUse.toString());
+    Assert.assertTrue("Proxy should have been socks but wasn't ",
+      proxyToUse.toString().equals("SOCKS @ somehost:1000"));
     conf.set(MRJobConfig.MR_JOB_END_NOTIFICATION_PROXY, "SOCKS@somehost:1000");
     setConf(conf);
-    Assert.assertEquals("Proxy should have been socks but wasn't ",
-      "SOCKS @ somehost:1000", proxyToUse.toString());
+    Assert.assertTrue("Proxy should have been socks but wasn't ",
+      proxyToUse.toString().equals("SOCKS @ somehost:1000"));
     conf.set(MRJobConfig.MR_JOB_END_NOTIFICATION_PROXY, "sfafn@somehost:1000");
     setConf(conf);
-    Assert.assertEquals("Proxy should have been http but wasn't ",
-      "HTTP @ somehost:1000", proxyToUse.toString());
+    Assert.assertTrue("Proxy should have been http but wasn't ",
+      proxyToUse.toString().equals("HTTP @ somehost:1000"));
     
   }
 
@@ -200,8 +197,8 @@ public class TestJobEndNotifier extends JobEndNotifier {
 
   }
 
-  private void testNotificationOnLastRetry(boolean withRuntimeException)
-      throws Exception {
+  @Test
+  public void testNotificationOnLastRetryNormalShutdown() throws Exception {
     HttpServer2 server = startHttpServer();
     // Act like it is the second attempt. Default max attempts is 2
     MRApp app = spy(new MRAppWithCustomContainerAllocator(
@@ -213,30 +210,14 @@ public class TestJobEndNotifier extends JobEndNotifier {
     JobImpl job = (JobImpl)app.submit(conf);
     app.waitForInternalState(job, JobStateInternal.SUCCEEDED);
     // Unregistration succeeds: successfullyUnregistered is set
-    if (withRuntimeException) {
-      YarnRuntimeException runtimeException = new YarnRuntimeException(
-          new ClosedChannelException());
-      doThrow(runtimeException).when(app).stop();
-    }
     app.shutDownJob();
     Assert.assertTrue(app.isLastAMRetry());
     Assert.assertEquals(1, JobEndServlet.calledTimes);
     Assert.assertEquals("jobid=" + job.getID() + "&status=SUCCEEDED",
         JobEndServlet.requestUri.getQuery());
     Assert.assertEquals(JobState.SUCCEEDED.toString(),
-        JobEndServlet.foundJobState);
+      JobEndServlet.foundJobState);
     server.stop();
-  }
-
-  @Test
-  public void testNotificationOnLastRetryNormalShutdown() throws Exception {
-    testNotificationOnLastRetry(false);
-  }
-
-  @Test
-  public void testNotificationOnLastRetryShutdownWithRuntimeException()
-      throws Exception {
-    testNotificationOnLastRetry(true);
   }
 
   @Test

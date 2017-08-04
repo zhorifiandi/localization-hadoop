@@ -18,21 +18,16 @@
 
 package org.apache.hadoop.io.compress;
 
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_DEFAULT;
-import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.IO_FILE_BUFFER_SIZE_KEY;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.util.zip.GZIPOutputStream;
-
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.io.compress.zlib.BuiltInGzipDecompressor;
-import org.apache.hadoop.io.compress.zlib.ZlibCompressor;
-import org.apache.hadoop.io.compress.zlib.ZlibDecompressor;
-import org.apache.hadoop.io.compress.zlib.ZlibFactory;
+import org.apache.hadoop.io.compress.DefaultCodec;
+import org.apache.hadoop.io.compress.zlib.*;
+import org.apache.hadoop.io.compress.zlib.ZlibDecompressor.ZlibDirectDecompressor;
+
+import static org.apache.hadoop.util.PlatformName.IBM_JAVA;
 
 /**
  * This class creates gzip compressors/decompressors. 
@@ -48,11 +43,15 @@ public class GzipCodec extends DefaultCodec {
   protected static class GzipOutputStream extends CompressorStream {
 
     private static class ResetableGZIPOutputStream extends GZIPOutputStream {
+      private static final int TRAILER_SIZE = 8;
+      public static final String JVMVersion= System.getProperty("java.version");
+      private static final boolean HAS_BROKEN_FINISH =
+          (IBM_JAVA && JVMVersion.contains("1.6.0"));
 
       public ResetableGZIPOutputStream(OutputStream out) throws IOException {
         super(out);
       }
-
+      
       public void resetState() throws IOException {
         def.reset();
       }
@@ -118,8 +117,8 @@ public class GzipCodec extends DefaultCodec {
   throws IOException {
     return (compressor != null) ?
                new CompressorStream(out, compressor,
-                                    conf.getInt(IO_FILE_BUFFER_SIZE_KEY,
-                                            IO_FILE_BUFFER_SIZE_DEFAULT)) :
+                                    conf.getInt("io.file.buffer.size", 
+                                                4*1024)) :
                createOutputStream(out);
   }
 
@@ -152,8 +151,7 @@ public class GzipCodec extends DefaultCodec {
       decompressor = createDecompressor();  // always succeeds (or throws)
     }
     return new DecompressorStream(in, decompressor,
-                                  conf.getInt(IO_FILE_BUFFER_SIZE_KEY,
-                                      IO_FILE_BUFFER_SIZE_DEFAULT));
+                                  conf.getInt("io.file.buffer.size", 4*1024));
   }
 
   @Override

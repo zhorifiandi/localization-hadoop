@@ -20,6 +20,9 @@ package org.apache.hadoop.io;
 
 import java.io.*;
 import java.util.*;
+import junit.framework.TestCase;
+
+import org.apache.commons.logging.*;
 
 import org.apache.hadoop.fs.*;
 import org.apache.hadoop.io.SequenceFile.CompressionType;
@@ -27,110 +30,37 @@ import org.apache.hadoop.io.SequenceFile.Metadata;
 import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.hadoop.io.compress.DefaultCodec;
 import org.apache.hadoop.io.serializer.avro.AvroReflectSerialization;
-import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.ReflectionUtils;
 import org.apache.hadoop.conf.*;
-import org.junit.Test;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.fail;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import org.mockito.Mockito;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 
 /** Support for flat files of binary key/value pairs. */
-public class TestSequenceFile {
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestSequenceFile.class);
+public class TestSequenceFile extends TestCase {
+  private static final Log LOG = LogFactory.getLog(TestSequenceFile.class);
 
   private Configuration conf = new Configuration();
+  
+  public TestSequenceFile() { }
+
+  public TestSequenceFile(String name) { super(name); }
 
   /** Unit tests for SequenceFile. */
-  @Test
   public void testZlibSequenceFile() throws Exception {
     LOG.info("Testing SequenceFile with DefaultCodec");
     compressedSeqFileTest(new DefaultCodec());
     LOG.info("Successfully tested SequenceFile with DefaultCodec");
   }
-
-  @SuppressWarnings("deprecation")
-  public void testSorterProperties() throws IOException {
-    // Test to ensure that deprecated properties have no default
-    // references anymore.
-    Configuration config = new Configuration();
-    assertNull("The deprecated sort memory property "
-        + CommonConfigurationKeys.IO_SORT_MB_KEY
-        + " must not exist in any core-*.xml files.",
-        config.get(CommonConfigurationKeys.IO_SORT_MB_KEY));
-    assertNull("The deprecated sort factor property "
-        + CommonConfigurationKeys.IO_SORT_FACTOR_KEY
-        + " must not exist in any core-*.xml files.",
-        config.get(CommonConfigurationKeys.IO_SORT_FACTOR_KEY));
-
-    // Test deprecated property honoring
-    // Set different values for old and new property names
-    // and compare which one gets loaded
-    config = new Configuration();
-    FileSystem fs = FileSystem.get(config);
-    config.setInt(CommonConfigurationKeys.IO_SORT_MB_KEY, 10);
-    config.setInt(CommonConfigurationKeys.IO_SORT_FACTOR_KEY, 10);
-    config.setInt(CommonConfigurationKeys.SEQ_IO_SORT_MB_KEY, 20);
-    config.setInt(CommonConfigurationKeys.SEQ_IO_SORT_FACTOR_KEY, 20);
-    SequenceFile.Sorter sorter = new SequenceFile.Sorter(
-        fs, Text.class, Text.class, config);
-    assertEquals("Deprecated memory conf must be honored over newer property",
-        10*1024*1024, sorter.getMemory());
-    assertEquals("Deprecated factor conf must be honored over newer property",
-        10, sorter.getFactor());
-
-    // Test deprecated properties (graceful deprecation)
-    config = new Configuration();
-    fs = FileSystem.get(config);
-    config.setInt(CommonConfigurationKeys.IO_SORT_MB_KEY, 10);
-    config.setInt(CommonConfigurationKeys.IO_SORT_FACTOR_KEY, 10);
-    sorter = new SequenceFile.Sorter(
-        fs, Text.class, Text.class, config);
-    assertEquals("Deprecated memory property "
-        + CommonConfigurationKeys.IO_SORT_MB_KEY
-        + " must get properly applied.",
-        10*1024*1024, // In bytes
-        sorter.getMemory());
-    assertEquals("Deprecated sort factor property "
-        + CommonConfigurationKeys.IO_SORT_FACTOR_KEY
-        + " must get properly applied.",
-        10, sorter.getFactor());
-
-    // Test regular properties (graceful deprecation)
-    config = new Configuration();
-    fs = FileSystem.get(config);
-    config.setInt(CommonConfigurationKeys.SEQ_IO_SORT_MB_KEY, 20);
-    config.setInt(CommonConfigurationKeys.SEQ_IO_SORT_FACTOR_KEY, 20);
-    sorter = new SequenceFile.Sorter(
-        fs, Text.class, Text.class, config);
-    assertEquals("Memory property "
-        + CommonConfigurationKeys.SEQ_IO_SORT_MB_KEY
-        + " must get properly applied if present.",
-        20*1024*1024, // In bytes
-        sorter.getMemory());
-    assertEquals("Merge factor property "
-        + CommonConfigurationKeys.SEQ_IO_SORT_FACTOR_KEY
-        + " must get properly applied if present.",
-        20, sorter.getFactor());
-  }
-
+  
   public void compressedSeqFileTest(CompressionCodec codec) throws Exception {
     int count = 1024 * 10;
     int megabytes = 1;
     int factor = 5;
-    Path file = new Path(GenericTestUtils.getTempPath("test.seq"));
-    Path recordCompressedFile = new Path(GenericTestUtils.getTempPath(
-        "test.rc.seq"));
-    Path blockCompressedFile = new Path(GenericTestUtils.getTempPath(
-        "test.bc.seq"));
+    Path file = new Path(System.getProperty("test.build.data",".")+"/test.seq");
+    Path recordCompressedFile = 
+      new Path(System.getProperty("test.build.data",".")+"/test.rc.seq");
+    Path blockCompressedFile = 
+      new Path(System.getProperty("test.build.data",".")+"/test.bc.seq");
  
     int seed = new Random().nextInt();
     LOG.info("Seed = " + seed);
@@ -198,7 +128,6 @@ public class TestSequenceFile {
     }
   }
 
-  @SuppressWarnings("deprecation")
   private void writeTest(FileSystem fs, int count, int seed, Path file, 
                                 CompressionType compressionType, CompressionCodec codec)
     throws IOException {
@@ -219,7 +148,6 @@ public class TestSequenceFile {
     writer.close();
   }
 
-  @SuppressWarnings("deprecation")
   private void readTest(FileSystem fs, int count, int seed, Path file)
     throws IOException {
     LOG.debug("reading " + count + " records");
@@ -286,7 +214,6 @@ public class TestSequenceFile {
     LOG.info("done sorting " + count + " debug");
   }
 
-  @SuppressWarnings("deprecation")
   private void checkSort(FileSystem fs, int count, int seed, Path file)
     throws IOException {
     LOG.info("sorting " + count + " records in memory for debug");
@@ -324,7 +251,6 @@ public class TestSequenceFile {
     LOG.debug("sucessfully checked " + count + " records");
   }
 
-  @SuppressWarnings("deprecation")
   private void mergeTest(FileSystem fs, int count, int seed, Path file, 
                                 CompressionType compressionType,
                                 boolean fast, int factor, int megabytes)
@@ -383,18 +309,17 @@ public class TestSequenceFile {
   }
 
   /** Unit tests for SequenceFile metadata. */
-  @Test
   public void testSequenceFileMetadata() throws Exception {
     LOG.info("Testing SequenceFile with metadata");
     int count = 1024 * 10;
     CompressionCodec codec = new DefaultCodec();
-    Path file = new Path(GenericTestUtils.getTempPath("test.seq.metadata"));
-    Path sortedFile = new Path(GenericTestUtils.getTempPath(
-        "test.sorted.seq.metadata"));
-    Path recordCompressedFile = new Path(GenericTestUtils.getTempPath(
-        "test.rc.seq.metadata"));
-    Path blockCompressedFile = new Path(GenericTestUtils.getTempPath(
-        "test.bc.seq.metadata"));
+    Path file = new Path(System.getProperty("test.build.data",".")+"/test.seq.metadata");
+    Path sortedFile =
+      new Path(System.getProperty("test.build.data",".")+"/test.sorted.seq.metadata");
+    Path recordCompressedFile = 
+      new Path(System.getProperty("test.build.data",".")+"/test.rc.seq.metadata");
+    Path blockCompressedFile = 
+      new Path(System.getProperty("test.build.data",".")+"/test.bc.seq.metadata");
  
     FileSystem fs = FileSystem.getLocal(conf);
     SequenceFile.Metadata theMetadata = new SequenceFile.Metadata();
@@ -447,7 +372,6 @@ public class TestSequenceFile {
   }
   
   
-  @SuppressWarnings("deprecation")
   private SequenceFile.Metadata readMetadata(FileSystem fs, Path file)
     throws IOException {
     LOG.info("reading file: " + file.toString());
@@ -457,7 +381,6 @@ public class TestSequenceFile {
     return meta;
   }
 
-  @SuppressWarnings("deprecation")
   private void writeMetadataTest(FileSystem fs, int count, int seed, Path file, 
                                         CompressionType compressionType, CompressionCodec codec, SequenceFile.Metadata metadata)
     throws IOException {
@@ -487,21 +410,19 @@ public class TestSequenceFile {
     sorter.sort(new Path[] { unsortedFile }, sortedFile, false);
   }
 
-  @SuppressWarnings("deprecation")
-  @Test
   public void testClose() throws IOException {
     Configuration conf = new Configuration();
     LocalFileSystem fs = FileSystem.getLocal(conf);
   
     // create a sequence file 1
-    Path path1 = new Path(GenericTestUtils.getTempPath("test1.seq"));
+    Path path1 = new Path(System.getProperty("test.build.data",".")+"/test1.seq");
     SequenceFile.Writer writer = SequenceFile.createWriter(fs, conf, path1,
         Text.class, NullWritable.class, CompressionType.BLOCK);
     writer.append(new Text("file1-1"), NullWritable.get());
     writer.append(new Text("file1-2"), NullWritable.get());
     writer.close();
   
-    Path path2 = new Path(GenericTestUtils.getTempPath("test2.seq"));
+    Path path2 = new Path(System.getProperty("test.build.data",".")+"/test2.seq");
     writer = SequenceFile.createWriter(fs, conf, path2, Text.class,
         NullWritable.class, CompressionType.BLOCK);
     writer.append(new Text("file2-1"), NullWritable.get());
@@ -545,12 +466,10 @@ public class TestSequenceFile {
    * Test that makes sure the FileSystem passed to createWriter
    * @throws Exception
    */
-  @SuppressWarnings("deprecation")
-  @Test
   public void testCreateUsesFsArg() throws Exception {
     FileSystem fs = FileSystem.getLocal(conf);
     FileSystem spyFs = Mockito.spy(fs);
-    Path p = new Path(GenericTestUtils.getTempPath("testCreateUsesFSArg.seq"));
+    Path p = new Path(System.getProperty("test.build.data", ".")+"/testCreateUsesFSArg.seq");
     SequenceFile.Writer writer = SequenceFile.createWriter(
         spyFs, conf, p, NullWritable.class, NullWritable.class);
     writer.close();
@@ -575,15 +494,13 @@ public class TestSequenceFile {
     }
   }
 
-  @SuppressWarnings("deprecation")
-  @Test
   public void testCloseForErroneousSequenceFile()
     throws IOException {
     Configuration conf = new Configuration();
     LocalFileSystem fs = FileSystem.getLocal(conf);
 
     // create an empty file (which is not a valid sequence file)
-    Path path = new Path(GenericTestUtils.getTempPath("broken.seq"));
+    Path path = new Path(System.getProperty("test.build.data",".")+"/broken.seq");
     fs.create(path).close();
 
     // try to create SequenceFile.Reader
@@ -605,39 +522,16 @@ public class TestSequenceFile {
     assertTrue("InputStream for " + path + " should have been closed.", openedFile[0].isClosed());
   }
 
-  /**
-   * Test to makes sure zero length sequence file is handled properly while
-   * initializing.
-   */
-  @Test
-  public void testInitZeroLengthSequenceFile() throws IOException {
-    Configuration conf = new Configuration();
-    LocalFileSystem fs = FileSystem.getLocal(conf);
-
-    // create an empty file (which is not a valid sequence file)
-    Path path = new Path(GenericTestUtils.getTempPath("zerolength.seq"));
-    fs.create(path).close();
-
-    try {
-      new SequenceFile.Reader(conf, SequenceFile.Reader.file(path));
-      fail("IOException expected.");
-    } catch (IOException expected) {
-      assertTrue(expected instanceof EOFException);
-    }
-  }
-
    /**
    * Test that makes sure createWriter succeeds on a file that was 
    * already created
    * @throws IOException
    */
-  @SuppressWarnings("deprecation")
-  @Test
   public void testCreateWriterOnExistingFile() throws IOException {
     Configuration conf = new Configuration();
     FileSystem fs = FileSystem.getLocal(conf);
-    Path name = new Path(new Path(GenericTestUtils.getTempPath(
-        "createWriterOnExistingFile")), "file");
+    Path name = new Path(new Path(System.getProperty("test.build.data","."),
+        "createWriterOnExistingFile") , "file");
 
     fs.create(name);
     SequenceFile.createWriter(fs, conf, name, RandomDatum.class,
@@ -645,12 +539,10 @@ public class TestSequenceFile {
         CompressionType.NONE, null, new Metadata());
   }
 
-  @SuppressWarnings("deprecation")
-  @Test
   public void testRecursiveSeqFileCreate() throws IOException {
     FileSystem fs = FileSystem.getLocal(conf);
-    Path name = new Path(new Path(GenericTestUtils.getTempPath(
-        "recursiveCreateDir")), "file");
+    Path name = new Path(new Path(System.getProperty("test.build.data","."),
+        "recursiveCreateDir") , "file");
     boolean createParent = false;
 
     try {
@@ -669,11 +561,10 @@ public class TestSequenceFile {
     // should succeed, fails if exception thrown
   }
 
-  @Test
   public void testSerializationAvailability() throws IOException {
     Configuration conf = new Configuration();
-    Path path = new Path(GenericTestUtils.getTempPath(
-        "serializationAvailability"));
+    Path path = new Path(System.getProperty("test.build.data", "."),
+        "serializationAvailability");
     // Check if any serializers aren't found.
     try {
       SequenceFile.createWriter(
@@ -739,7 +630,7 @@ public class TestSequenceFile {
     Path file = null;
     int seed = new Random().nextInt();
 
-    String usage = "Usage: testsequencefile " +
+    String usage = "Usage: SequenceFile " +
       "[-count N] " + 
       "[-seed #] [-check] [-compressType <NONE|RECORD|BLOCK>] " + 
       "-codec <compressionCodec> " + 
@@ -829,9 +720,7 @@ public class TestSequenceFile {
         test.checkSort(fs, count, seed, file);
       }
     } finally {
-      if (fs != null) {
-        fs.close();
-      }
+      fs.close();
     }
   }
 }

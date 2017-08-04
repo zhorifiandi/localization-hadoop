@@ -158,12 +158,12 @@ public class TestJournal {
     // Send txids 1-3, with a request indicating only 0 committed
     journal.journal(new RequestInfo(JID, 1, 2, 0), 1, 1, 3,
         QJMTestUtil.createTxnData(1, 3));
-    assertEquals(0, journal.getCommittedTxnId());
+    assertEquals(0, journal.getCommittedTxnIdForTests());
     
     // Send 4-6, with request indicating that through 3 is committed.
     journal.journal(new RequestInfo(JID, 1, 3, 3), 1, 4, 3,
         QJMTestUtil.createTxnData(4, 6));
-    assertEquals(3, journal.getCommittedTxnId());
+    assertEquals(3, journal.getCommittedTxnIdForTests());    
   }
   
   @Test (timeout = 10000)
@@ -204,9 +204,6 @@ public class TestJournal {
     
     // Close the journal in preparation for reformatting it.
     journal.close();
-    // Clear the storage directory before reformatting it
-    journal.getStorage().getJournalManager()
-        .getStorageDirectory().clearDirectory();
     journal.format(FAKE_NSINFO_2);
     
     assertEquals(0, journal.getLastPromisedEpoch());
@@ -417,20 +414,6 @@ public class TestJournal {
     } catch (IOException ioe) {
       GenericTestUtils.assertExceptionContains(
           "Incompatible namespaceID", ioe);
-    }
-  }
-
-  @Test
-  public void testFormatNonEmptyStorageDirectories() throws Exception {
-    try {
-      // Format again here and to format the non-empty directories in
-      // journal node.
-      journal.format(FAKE_NSINFO);
-      fail("Did not fail to format non-empty directories in journal node.");
-    } catch (IOException ioe) {
-      GenericTestUtils.assertExceptionContains(
-          "Can't format the storage directory because the current "
-              + "directory is not empty.", ioe);
     }
   }
 

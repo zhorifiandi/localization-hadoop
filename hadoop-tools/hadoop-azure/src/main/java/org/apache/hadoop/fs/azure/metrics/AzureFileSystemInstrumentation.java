@@ -187,7 +187,6 @@ public final class AzureFileSystemInstrumentation implements MetricsSource {
 
   /**
    * The unique identifier for this file system in the metrics.
-   * @return The unique identifier.
    */
   public UUID getFileSystemInstanceId() {
     return fileSystemInstanceId;
@@ -195,7 +194,6 @@ public final class AzureFileSystemInstrumentation implements MetricsSource {
   
   /**
    * Get the metrics registry information.
-   * @return The metrics registry information.
    */
   public MetricsInfo getMetricsRegistryInfo() {
     return registry.info();

@@ -42,7 +42,7 @@ public class CMgrCompletedContainersEvent extends ContainerManagerEvent {
     return reason;
   }
 
-  public enum Reason {
+  public static enum Reason {
     /**
      * Container is killed as NodeManager is shutting down
      */

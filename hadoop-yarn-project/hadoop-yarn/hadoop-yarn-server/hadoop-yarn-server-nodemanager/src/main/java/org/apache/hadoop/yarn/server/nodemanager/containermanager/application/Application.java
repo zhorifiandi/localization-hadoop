@@ -35,9 +35,4 @@ public interface Application extends EventHandler<ApplicationEvent> {
 
   ApplicationState getApplicationState();
 
-  String getFlowName();
-
-  String getFlowVersion();
-
-  long getFlowRunId();
 }

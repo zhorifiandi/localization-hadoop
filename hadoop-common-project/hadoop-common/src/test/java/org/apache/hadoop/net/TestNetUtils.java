@@ -37,7 +37,11 @@ import java.util.Enumeration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+import junit.framework.AssertionFailedError;
+
 import org.apache.commons.lang.StringUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.security.NetUtilsTestResolver;
@@ -45,12 +49,10 @@ import org.junit.Assume;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TestNetUtils {
 
-  private static final Logger LOG = LoggerFactory.getLogger(TestNetUtils.class);
+  private static final Log LOG = LogFactory.getLog(TestNetUtils.class);
   private static final int DEST_PORT = 4040;
   private static final String DEST_PORT_NAME = Integer.toString(DEST_PORT);
   private static final int LOCAL_PORT = 8080;
@@ -70,7 +72,7 @@ public class TestNetUtils {
    * This is a regression test for HADOOP-6722.
    */
   @Test
-  public void testAvoidLoopbackTcpSockets() throws Throwable {
+  public void testAvoidLoopbackTcpSockets() throws Exception {
     Configuration conf = new Configuration();
 
     Socket socket = NetUtils.getDefaultSocketFactory(conf)
@@ -86,11 +88,11 @@ public class TestNetUtils {
       fail("Should not have connected");
     } catch (ConnectException ce) {
       System.err.println("Got exception: " + ce);
-      assertInException(ce, "resulted in a loopback");
+      assertTrue(ce.getMessage().contains("resulted in a loopback"));
     } catch (SocketException se) {
       // Some TCP stacks will actually throw their own Invalid argument exception
       // here. This is also OK.
-      assertInException(se, "Invalid argument");
+      assertTrue(se.getMessage().contains("Invalid argument"));
     }
   }
   
@@ -186,11 +188,15 @@ public class TestNetUtils {
   }  
 
   @Test
-  public void testVerifyHostnamesNoException() throws UnknownHostException {
+  public void testVerifyHostnamesNoException() {
     String[] names = {"valid.host.com", "1.com"};
-    NetUtils.verifyHostnames(names);
+    try {
+      NetUtils.verifyHostnames(names);
+    } catch (UnknownHostException e) {
+      fail("NetUtils.verifyHostnames threw unexpected UnknownHostException");
+    }
   }
-
+  
   /** 
    * Test for {@link NetUtils#isLocalAddress(java.net.InetAddress)}
    */
@@ -261,18 +267,7 @@ public class TestNetUtils {
     assertRemoteDetailsIncluded(wrapped);
     assertInException(wrapped, "/EOFException");
   }
-
-  @Test
-  public void testWrapSocketException() throws Throwable {
-    IOException wrapped = verifyExceptionClass(new SocketException("failed"),
-        SocketException.class);
-    assertInException(wrapped, "failed");
-    assertWikified(wrapped);
-    assertInException(wrapped, "localhost");
-    assertRemoteDetailsIncluded(wrapped);
-    assertInException(wrapped, "/SocketException");
-  }
-
+  
   @Test
   public void testGetConnectAddress() throws IOException {
     NetUtils.addStaticResolution("host", "127.0.0.1");
@@ -326,9 +321,9 @@ public class TestNetUtils {
   private void assertInException(Exception e, String text) throws Throwable {
     String message = extractExceptionMessage(e);
     if (!(message.contains(text))) {
-      throw new AssertionError("Wrong text in message "
-        + "\"" + message + "\""
-        + " expected \"" + text + "\"")
+      throw new AssertionFailedError("Wrong text in message "
+                                         + "\"" + message + "\""
+                                         + " expected \"" + text + "\"")
           .initCause(e);
     }
   }
@@ -337,7 +332,7 @@ public class TestNetUtils {
     assertNotNull("Null Exception", e);
     String message = e.getMessage();
     if (message == null) {
-      throw new AssertionError("Empty text in exception " + e)
+      throw new AssertionFailedError("Empty text in exception " + e)
           .initCause(e);
     }
     return message;
@@ -347,9 +342,9 @@ public class TestNetUtils {
       throws Throwable{
     String message = extractExceptionMessage(e);
     if (message.contains(text)) {
-      throw new AssertionError("Wrong text in message "
-           + "\"" + message + "\""
-           + " did not expect \"" + text + "\"")
+      throw new AssertionFailedError("Wrong text in message "
+                                         + "\"" + message + "\""
+                                         + " did not expect \"" + text + "\"")
           .initCause(e);
     }
   }
@@ -358,13 +353,15 @@ public class TestNetUtils {
                                            Class expectedClass)
       throws Throwable {
     assertNotNull("Null Exception", e);
-    IOException wrapped = NetUtils.wrapException("desthost", DEST_PORT,
-         "localhost", LOCAL_PORT, e);
+    IOException wrapped =
+        NetUtils.wrapException("desthost", DEST_PORT,
+                               "localhost", LOCAL_PORT,
+                               e);
     LOG.info(wrapped.toString(), wrapped);
     if(!(wrapped.getClass().equals(expectedClass))) {
-      throw new AssertionError("Wrong exception class; expected "
-         + expectedClass
-         + " got " + wrapped.getClass() + ": " + wrapped).initCause(wrapped);
+      throw new AssertionFailedError("Wrong exception class; expected "
+                                         + expectedClass
+                                         + " got " + wrapped.getClass() + ": " + wrapped).initCause(wrapped);
     }
     return wrapped;
   }
@@ -618,30 +615,20 @@ public class TestNetUtils {
    * Test for {@link NetUtils#normalizeHostNames}
    */
   @Test
-  public void testNormalizeHostName() {
-    String oneHost = "1.kanyezone.appspot.com";
-    try {
-      InetAddress.getByName(oneHost);
-    } catch (UnknownHostException e) {
-      Assume.assumeTrue("Network not resolving "+ oneHost, false);
-    }
-    List<String> hosts = Arrays.asList("127.0.0.1",
-        "localhost", oneHost, "UnknownHost123");
+  public void testNormalizeHostName() {	
+    List<String> hosts = Arrays.asList(new String[] {"127.0.0.1",
+        "localhost", "1.kanyezone.appspot.com", "UnknownHost123"});
     List<String> normalizedHosts = NetUtils.normalizeHostNames(hosts);
-    String summary = "original [" + StringUtils.join(hosts, ", ") + "]"
-        + " normalized [" + StringUtils.join(normalizedHosts, ", ") + "]";
     // when ipaddress is normalized, same address is expected in return
-    assertEquals(summary, hosts.get(0), normalizedHosts.get(0));
+    assertEquals(normalizedHosts.get(0), hosts.get(0));
     // for normalizing a resolvable hostname, resolved ipaddress is expected in return
-    assertFalse("Element 1 equal "+ summary,
-        normalizedHosts.get(1).equals(hosts.get(1)));
-    assertEquals(summary, hosts.get(0), normalizedHosts.get(1));
+    assertFalse(normalizedHosts.get(1).equals(hosts.get(1)));
+    assertEquals(normalizedHosts.get(1), hosts.get(0));
     // this address HADOOP-8372: when normalizing a valid resolvable hostname start with numeric, 
     // its ipaddress is expected to return
-    assertFalse("Element 2 equal " + summary,
-        normalizedHosts.get(2).equals(hosts.get(2)));
+    assertFalse(normalizedHosts.get(2).equals(hosts.get(2)));
     // return the same hostname after normalizing a irresolvable hostname.
-    assertEquals(summary, hosts.get(3), normalizedHosts.get(3));
+    assertEquals(normalizedHosts.get(3), hosts.get(3));
   }
   
   @Test

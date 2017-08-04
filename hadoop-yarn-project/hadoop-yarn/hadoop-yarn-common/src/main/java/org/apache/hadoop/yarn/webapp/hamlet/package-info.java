@@ -15,12 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/**
- * Deprecated.
- * Use org.apache.hadoop.yarn.webapp.hamlet2 package instead.
- */
-@Deprecated
 @InterfaceAudience.LimitedPrivate({"YARN", "MapReduce"})
 package org.apache.hadoop.yarn.webapp.hamlet;
 import org.apache.hadoop.classification.InterfaceAudience;

@@ -137,12 +137,7 @@ public class NotRunningJob implements MRClientProtocol {
     jobReport.setJobState(jobState);
     jobReport.setUser(applicationReport.getUser());
     jobReport.setStartTime(applicationReport.getStartTime());
-    YarnApplicationState state = applicationReport.getYarnApplicationState();
-    if (state == YarnApplicationState.KILLED
-        || state == YarnApplicationState.FAILED
-        || state == YarnApplicationState.FINISHED) {
-      jobReport.setDiagnostics(applicationReport.getDiagnostics());
-    }
+    jobReport.setDiagnostics(applicationReport.getDiagnostics());
     jobReport.setJobName(applicationReport.getName());
     jobReport.setTrackingUrl(applicationReport.getTrackingUrl());
     jobReport.setFinishTime(applicationReport.getFinishTime());

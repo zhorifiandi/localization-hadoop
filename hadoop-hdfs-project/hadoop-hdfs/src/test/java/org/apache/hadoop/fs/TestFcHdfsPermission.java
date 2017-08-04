@@ -24,6 +24,7 @@ import java.net.URISyntaxException;
 import javax.security.auth.login.LoginException;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.security.UserGroupInformation;
@@ -65,9 +66,7 @@ public class TestFcHdfsPermission extends FileContextPermissionBase {
       
   @AfterClass
   public static void ClusterShutdownAtEnd() throws Exception {
-    if (cluster != null) {
-      cluster.shutdown();
-    }
+    cluster.shutdown();   
   }
   
   @Override

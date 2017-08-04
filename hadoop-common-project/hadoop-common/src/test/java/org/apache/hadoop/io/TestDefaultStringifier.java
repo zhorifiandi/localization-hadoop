@@ -21,22 +21,19 @@ package org.apache.hadoop.io;
 import java.io.IOException;
 import java.util.Random;
 
+import junit.framework.TestCase;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import static org.junit.Assert.assertEquals;
-
-public class TestDefaultStringifier {
+public class TestDefaultStringifier extends TestCase {
 
   private static Configuration conf = new Configuration();
-  private static final Logger LOG =
-      LoggerFactory.getLogger(TestDefaultStringifier.class);
+  private static final Log LOG = LogFactory.getLog(TestDefaultStringifier.class);
 
   private char[] alphabet = "abcdefghijklmnopqrstuvwxyz".toCharArray();
 
-  @Test
   public void testWithWritable() throws Exception {
 
     conf.set("io.serializations", "org.apache.hadoop.io.serializer.WritableSerialization");
@@ -64,7 +61,6 @@ public class TestDefaultStringifier {
     }
   }
 
-  @Test
   public void testWithJavaSerialization() throws Exception {
     conf.set("io.serializations", "org.apache.hadoop.io.serializer.JavaSerialization");
 
@@ -81,7 +77,6 @@ public class TestDefaultStringifier {
     assertEquals(testInt, claimedInt);
   }
 
-  @Test
   public void testStoreLoad() throws IOException {
 
     LOG.info("Testing DefaultStringifier#store() and #load()");
@@ -97,7 +92,6 @@ public class TestDefaultStringifier {
 
   }
 
-  @Test
   public void testStoreLoadArray() throws IOException {
     LOG.info("Testing DefaultStringifier#storeArray() and #loadArray()");
     conf.set("io.serializations", "org.apache.hadoop.io.serializer.JavaSerialization");

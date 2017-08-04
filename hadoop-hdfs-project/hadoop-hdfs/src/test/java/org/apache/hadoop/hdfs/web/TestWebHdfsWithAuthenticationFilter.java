@@ -84,12 +84,8 @@ public class TestWebHdfsWithAuthenticationFilter {
 
   @AfterClass
   public static void tearDown() throws IOException {
-    if (fs != null) {
-      fs.close();
-    }
-    if (cluster != null) {
-      cluster.shutdown();
-    }
+    fs.close();
+    cluster.shutdown();
   }
 
   @Test

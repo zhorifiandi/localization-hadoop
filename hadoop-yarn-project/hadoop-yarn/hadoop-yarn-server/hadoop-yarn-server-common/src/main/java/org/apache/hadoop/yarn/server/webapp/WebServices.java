@@ -29,7 +29,6 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.ws.rs.WebApplicationException;
 
-import org.apache.commons.lang.math.LongRange;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authorize.AuthorizationException;
 import org.apache.hadoop.util.StringUtils;
@@ -76,10 +75,13 @@ public class WebServices {
       String startedEnd, String finishBegin, String finishEnd,
       Set<String> applicationTypes) {
     UserGroupInformation callerUGI = getUser(req);
+    long num = 0;
+    boolean checkCount = false;
+    boolean checkStart = false;
     boolean checkEnd = false;
     boolean checkAppTypes = false;
     boolean checkAppStates = false;
-    long countNum = Long.MAX_VALUE;
+    long countNum = 0;
 
     // set values suitable in case both of begin/end not specified
     long sBegin = 0;
@@ -88,6 +90,7 @@ public class WebServices {
     long fEnd = Long.MAX_VALUE;
 
     if (count != null && !count.isEmpty()) {
+      checkCount = true;
       countNum = Long.parseLong(count);
       if (countNum <= 0) {
         throw new BadRequestException("limit value must be greater then 0");
@@ -95,12 +98,14 @@ public class WebServices {
     }
 
     if (startedBegin != null && !startedBegin.isEmpty()) {
+      checkStart = true;
       sBegin = Long.parseLong(startedBegin);
       if (sBegin < 0) {
         throw new BadRequestException("startedTimeBegin must be greater than 0");
       }
     }
     if (startedEnd != null && !startedEnd.isEmpty()) {
+      checkStart = true;
       sEnd = Long.parseLong(startedEnd);
       if (sEnd < 0) {
         throw new BadRequestException("startedTimeEnd must be greater than 0");
@@ -146,31 +151,30 @@ public class WebServices {
 
     AppsInfo allApps = new AppsInfo();
     Collection<ApplicationReport> appReports = null;
-    final GetApplicationsRequest request =
-        GetApplicationsRequest.newInstance();
-    request.setLimit(countNum);
-    request.setStartRange(new LongRange(sBegin, sEnd));
     try {
       if (callerUGI == null) {
         // TODO: the request should take the params like what RMWebServices does
         // in YARN-1819.
+        GetApplicationsRequest request = GetApplicationsRequest.newInstance();
         appReports = appBaseProt.getApplications(request).getApplicationList();
       } else {
         appReports = callerUGI.doAs(
             new PrivilegedExceptionAction<Collection<ApplicationReport>> () {
           @Override
           public Collection<ApplicationReport> run() throws Exception {
-            return appBaseProt.getApplications(request).getApplicationList();
+            return appBaseProt.getApplications(
+                GetApplicationsRequest.newInstance()).getApplicationList();
           }
         });
       }
     } catch (Exception e) {
       rewrapAndThrowException(e);
     }
-    if (appReports == null) {
-      return allApps;
-    }
     for (ApplicationReport appReport : appReports) {
+
+      if (checkCount && num == countNum) {
+        break;
+      }
 
       if (checkAppStates &&
           !appStates.contains(StringUtils.toLowerCase(
@@ -200,6 +204,10 @@ public class WebServices {
         continue;
       }
 
+      if (checkStart
+          && (appReport.getStartTime() < sBegin || appReport.getStartTime() > sEnd)) {
+        continue;
+      }
       if (checkEnd
           && (appReport.getFinishTime() < fBegin || appReport.getFinishTime() > fEnd)) {
         continue;
@@ -207,6 +215,7 @@ public class WebServices {
       AppInfo app = new AppInfo(appReport);
 
       allApps.add(app);
+      num++;
     }
     return allApps;
   }
@@ -269,9 +278,6 @@ public class WebServices {
       rewrapAndThrowException(e);
     }
     AppAttemptsInfo appAttemptsInfo = new AppAttemptsInfo();
-    if (appAttemptReports == null) {
-      return appAttemptsInfo;
-    }
     for (ApplicationAttemptReport appAttemptReport : appAttemptReports) {
       AppAttemptInfo appAttemptInfo = new AppAttemptInfo(appAttemptReport);
       appAttemptsInfo.add(appAttemptInfo);
@@ -342,9 +348,6 @@ public class WebServices {
       rewrapAndThrowException(e);
     }
     ContainersInfo containersInfo = new ContainersInfo();
-    if (containerReports == null) {
-      return containersInfo;
-    }
     for (ContainerReport containerReport : containerReports) {
       ContainerInfo containerInfo = new ContainerInfo(containerReport);
       containersInfo.add(containerInfo);
@@ -429,12 +432,7 @@ public class WebServices {
     if (appId == null || appId.isEmpty()) {
       throw new NotFoundException("appId, " + appId + ", is empty or null");
     }
-    ApplicationId aid = null;
-    try {
-      aid = ApplicationId.fromString(appId);
-    } catch (Exception e) {
-      throw new BadRequestException(e);
-    }
+    ApplicationId aid = ConverterUtils.toApplicationId(appId);
     if (aid == null) {
       throw new NotFoundException("appId is null");
     }
@@ -447,12 +445,8 @@ public class WebServices {
       throw new NotFoundException("appAttemptId, " + appAttemptId
           + ", is empty or null");
     }
-    ApplicationAttemptId aaid = null;
-    try {
-      aaid = ApplicationAttemptId.fromString(appAttemptId);
-    } catch (Exception e) {
-      throw new BadRequestException(e);
-    }
+    ApplicationAttemptId aaid =
+        ConverterUtils.toApplicationAttemptId(appAttemptId);
     if (aaid == null) {
       throw new NotFoundException("appAttemptId is null");
     }
@@ -464,12 +458,7 @@ public class WebServices {
       throw new NotFoundException("containerId, " + containerId
           + ", is empty or null");
     }
-    ContainerId cid = null;
-    try {
-      cid = ContainerId.fromString(containerId);
-    } catch (Exception e) {
-      throw new BadRequestException(e);
-    }
+    ContainerId cid = ConverterUtils.toContainerId(containerId);
     if (cid == null) {
       throw new NotFoundException("containerId is null");
     }

@@ -44,6 +44,7 @@ public class TestResourceCalculatorProcessTree {
     public long getRssMemorySize(int age) {
       return 0;
     }
+    
     @SuppressWarnings("deprecation")
     public long getCumulativeRssmem(int age) {
       return 0;
@@ -52,7 +53,7 @@ public class TestResourceCalculatorProcessTree {
     public long getVirtualMemorySize(int age) {
       return 0;
     }
-
+    
     @SuppressWarnings("deprecation")
     public long getCumulativeVmem(int age) {
       return 0;
@@ -64,7 +65,7 @@ public class TestResourceCalculatorProcessTree {
 
     @Override
     public float getCpuUsagePercent() {
-      return UNAVAILABLE;
+      return CpuTimeTracker.UNAVAILABLE;
     }
 
     public boolean checkPidPgrpidForMatch() {

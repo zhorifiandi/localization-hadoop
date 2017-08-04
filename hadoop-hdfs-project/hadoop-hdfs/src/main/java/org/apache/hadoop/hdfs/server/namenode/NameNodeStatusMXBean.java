@@ -21,12 +21,10 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 
 /**
- * This is the JMX management interface for NameNode status information.
- * End users shouldn't be implementing these interfaces, and instead
- * access this information through the JMX APIs. *
+ * This is the JMX management interface for NameNode status information
  */
-@InterfaceAudience.Private
-@InterfaceStability.Stable
+@InterfaceAudience.Public
+@InterfaceStability.Evolving
 public interface NameNodeStatusMXBean {
 
   /**
@@ -63,24 +61,4 @@ public interface NameNodeStatusMXBean {
    * @return the most recent HA transition time in milliseconds from the epoch.
    */
   public long getLastHATransitionTime();
-
-  /**
-   * Gets number of bytes in blocks with future generation stamps.
-   * @return number of bytes that can be deleted if exited from safe mode.
-   */
-  long getBytesWithFutureGenerationStamps();
-
-  /**
-   * Retrieves information about slow DataNodes, if the feature is
-   * enabled. The report is in a JSON format.
-   */
-  String getSlowPeersReport();
-
-
-  /**
-   *  Gets the topN slow disks in the cluster, if the feature is enabled.
-   *
-   *  @return JSON string of list of diskIDs and latencies
-   */
-  String getSlowDisksReport();
 }

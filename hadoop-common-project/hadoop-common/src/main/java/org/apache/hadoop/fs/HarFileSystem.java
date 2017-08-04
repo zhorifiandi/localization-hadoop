@@ -17,16 +17,15 @@
  */
 package org.apache.hadoop.fs;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.util.LineReader;
 import org.apache.hadoop.util.Progressable;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import java.io.EOFException;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -50,8 +49,7 @@ import java.util.*;
 
 public class HarFileSystem extends FileSystem {
 
-  private static final Logger LOG =
-      LoggerFactory.getLogger(HarFileSystem.class);
+  private static final Log LOG = LogFactory.getLog(HarFileSystem.class);
 
   public static final String METADATA_CACHE_ENTRIES_KEY = "fs.har.metadatacache.entries";
   public static final int METADATA_CACHE_ENTRIES_DEFAULT = 10;
@@ -715,6 +713,7 @@ public class HarFileSystem extends FileSystem {
     throw new IOException("Har: create not allowed.");
   }
 
+  @SuppressWarnings("deprecation")
   @Override
   public FSDataOutputStream createNonRecursive(Path f, boolean overwrite,
       int bufferSize, short replication, long blockSize, Progressable progress)
@@ -953,7 +952,7 @@ public class HarFileSystem extends FileSystem {
         return (ret <= 0) ? -1: (oneBytebuff[0] & 0xff);
       }
       
-      // NB: currently this method actually never executed because
+      // NB: currently this method actually never executed becusae
       // java.io.DataInputStream.read(byte[]) directly delegates to 
       // method java.io.InputStream.read(byte[], int, int).
       // However, potentially it can be invoked, so leave it intact for now.
@@ -969,9 +968,6 @@ public class HarFileSystem extends FileSystem {
       @Override
       public synchronized int read(byte[] b, int offset, int len) 
         throws IOException {
-        if (len == 0) {
-          return 0;
-        }
         int newlen = len;
         int ret = -1;
         if (position + len > end) {
@@ -1058,14 +1054,15 @@ public class HarFileSystem extends FileSystem {
       @Override
       public void readFully(long pos, byte[] b, int offset, int length) 
       throws IOException {
-        validatePositionedReadArgs(pos, b, offset, length);
-        if (length == 0) {
-          return;
-        }
         if (start + length + pos > end) {
-          throw new EOFException("Not enough bytes to read.");
+          throw new IOException("Not enough bytes to read.");
         }
         underLyingStream.readFully(pos + start, b, offset, length);
+      }
+      
+      @Override
+      public void readFully(long pos, byte[] b) throws IOException {
+          readFully(pos, b, 0, b.length);
       }
 
       @Override
@@ -1174,7 +1171,7 @@ public class HarFileSystem extends FileSystem {
         LOG.warn("Encountered exception ", ioe);
         throw ioe;
       } finally {
-        IOUtils.cleanupWithLogger(LOG, lin, in);
+        IOUtils.cleanup(LOG, lin, in);
       }
 
       FSDataInputStream aIn = fs.open(archiveIndexPath);
@@ -1199,7 +1196,7 @@ public class HarFileSystem extends FileSystem {
           }
         }
       } finally {
-        IOUtils.cleanupWithLogger(LOG, aIn);
+        IOUtils.cleanup(LOG, aIn);
       }
     }
   }
@@ -1241,12 +1238,6 @@ public class HarFileSystem extends FileSystem {
     return fs.getUsed();
   }
 
-  /** Return the total size of all files from a specified path.*/
-  @Override
-  public long getUsed(Path path) throws IOException {
-    return fs.getUsed(path);
-  }
-
   @SuppressWarnings("deprecation")
   @Override
   public long getDefaultBlockSize() {
@@ -1268,15 +1259,5 @@ public class HarFileSystem extends FileSystem {
   @Override
   public short getDefaultReplication(Path f) {
     return fs.getDefaultReplication(f);
-  }
-
-  @Override
-  public FSDataOutputStreamBuilder createFile(Path path) {
-    return fs.createFile(path);
-  }
-
-  @Override
-  public FSDataOutputStreamBuilder appendFile(Path path) {
-    return fs.appendFile(path);
   }
 }

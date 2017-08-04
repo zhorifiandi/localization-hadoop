@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hdfs.server.namenode.ha;
 
-
 import static org.junit.Assert.assertEquals;
 
 import java.io.IOException;
@@ -35,7 +34,6 @@ import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.MiniDFSNNTopology;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.ipc.StandbyException;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -80,7 +78,6 @@ public class TestQuotasWithHA {
   public void shutdownCluster() throws IOException {
     if (cluster != null) {
       cluster.shutdown();
-      cluster = null;
     }
   }
 
@@ -132,30 +129,5 @@ public class TestQuotasWithHA {
     assertEquals(expectedSize, cs.getSpaceConsumed());
     assertEquals(1, cs.getDirectoryCount());
     assertEquals(0, cs.getFileCount());
-  }
-
-  /**
-   * Test that getContentSummary on Standby should should throw standby
-   * exception.
-   */
-  @Test(expected = StandbyException.class)
-  public void testGetContentSummaryOnStandby() throws Exception {
-    Configuration nn1conf =cluster.getConfiguration(1);
-    // just reset the standby reads to default i.e False on standby.
-    HAUtil.setAllowStandbyReads(nn1conf, false);
-    cluster.restartNameNode(1);
-    cluster.getNameNodeRpc(1).getContentSummary("/");
-  }
-
-  /**
-   * Test that getQuotaUsage on Standby should should throw standby exception.
-   */
-  @Test(expected = StandbyException.class)
-  public void testGetQuotaUsageOnStandby() throws Exception {
-    Configuration nn1conf =cluster.getConfiguration(1);
-    // just reset the standby reads to default i.e False on standby.
-    HAUtil.setAllowStandbyReads(nn1conf, false);
-    cluster.restartNameNode(1);
-    cluster.getNameNodeRpc(1).getQuotaUsage("/");
   }
 }

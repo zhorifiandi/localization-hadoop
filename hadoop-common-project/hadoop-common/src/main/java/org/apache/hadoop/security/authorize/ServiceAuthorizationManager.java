@@ -23,6 +23,8 @@ import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -34,8 +36,6 @@ import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.MachineList;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * An authorization manager which handles service-level authorization
@@ -69,9 +69,8 @@ public class ServiceAuthorizationManager {
   public static final String SERVICE_AUTHORIZATION_CONFIG = 
     "hadoop.security.authorization";
   
-  public static final Logger AUDITLOG =
-      LoggerFactory.getLogger(
-          "SecurityLogger." + ServiceAuthorizationManager.class.getName());
+  public static final Log AUDITLOG =
+    LogFactory.getLog("SecurityLogger."+ServiceAuthorizationManager.class.getName());
 
   private static final String AUTHZ_SUCCESSFUL_FOR = "Authorization successful for ";
   private static final String AUTHZ_FAILED_FOR = "Authorization failed for ";
@@ -117,13 +116,11 @@ public class ServiceAuthorizationManager {
     }
     if((clientPrincipal != null && !clientPrincipal.equals(user.getUserName())) || 
        acls.length != 2  || !acls[0].isUserAllowed(user) || acls[1].isUserAllowed(user)) {
-      String cause = clientPrincipal != null ?
-          ": this service is only accessible by " + clientPrincipal :
-          ": denied by configured ACL";
-      AUDITLOG.warn(AUTHZ_FAILED_FOR + user
-          + " for protocol=" + protocol + cause);
-      throw new AuthorizationException("User " + user +
-          " is not authorized for protocol " + protocol + cause);
+      AUDITLOG.warn(AUTHZ_FAILED_FOR + user + " for protocol=" + protocol
+          + ", expected client Kerberos principal is " + clientPrincipal);
+      throw new AuthorizationException("User " + user + 
+          " is not authorized for protocol " + protocol + 
+          ", expected client Kerberos principal is " + clientPrincipal);
     }
     if (addr != null) {
       String hostAddress = addr.getHostAddress();

@@ -67,12 +67,8 @@ public final class Parser {
   private void parse(File f, Map<Parameter, List<TaskResult>> sums) throws IOException {
     if (f.isDirectory()) {
       println("Process directory " + f);
-      File[] files = f.listFiles();
-      if (files != null) {
-        for(File child : files) {
-          parse(child, sums);
-        }
-      }
+      for(File child : f.listFiles())
+        parse(child, sums);
     } else if (f.getName().endsWith(".txt")) {
       println("Parse file " + f);
       final Map<Parameter, List<TaskResult>> m = new TreeMap<Parameter, List<TaskResult>>();    

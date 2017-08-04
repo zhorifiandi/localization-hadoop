@@ -15,8 +15,16 @@
 Enabling Dapper-like Tracing in Hadoop
 ======================================
 
-<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
-
+* [Enabling Dapper-like Tracing in Hadoop](#Enabling_Dapper-like_Tracing_in_Hadoop)
+    * [Dapper-like Tracing in Hadoop](#Dapper-like_Tracing_in_Hadoop)
+        * [HTrace](#HTrace)
+        * [Samplers](#Samplers)
+        * [SpanReceivers](#SpanReceivers)
+        * [Setting up ZipkinSpanReceiver](#Setting_up_ZipkinSpanReceiver)
+        * [Dynamic update of tracing configuration](#Dynamic_update_of_tracing_configuration)
+        * [Starting tracing spans by HTrace API](#Starting_tracing_spans_by_HTrace_API)
+        * [Sample code for tracing](#Sample_code_for_tracing)
+  
 Dapper-like Tracing in Hadoop
 -----------------------------
 
@@ -24,32 +32,83 @@ Dapper-like Tracing in Hadoop
 
 [HDFS-5274](https://issues.apache.org/jira/browse/HDFS-5274) added support for tracing requests through HDFS,
 using the open source tracing library,
-[Apache HTrace](http://htrace.incubator.apache.org/).
+[Apache HTrace](https://git-wip-us.apache.org/repos/asf/incubator-htrace.git). 
 Setting up tracing is quite simple, however it requires some very minor changes to your client code.
+
+### Samplers
+
+Configure the samplers in `core-site.xml` property: `hadoop.htrace.sampler`.
+The value can be NeverSampler, AlwaysSampler or ProbabilitySampler.
+NeverSampler: HTrace is OFF for all spans;
+AlwaysSampler: HTrace is ON for all spans;
+ProbabilitySampler: HTrace is ON for some percentage% of top-level spans.
+
+      <property>
+        <name>hadoop.htrace.sampler</name>
+        <value>NeverSampler</value>
+      </property>
 
 ### SpanReceivers
 
 The tracing system works by collecting information in structs called 'Spans'.
 It is up to you to choose how you want to receive this information
-by using implementation of [SpanReceiver](http://htrace.incubator.apache.org/developer_guide.html#SpanReceivers)
-interface bundled with HTrace or implementing it by yourself.
+by implementing the SpanReceiver interface, which defines one method:
 
-[HTrace](http://htrace.incubator.apache.org/) provides options such as
+    public void receiveSpan(Span span);
 
-* FlumeSpanReceiver
-* HBaseSpanReceiver
-* HTracedRESTReceiver
-* ZipkinSpanReceiver
+Configure what SpanReceivers you'd like to use
+by putting a comma separated list of the fully-qualified class name of classes implementing SpanReceiver
+in `core-site.xml` property: `hadoop.htrace.spanreceiver.classes`.
 
-See core-default.xml for a description of HTrace configuration keys.  In some
-cases, you will also need to add the jar containing the SpanReceiver that you
-are using to the classpath of Hadoop on each node. (In the example above,
-LocalFileSpanReceiver is included in the htrace-core4 jar which is bundled
-with Hadoop.)
+      <property>
+        <name>hadoop.htrace.spanreceiver.classes</name>
+        <value>org.apache.htrace.impl.LocalFileSpanReceiver</value>
+      </property>
+      <property>
+        <name>hadoop.htrace.local-file-span-receiver.path</name>
+        <value>/var/log/hadoop/htrace.out</value>
+      </property>
 
-```
-    $ cp htrace-htraced/target/htrace-htraced-4.1.0-incubating.jar $HADOOP_HOME/share/hadoop/common/lib/
-```
+You can omit package name prefix if you use span receiver bundled with HTrace.
+
+      <property>
+        <name>hadoop.htrace.spanreceiver.classes</name>
+        <value>LocalFileSpanReceiver</value>
+      </property>
+
+### Setting up ZipkinSpanReceiver
+
+Instead of implementing SpanReceiver by yourself,
+you can use `ZipkinSpanReceiver` which uses
+[Zipkin](https://github.com/twitter/zipkin) for collecting and displaying tracing data.
+
+In order to use `ZipkinSpanReceiver`,
+you need to download and setup [Zipkin](https://github.com/twitter/zipkin) first.
+
+you also need to add the jar of `htrace-zipkin` to the classpath of Hadoop on each node.
+Here is example setup procedure.
+
+      $ git clone https://github.com/cloudera/htrace
+      $ cd htrace/htrace-zipkin
+      $ mvn compile assembly:single
+      $ cp target/htrace-zipkin-*-jar-with-dependencies.jar $HADOOP_HOME/share/hadoop/common/lib/
+
+The sample configuration for `ZipkinSpanReceiver` is shown below.
+By adding these to `core-site.xml` of NameNode and DataNodes, `ZipkinSpanReceiver` is initialized on the startup.
+You also need this configuration on the client node in addition to the servers.
+
+      <property>
+        <name>hadoop.htrace.spanreceiver.classes</name>
+        <value>ZipkinSpanReceiver</value>
+      </property>
+      <property>
+        <name>hadoop.htrace.zipkin.collector-hostname</name>
+        <value>192.168.1.2</value>
+      </property>
+      <property>
+        <name>hadoop.htrace.zipkin.collector-port</name>
+        <value>9410</value>
+      </property>
 
 ### Dynamic update of tracing configuration
 
@@ -61,11 +120,11 @@ You need to run the command against all servers if you want to update the config
 
       $ hadoop trace -list -host 192.168.56.2:9000
       ID  CLASS
-      1   org.apache.htrace.core.LocalFileSpanReceiver
+      1   org.apache.htrace.impl.LocalFileSpanReceiver
 
-      $ hadoop trace -list -host 192.168.56.2:9867
+      $ hadoop trace -list -host 192.168.56.2:50020
       ID  CLASS
-      1   org.apache.htrace.core.LocalFileSpanReceiver
+      1   org.apache.htrace.impl.LocalFileSpanReceiver
 
 `hadoop trace -remove` removes span receiver from server.
 `-remove` options takes id of span receiver as argument.
@@ -77,21 +136,12 @@ You need to run the command against all servers if you want to update the config
 You need to specify the class name of span receiver as argument of `-class` option.
 You can specify the configuration associated with span receiver by `-Ckey=value` options.
 
-      $ hadoop trace -add -class org.apache.htrace.core.LocalFileSpanReceiver -Chadoop.htrace.local.file.span.receiver.path=/tmp/htrace.out -host 192.168.56.2:9000
-      Added trace span receiver 2 with configuration hadoop.htrace.local.file.span.receiver.path = /tmp/htrace.out
+      $ hadoop trace -add -class LocalFileSpanReceiver -Chadoop.htrace.local-file-span-receiver.path=/tmp/htrace.out -host 192.168.56.2:9000
+      Added trace span receiver 2 with configuration hadoop.htrace.local-file-span-receiver.path = /tmp/htrace.out
 
       $ hadoop trace -list -host 192.168.56.2:9000
       ID  CLASS
-      2   org.apache.htrace.core.LocalFileSpanReceiver
-
-If the cluster is Kerberized, the service principal name must be specified using `-principal` option.
-For example, to show list of span receivers of a namenode:
-
-    $ hadoop trace -list -host NN1:8020 -principal namenode/NN1@EXAMPLE.COM
-
-Or, for a datanode:
-
-    $ hadoop trace -list -host DN2:9867 -principal datanode/DN1@EXAMPLE.COM
+      2   org.apache.htrace.impl.LocalFileSpanReceiver
 
 ### Starting tracing spans by HTrace API
 
@@ -99,107 +149,61 @@ In order to trace, you will need to wrap the traced logic with **tracing span** 
 When there is running tracing spans,
 the tracing information is propagated to servers along with RPC requests.
 
-```java
+In addition, you need to initialize `SpanReceiver` once per process.
+
     import org.apache.hadoop.hdfs.HdfsConfiguration;
-    import org.apache.htrace.core.Tracer;
-    import org.apache.htrace.core.TraceScope;
+    import org.apache.hadoop.tracing.SpanReceiverHost;
+    import org.apache.htrace.Sampler;
+    import org.apache.htrace.Trace;
+    import org.apache.htrace.TraceScope;
 
     ...
 
+        SpanReceiverHost.getInstance(new HdfsConfiguration());
 
     ...
 
-        TraceScope ts = tracer.newScope("Gets");
+        TraceScope ts = Trace.startSpan("Gets", Sampler.ALWAYS);
         try {
           ... // traced logic
         } finally {
-          ts.close();
+          if (ts != null) ts.close();
         }
-```
 
-### Sample code for tracing by HTrace API
+### Sample code for tracing
 
 The `TracingFsShell.java` shown below is the wrapper of FsShell
 which start tracing span before invoking HDFS shell command.
 
-```java
-    import org.apache.hadoop.fs.FileSystem;
-    import org.apache.hadoop.fs.Path;
     import org.apache.hadoop.conf.Configuration;
-    import org.apache.hadoop.conf.Configured;
-    import org.apache.hadoop.tracing.TraceUtils;
-    import org.apache.hadoop.util.Tool;
+    import org.apache.hadoop.fs.FsShell;
+    import org.apache.hadoop.tracing.SpanReceiverHost;
     import org.apache.hadoop.util.ToolRunner;
-    import org.apache.htrace.core.Tracer;
-    import org.apache.htrace.core.TraceScope;
-    
-    public class Sample extends Configured implements Tool {
-      @Override
-      public int run(String argv[]) throws Exception {
-        FileSystem fs = FileSystem.get(getConf());
-        Tracer tracer = new Tracer.Builder("Sample").
-            conf(TraceUtils.wrapHadoopConf("sample.htrace.", getConf())).
-            build();
-        int res = 0;
-        try (TraceScope scope = tracer.newScope("sample")) {
-          Thread.sleep(1000);
-          fs.listStatus(new Path("/"));
-        }
-        tracer.close();
-        return res;
-      }
-      
+    import org.apache.htrace.Sampler;
+    import org.apache.htrace.Trace;
+    import org.apache.htrace.TraceScope;
+
+    public class TracingFsShell {
       public static void main(String argv[]) throws Exception {
-        ToolRunner.run(new Sample(), argv);
+        Configuration conf = new Configuration();
+        FsShell shell = new FsShell();
+        conf.setQuietMode(false);
+        shell.setConf(conf);
+        SpanReceiverHost.getInstance(conf);
+        int res = 0;
+        TraceScope ts = null;
+        try {
+          ts = Trace.startSpan("FsShell", Sampler.ALWAYS);
+          res = ToolRunner.run(shell, argv);
+        } finally {
+          shell.close();
+          if (ts != null) ts.close();
+        }
+        System.exit(res);
       }
     }
-```
 
 You can compile and execute this code as shown below.
 
-    $ javac -cp `hadoop classpath` Sample.java
-    $ java -cp .:`hadoop classpath` Sample \
-        -Dsample.htrace.span.receiver.classes=LocalFileSpanReceiver \
-        -Dsample.htrace.sampler.classes=AlwaysSampler
-
-### Starting tracing spans by FileSystem Shell
-
-The FileSystem Shell can enable tracing by configuration properties.
-
-Configure the span receivers and samplers in `core-site.xml` or command line
-by properties `fs.client.htrace.sampler.classes` and
-`fs.client.htrace.spanreceiver.classes`.
-
-    $ hdfs dfs -Dfs.shell.htrace.span.receiver.classes=LocalFileSpanReceiver \
-               -Dfs.shell.htrace.sampler.classes=AlwaysSampler \
-               -ls /
-
-### Starting tracing spans by configuration for HDFS client
-
-The DFSClient can enable tracing internally. This allows you to use HTrace with
-your client without modifying the client source code.
-
-Configure the span receivers and samplers in `hdfs-site.xml`
-by properties `fs.client.htrace.sampler.classes` and
-`fs.client.htrace.spanreceiver.classes`.  The value of
-`fs.client.htrace.sampler.classes` can be NeverSampler, AlwaysSampler or
-ProbabilitySampler.
-
-* NeverSampler: HTrace is OFF for all requests to namenodes and datanodes;
-* AlwaysSampler: HTrace is ON for all requests to namenodes and datanodes;
-* ProbabilitySampler: HTrace is ON for some percentage% of  requests to namenodes and datanodes
-
-```xml
-      <property>
-        <name>hadoop.htrace.span.receiver.classes</name>
-        <value>LocalFileSpanReceiver</value>
-      </property>
-      <property>
-        <name>fs.client.htrace.sampler.classes</name>
-        <value>ProbabilitySampler</value>
-      </property>
-      <property>
-        <name>fs.client.htrace.sampler.fraction</name>
-        <value>0.01</value>
-      </property>
-```
+    $ javac -cp `hadoop classpath` TracingFsShell.java
+    $ java -cp .:`hadoop classpath` TracingFsShell -ls /

@@ -22,14 +22,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 
 import java.io.File;
-import java.io.FileFilter;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.io.filefilter.WildcardFileFilter;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
@@ -45,15 +43,14 @@ import org.apache.hadoop.yarn.api.records.timeline.TimelinePutResponse;
 import org.apache.hadoop.yarn.api.records.timeline.TimelinePutResponse.TimelinePutError;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.server.records.Version;
+import org.apache.hadoop.yarn.server.timeline.LeveldbTimelineStore;
+import org.apache.hadoop.yarn.server.timeline.NameValuePair;
 import org.apache.hadoop.yarn.server.utils.LeveldbIterator;
-import org.fusesource.leveldbjni.JniDBFactory;
 import org.iq80.leveldb.DBException;
-import org.iq80.leveldb.Options;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mockito;
 
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
@@ -158,7 +155,7 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
       return ((LeveldbTimelineStore)store).deleteNextEntity(entityType, ts,
           iterator, pfIterator, false);
     } catch(DBException e) {
-      throw new IOException(e);
+      throw new IOException(e);   	
     } finally {
       IOUtils.cleanup(null, iterator, pfIterator);
     }
@@ -182,12 +179,12 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
     assertEquals(1, getEntities("type_2").size());
 
     assertEquals(false, deleteNextEntity(entityType1,
-        writeReverseOrderedLong(60L)));
+        writeReverseOrderedLong(60l)));
     assertEquals(3, getEntities("type_1").size());
     assertEquals(1, getEntities("type_2").size());
 
     assertEquals(true, deleteNextEntity(entityType1,
-        writeReverseOrderedLong(123L)));
+        writeReverseOrderedLong(123l)));
     List<TimelineEntity> entities = getEntities("type_2");
     assertEquals(1, entities.size());
     verifyEntityInfo(entityId2, entityType2, events2, Collections.singletonMap(
@@ -201,12 +198,12 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
     verifyEntityInfo(entityId6, entityType1, EMPTY_EVENTS, EMPTY_REL_ENTITIES,
         primaryFilters, otherInfo, entities.get(1), domainId2);
 
-    ((LeveldbTimelineStore)store).discardOldEntities(0L);
+    ((LeveldbTimelineStore)store).discardOldEntities(-123l);
     assertEquals(2, getEntities("type_1").size());
     assertEquals(0, getEntities("type_2").size());
     assertEquals(6, ((LeveldbTimelineStore)store).getEntityTypes().size());
 
-    ((LeveldbTimelineStore)store).discardOldEntities(123L);
+    ((LeveldbTimelineStore)store).discardOldEntities(123l);
     assertEquals(0, getEntities("type_1").size());
     assertEquals(0, getEntities("type_2").size());
     assertEquals(0, ((LeveldbTimelineStore)store).getEntityTypes().size());
@@ -243,11 +240,11 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
     verifyEntityInfo(entityId6, entityType1, EMPTY_EVENTS, EMPTY_REL_ENTITIES,
         primaryFilters, otherInfo, entities.get(2), domainId2);
 
-    ((LeveldbTimelineStore)store).discardOldEntities(-123L);
+    ((LeveldbTimelineStore)store).discardOldEntities(-123l);
     assertEquals(1, getEntitiesWithPrimaryFilter("type_1", pfPair).size());
     assertEquals(3, getEntitiesWithPrimaryFilter("type_1", userFilter).size());
 
-    ((LeveldbTimelineStore)store).discardOldEntities(123L);
+    ((LeveldbTimelineStore)store).discardOldEntities(123l);
     assertEquals(0, getEntities("type_1").size());
     assertEquals(0, getEntities("type_2").size());
     assertEquals(0, ((LeveldbTimelineStore)store).getEntityTypes().size());
@@ -264,7 +261,7 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
     assertEquals(1, getEntitiesFromTs("type_2", l).size());
     assertEquals(3, getEntitiesFromTsWithPrimaryFilter("type_1", userFilter,
         l).size());
-    ((LeveldbTimelineStore)store).discardOldEntities(123L);
+    ((LeveldbTimelineStore)store).discardOldEntities(123l);
     assertEquals(0, getEntitiesFromTs("type_1", l).size());
     assertEquals(0, getEntitiesFromTs("type_2", l).size());
     assertEquals(0, getEntitiesFromTsWithPrimaryFilter("type_1", userFilter,
@@ -282,7 +279,7 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
     assertEquals(1, getEntities("type_2").size());
     assertEquals(3, getEntitiesWithPrimaryFilter("type_1", userFilter).size());
   }
-
+  
   @Test
   public void testCheckVersion() throws IOException {
     LeveldbTimelineStore dbStore = (LeveldbTimelineStore) store;
@@ -302,15 +299,16 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
     Assert.assertEquals(defaultVersion, dbStore.loadVersion());
 
     // incompatible version
-    Version incompatibleVersion = Version.newInstance(
-        defaultVersion.getMajorVersion() + 1, defaultVersion.getMinorVersion());
+    Version incompatibleVersion =
+      Version.newInstance(defaultVersion.getMajorVersion() + 1,
+          defaultVersion.getMinorVersion());
     dbStore.storeVersion(incompatibleVersion);
     try {
       restartTimelineStore();
       Assert.fail("Incompatible version, should expect fail here.");
     } catch (ServiceStateException e) {
-      Assert.assertTrue("Exception message mismatch",
-          e.getMessage().contains("Incompatible version for timeline store"));
+      Assert.assertTrue("Exception message mismatch", 
+        e.getMessage().contains("Incompatible version for timeline store"));
     }
   }
 
@@ -469,38 +467,4 @@ public class TestLeveldbTimelineStore extends TimelineStoreTestUtils {
         .iterator().next().size());
   }
 
-  @Test
-  /**
-   * Test that LevelDb repair is attempted at least once during
-   * serviceInit for LeveldbTimelineStore in case open fails the
-   * first time.
-   */
-  public void testLevelDbRepair() throws IOException {
-    LeveldbTimelineStore store = new LeveldbTimelineStore();
-
-    JniDBFactory factory = Mockito.mock(JniDBFactory.class);
-    Mockito.when(
-        factory.open(Mockito.any(File.class), Mockito.any(Options.class)))
-        .thenThrow(new IOException()).thenCallRealMethod();
-    store.setFactory(factory);
-
-    //Create the LevelDb in a different location
-    File path = new File("target", this.getClass().getSimpleName() +
-        "-tmpDir1").getAbsoluteFile();
-    Configuration conf = new Configuration(this.config);
-    conf.set(YarnConfiguration.TIMELINE_SERVICE_LEVELDB_PATH,
-        path.getAbsolutePath());
-
-    try {
-      store.init(conf);
-      Mockito.verify(factory, Mockito.times(1))
-          .repair(Mockito.any(File.class), Mockito.any(Options.class));
-      FileFilter fileFilter = new WildcardFileFilter(
-          "*" + LeveldbTimelineStore.BACKUP_EXT +"*");
-      Assert.assertTrue(path.listFiles(fileFilter).length > 0);
-    } finally {
-      store.close();
-      fsContext.delete(new Path(path.getAbsolutePath()), true);
-    }
-  }
 }

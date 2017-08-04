@@ -17,24 +17,24 @@
  */
 package org.apache.hadoop.hdfs.server.datanode;
 
-import static org.apache.hadoop.test.PlatformAssumptions.assumeNotWindows;
 import static org.junit.Assume.assumeTrue;
 
 import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.EnumSet;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.ReadOption;
-import org.apache.hadoop.hdfs.client.impl.BlockReaderTestUtil;
+import org.apache.hadoop.hdfs.BlockReaderTestUtil;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.DFSTestUtil;
 import org.apache.hadoop.hdfs.DistributedFileSystem;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.apache.hadoop.hdfs.client.HdfsClientConfigKeys;
 import org.apache.hadoop.hdfs.protocol.CacheDirectiveInfo;
 import org.apache.hadoop.hdfs.protocol.CachePoolInfo;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsDatasetSpi;
@@ -84,7 +84,7 @@ public class TestFsDatasetCacheRevocation {
     conf.setLong(DFSConfigKeys.DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
         TestFsDatasetCache.CACHE_CAPACITY);
     conf.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
-    conf.setBoolean(HdfsClientConfigKeys.Read.ShortCircuit.KEY, true);
+    conf.setBoolean(DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_KEY, true);
     conf.set(DFSConfigKeys.DFS_DOMAIN_SOCKET_PATH_KEY,
       new File(sockDir.getDir(), "sock").getAbsolutePath());
     return conf;
@@ -97,8 +97,7 @@ public class TestFsDatasetCacheRevocation {
    */
   @Test(timeout=120000)
   public void testPinning() throws Exception {
-    assumeTrue(NativeCodeLoader.isNativeCodeLoaded());
-    assumeNotWindows();
+    assumeTrue(NativeCodeLoader.isNativeCodeLoaded() && !Path.WINDOWS);
     Configuration conf = getDefaultConf();
     // Set a really long revocation timeout, so that we won't reach it during
     // this test.
@@ -148,8 +147,7 @@ public class TestFsDatasetCacheRevocation {
    */
   @Test(timeout=120000)
   public void testRevocation() throws Exception {
-    assumeTrue(NativeCodeLoader.isNativeCodeLoaded());
-    assumeNotWindows();
+    assumeTrue(NativeCodeLoader.isNativeCodeLoaded() && !Path.WINDOWS);
     BlockReaderTestUtil.enableHdfsCachingTracing();
     BlockReaderTestUtil.enableShortCircuitShmTracing();
     Configuration conf = getDefaultConf();

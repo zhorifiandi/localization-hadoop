@@ -23,9 +23,7 @@ import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlRootElement;
 
 import org.apache.hadoop.yarn.api.records.Resource;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceUsage;
 import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.ResourceInfo;
-import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.ResourcesInfo;
 
 @XmlRootElement
 @XmlAccessorType(XmlAccessType.FIELD)
@@ -36,24 +34,17 @@ public class UserInfo {
   protected int numActiveApplications;
   protected ResourceInfo AMResourceUsed;
   protected ResourceInfo userResourceLimit;
-  protected ResourcesInfo resources;
-  private float userWeight;
-  private boolean isActive;
 
   UserInfo() {}
 
   UserInfo(String username, Resource resUsed, int activeApps, int pendingApps,
-      Resource amResUsed, Resource resourceLimit, ResourceUsage resourceUsage,
-      float weight, boolean isActive) {
+      Resource amResUsed, Resource resourceLimit) {
     this.username = username;
     this.resourcesUsed = new ResourceInfo(resUsed);
     this.numActiveApplications = activeApps;
     this.numPendingApplications = pendingApps;
     this.AMResourceUsed = new ResourceInfo(amResUsed);
     this.userResourceLimit = new ResourceInfo(resourceLimit);
-    this.resources = new ResourcesInfo(resourceUsage);
-    this.userWeight = weight;
-    this.isActive = isActive;
   }
 
   public String getUsername() {
@@ -78,17 +69,5 @@ public class UserInfo {
 
   public ResourceInfo getUserResourceLimit() {
     return userResourceLimit;
-  }
-
-  public ResourcesInfo getResourceUsageInfo() {
-    return resources;
-  }
-
-  public float getUserWeight() {
-    return userWeight;
-  }
-
-  public boolean getIsActive() {
-    return isActive;
   }
 }

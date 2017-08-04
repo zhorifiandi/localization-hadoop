@@ -15,20 +15,40 @@
 YARN Commands
 =============
 
-<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
+* [Overview](#Overview)
+* [User Commands](#User_Commands)
+    * [application](#application)
+    * [applicationattempt](#applicationattempt)
+    * [classpath](#classpath)
+    * [container](#container)
+    * [jar](#jar)
+    * [logs](#logs)
+    * [node](#node)
+    * [queue](#queue)
+    * [version](#version)
+* [Administration Commands](#Administration_Commands)
+    * [daemonlog](#daemonlog)
+    * [nodemanager](#nodemanager)
+    * [proxyserver](#proxyserver)
+    * [resourcemanager](#resourcemanager)
+    * [rmadmin](#rmadmin)
+    * [scmadmin](#scmadmin)
+    * [sharedcachemanager](#sharedcachemanager)
+    * [timelineserver](#timelineserver)
 
 Overview
 --------
 
 YARN commands are invoked by the bin/yarn script. Running the yarn script without any arguments prints the description for all commands.
 
-Usage: `yarn [SHELL_OPTIONS] COMMAND [GENERIC_OPTIONS] [COMMAND_OPTIONS]`
+Usage: `yarn [--config confdir] COMMAND [--loglevel loglevel] [GENERIC_OPTIONS] [COMMAND_OPTIONS]`
 
 YARN has an option parsing framework that employs parsing generic options as well as running classes.
 
 | COMMAND\_OPTIONS | Description |
 |:---- |:---- |
-| SHELL\_OPTIONS | The common set of shell options. These are documented on the [Commands Manual](../../hadoop-project-dist/hadoop-common/CommandsManual.html#Shell_Options) page. |
+| `--config confdir` | Overwrites the default Configuration directory. Default is `${HADOOP_PREFIX}/conf`. |
+| `--loglevel loglevel` | Overwrites the log level. Valid log levels are FATAL, ERROR, WARN, INFO, DEBUG, and TRACE. Default is INFO. |
 | GENERIC\_OPTIONS | The common set of options supported by multiple commands. See the Hadoop [Commands Manual](../../hadoop-project-dist/hadoop-common/CommandsManual.html#Generic_Options) for more information. |
 | COMMAND COMMAND\_OPTIONS | Various commands with their options are described in the following sections. The commands have been grouped into [User Commands](#User_Commands) and [Administration Commands](#Administration_Commands). |
 
@@ -43,17 +63,11 @@ Usage: `yarn application [options] `
 
 | COMMAND\_OPTIONS | Description |
 |:---- |:---- |
-| -appId \<ApplicationId\> | Specify Application Id to be operated |
 | -appStates \<States\> | Works with -list to filter applications based on input comma-separated list of application states. The valid application state can be one of the following:  ALL, NEW, NEW\_SAVING, SUBMITTED, ACCEPTED, RUNNING, FINISHED, FAILED, KILLED |
 | -appTypes \<Types\> | Works with -list to filter applications based on input comma-separated list of application types. |
-| -help | Help |
 | -list | Lists applications from the RM. Supports optional use of -appTypes to filter applications based on application type, and -appStates to filter applications based on application state. |
 | -kill \<ApplicationId\> | Kills the application. |
-| -movetoqueue \<Application Id\> | Moves the application to a different queue. |
-| -queue \<Queue Name\> | Works with the movetoqueue command to specify which queue to move an application to. |
 | -status \<ApplicationId\> | Prints the status of the application. |
-| -updateLifetime \<Timeout\> | Update application timeout (from the time of request) in seconds. ApplicationId can be specified using 'appId' option. |
-| -updatePriority \<Priority\> | Update priority of an application. ApplicationId can be passed using 'appId' option. |
 
 Prints application(s) report/kill application
 
@@ -71,15 +85,9 @@ prints applicationattempt(s) report
 
 ### `classpath`
 
-Usage: `yarn classpath [--glob |--jar <path> |-h |--help]`
+Usage: `yarn classpath`
 
-| COMMAND\_OPTION | Description |
-|:---- |:---- |
-| `--glob` | expand wildcards |
-| `--jar` *path* | write classpath as manifest in jar named *path* |
-| `-h`, `--help` | print help |
-
-Prints the class path needed to get the Hadoop jar and the required libraries. If called without arguments, then prints the classpath set up by the command scripts, which is likely to contain wildcards in the classpath entries. Additional options print the classpath after wildcard expansion or write the classpath into the manifest of a jar file. The latter is useful in environments where wildcards cannot be used and the expanded classpath exceeds the maximum supported command line length.
+Prints the class path needed to get the Hadoop jar and the required libraries
 
 ### `container`
 
@@ -143,12 +151,6 @@ Usage: `yarn version`
 
 Prints the Hadoop version.
 
-### `envvars`
-
-Usage: `yarn envvars`
-
-Display computed Hadoop environment variables.
-
 Administration Commands
 -----------------------
 
@@ -156,8 +158,21 @@ Commands useful for administrators of a Hadoop cluster.
 
 ### `daemonlog`
 
-Get/Set the log level for a Log identified by a qualified class name in the daemon dynamically.
-See the Hadoop [Commands Manual](../../hadoop-project-dist/hadoop-common/CommandsManual.html#daemonlog) for more information.
+Usage:
+
+```
+   yarn daemonlog -getlevel <host:httpport> <classname> 
+   yarn daemonlog -setlevel <host:httpport> <classname> <level>
+```
+
+| COMMAND\_OPTIONS | Description |
+|:---- |:---- |
+| -getlevel `<host:httpport>` `<classname>` | Prints the log level of the log identified by a qualified `<classname>`, in the daemon running at `<host:httpport>`. This command internally connects to `http://<host:httpport>/logLevel?log=<classname>` |
+| -setlevel `<host:httpport> <classname> <level>` | Sets the log level of the log identified by a qualified `<classname>` in the daemon running at `<host:httpport>`. This command internally connects to `http://<host:httpport>/logLevel?log=<classname>&level=<level>` |
+
+Get/Set the log level for a Log identified by a qualified class name in the daemon.
+
+Example: `$ bin/yarn daemonlog -setlevel 127.0.0.1:8088 org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMAppImpl DEBUG`
 
 ### `nodemanager`
 
@@ -178,7 +193,6 @@ Usage: `yarn resourcemanager [-format-state-store]`
 | COMMAND\_OPTIONS | Description |
 |:---- |:---- |
 | -format-state-store | Formats the RMStateStore. This will clear the RMStateStore and is useful if past applications are no longer needed. This should be run only when the ResourceManager is not running. |
-| -remove-application-from-state-store \<appId\> | Remove the application from RMStateStore. This should be run only when the ResourceManager is not running. |
 
 Start the ResourceManager
 
@@ -187,51 +201,34 @@ Start the ResourceManager
 Usage:
 
 ```
-  Usage: yarn rmadmin
-     -refreshQueues
-     -refreshNodes [-g [timeout in seconds]]
-     -refreshNodesResources
-     -refreshSuperUserGroupsConfiguration
-     -refreshUserToGroupsMappings
-     -refreshAdminAcls
-     -refreshServiceAcl
-     -getGroups [username]
-     -addToClusterNodeLabels <"label1(exclusive=true),label2(exclusive=false),label3">
-     -removeFromClusterNodeLabels <label1,label2,label3> (label splitted by ",")
-     -replaceLabelsOnNode <"node1[:port]=label1,label2 node2[:port]=label1,label2"> [-failOnUnknownNodes]
-     -directlyAccessNodeLabelStore
-     -refreshClusterMaxPriority
-     -updateNodeResource [NodeID] [MemSize] [vCores] ([OvercommitTimeout])
-     -transitionToActive [--forceactive] <serviceId>
-     -transitionToStandby <serviceId>
-     -failover [--forcefence] [--forceactive] <serviceId> <serviceId>
-     -getServiceState <serviceId>
-     -getAllServiceState
-     -checkHealth <serviceId>
-     -help [cmd]
+  yarn rmadmin [-refreshQueues]
+               [-refreshNodes]
+               [-refreshUserToGroupsMapping] 
+               [-refreshSuperUserGroupsConfiguration]
+               [-refreshAdminAcls] 
+               [-refreshServiceAcl]
+               [-getGroups [username]]
+               [-transitionToActive [--forceactive] [--forcemanual] <serviceId>]
+               [-transitionToStandby [--forcemanual] <serviceId>]
+               [-failover [--forcefence] [--forceactive] <serviceId1> <serviceId2>]
+               [-getServiceState <serviceId>]
+               [-checkHealth <serviceId>]
+               [-help [cmd]]
 ```
 
 | COMMAND\_OPTIONS | Description |
 |:---- |:---- |
 | -refreshQueues | Reload the queues' acls, states and scheduler specific properties. ResourceManager will reload the mapred-queues configuration file. |
-| -refreshNodes [-g|graceful [timeout in seconds] -client|server] | Refresh the hosts information at the ResourceManager. -g option indicates graceful decommission of excluded hosts, in which case, the optional timeout indicates maximal time in seconds ResourceManager should wait before forcefully mark the node as decommissioned. |
-| -refreshNodesResources | Refresh resources of NodeManagers at the ResourceManager. |
-| -refreshSuperUserGroupsConfiguration | Refresh superuser proxy groups mappings. |
+| -refreshNodes | Refresh the hosts information at the ResourceManager. |
 | -refreshUserToGroupsMappings | Refresh user-to-groups mappings. |
+| -refreshSuperUserGroupsConfiguration | Refresh superuser proxy groups mappings. |
 | -refreshAdminAcls | Refresh acls for administration of ResourceManager |
 | -refreshServiceAcl | Reload the service-level authorization policy file ResourceManager will reload the authorization policy file. |
 | -getGroups [username] | Get groups the specified user belongs to. |
-| -addToClusterNodeLabels <"label1(exclusive=true),label2(exclusive=false),label3"> | Add to cluster node labels. Default exclusivity is true. |
-| -removeFromClusterNodeLabels <label1,label2,label3> (label splitted by ",") | Remove from cluster node labels. |
-| -replaceLabelsOnNode <"node1[:port]=label1,label2 node2[:port]=label1,label2"> [-failOnUnknownNodes]| Replace labels on nodes (please note that we do not support specifying multiple labels on a single host for now.) -failOnUnknownNodes is optional, when we set this option, it will fail if specified nodes are unknown.|
-| -directlyAccessNodeLabelStore | This is DEPRECATED, will be removed in future releases. Directly access node label store, with this option, all node label related operations will not connect RM. Instead, they will access/modify stored node labels directly. By default, it is false (access via RM). AND PLEASE NOTE: if you configured yarn.node-labels.fs-store.root-dir to a local directory (instead of NFS or HDFS), this option will only work when the command run on the machine where RM is running. |
-| -refreshClusterMaxPriority | Refresh cluster max priority |
-| -updateNodeResource [NodeID] [MemSize] [vCores] \([OvercommitTimeout]\) | Update resource on specific node. |
-| -transitionToActive [--forceactive] [--forcemanual] \<serviceId\> | Transitions the service into Active state. Try to make the target active without checking that there is no active node if the --forceactive option is used. This command can not be used if automatic failover is enabled. Though you can override this by --forcemanual option, you need caution. This command can not be used if automatic failover is enabled.|
+| -transitionToActive [--forceactive] [--forcemanual] \<serviceId\> | Transitions the service into Active state. Try to make the target active without checking that there is no active node if the --forceactive option is used. This command can not be used if automatic failover is enabled. Though you can override this by --forcemanual option, you need caution. |
 | -transitionToStandby [--forcemanual] \<serviceId\> | Transitions the service into Standby state. This command can not be used if automatic failover is enabled. Though you can override this by --forcemanual option, you need caution. |
 | -failover [--forceactive] \<serviceId1\> \<serviceId2\> | Initiate a failover from serviceId1 to serviceId2. Try to failover to the target service even if it is not ready if the --forceactive option is used. This command can not be used if automatic failover is enabled. |
 | -getServiceState \<serviceId\> | Returns the state of the service. |
-| -getAllServiceState | Returns the state of all the services. |
 | -checkHealth \<serviceId\> | Requests that the service perform a health check. The RMAdmin tool will exit with a non-zero exit code if the check fails. |
 | -help [cmd] | Displays help for the given command or all commands if none is specified. |
 
@@ -259,13 +256,3 @@ Start the Shared Cache Manager
 Usage: `yarn timelineserver`
 
 Start the TimeLineServer
-
-Files
------
-
-| File | Description |
-|:---- |:---- |
-| etc/hadoop/hadoop-env.sh | This file stores the global settings used by all Hadoop shell commands. |
-| etc/hadoop/yarn-env.sh | This file stores overrides used by all YARN shell commands. |
-| etc/hadoop/hadoop-user-functions.sh | This file allows for advanced users to override some shell functionality. |
-| ~/.hadooprc | This stores the personal environment for an individual user. It is processed after the `hadoop-env.sh`, `hadoop-user-functions.sh`, and `yarn-env.sh` files and can contain the same settings. |

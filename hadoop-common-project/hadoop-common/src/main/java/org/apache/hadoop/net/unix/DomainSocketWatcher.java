@@ -33,13 +33,13 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.commons.lang.SystemUtils;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.util.NativeCodeLoader;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.util.concurrent.Uninterruptibles;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The DomainSocketWatcher watches a set of domain sockets to see when they
@@ -68,7 +68,7 @@ public final class DomainSocketWatcher implements Closeable {
     }
   }
 
-  static final Logger LOG = LoggerFactory.getLogger(DomainSocketWatcher.class);
+  static Log LOG = LogFactory.getLog(DomainSocketWatcher.class);
 
   /**
    * The reason why DomainSocketWatcher is not available, or null if it is
@@ -306,7 +306,7 @@ public final class DomainSocketWatcher implements Closeable {
     try {
       if (closed) {
         handler.handle(sock);
-        IOUtils.cleanupWithLogger(LOG, sock);
+        IOUtils.cleanup(LOG, sock);
         return;
       }
       Entry entry = new Entry(sock, handler);
@@ -321,7 +321,11 @@ public final class DomainSocketWatcher implements Closeable {
       toAdd.add(entry);
       kick();
       while (true) {
-        processedCond.awaitUninterruptibly();
+        try {
+          processedCond.await();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
         if (!toAdd.contains(entry)) {
           break;
         }
@@ -343,7 +347,11 @@ public final class DomainSocketWatcher implements Closeable {
       toRemove.put(sock.fd, sock);
       kick();
       while (true) {
-        processedCond.awaitUninterruptibly();
+        try {
+          processedCond.await();
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
         if (!toRemove.containsKey(sock.fd)) {
           break;
         }
@@ -411,7 +419,7 @@ public final class DomainSocketWatcher implements Closeable {
             this + ": file descriptor " + sock.fd + " was closed while " +
             "still in the poll(2) loop.");
       }
-      IOUtils.cleanupWithLogger(LOG, sock);
+      IOUtils.cleanup(LOG, sock);
       fdSet.remove(fd);
       return true;
     } else {
@@ -462,7 +470,6 @@ public final class DomainSocketWatcher implements Closeable {
               // Handle pending additions (before pending removes).
               for (Iterator<Entry> iter = toAdd.iterator(); iter.hasNext(); ) {
                 Entry entry = iter.next();
-                iter.remove();
                 DomainSocket sock = entry.getDomainSocket();
                 Entry prevEntry = entries.put(sock.fd, entry);
                 Preconditions.checkState(prevEntry == null,
@@ -472,6 +479,7 @@ public final class DomainSocketWatcher implements Closeable {
                   LOG.trace(this + ": adding fd " + sock.fd);
                 }
                 fdSet.add(sock.fd);
+                iter.remove();
               }
               // Handle pending removals
               while (true) {
@@ -517,25 +525,6 @@ public final class DomainSocketWatcher implements Closeable {
           }
           entries.clear();
           fdSet.close();
-          closed = true;
-          if (!(toAdd.isEmpty() && toRemove.isEmpty())) {
-            // Items in toAdd might not be added to entries, handle it here
-            for (Iterator<Entry> iter = toAdd.iterator(); iter.hasNext();) {
-              Entry entry = iter.next();
-              entry.getDomainSocket().refCount.unreference();
-              entry.getHandler().handle(entry.getDomainSocket());
-              IOUtils.cleanupWithLogger(LOG, entry.getDomainSocket());
-              iter.remove();
-            }
-            // Items in toRemove might not be really removed, handle it here
-            while (true) {
-              Map.Entry<Integer, DomainSocket> entry = toRemove.firstEntry();
-              if (entry == null)
-                break;
-              sendCallback("close", entries, fdSet, entry.getValue().fd);
-            }
-          }
-          processedCond.signalAll();
         } finally {
           lock.unlock();
         }

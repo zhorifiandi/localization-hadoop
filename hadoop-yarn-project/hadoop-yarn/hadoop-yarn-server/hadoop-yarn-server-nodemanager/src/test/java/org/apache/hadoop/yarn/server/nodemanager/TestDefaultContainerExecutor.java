@@ -20,62 +20,62 @@ package org.apache.hadoop.yarn.server.nodemanager;
 
 import static org.apache.hadoop.fs.CreateFlag.CREATE;
 import static org.apache.hadoop.fs.CreateFlag.OVERWRITE;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.isA;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedWriter;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.InputStream;
 import java.io.IOException;
+import java.io.LineNumberReader;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
 
+
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.AbstractFileSystem;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileContext;
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.FsStatus;
+import org.apache.hadoop.fs.Options.CreateOpts;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.io.DataInputBuffer;
+import org.apache.hadoop.io.DataOutputBuffer;
 import org.apache.hadoop.security.Credentials;
+import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.Shell;
-import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.ContainerLaunchContext;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.exceptions.ConfigurationException;
-import org.apache.hadoop.yarn.exceptions.YarnException;
-import org.apache.hadoop.yarn.server.nodemanager.api.LocalizationProtocol;
-import org.apache.hadoop.yarn.server.nodemanager.api.ResourceLocalizationSpec;
-import org.apache.hadoop.yarn.server.nodemanager.api.protocolrecords.LocalizerAction;
-import org.apache.hadoop.yarn.server.nodemanager.api.protocolrecords.LocalizerStatus;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.Container;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.container.ContainerDiagnosticsUpdateEvent;
 import org.apache.hadoop.yarn.server.nodemanager.containermanager.localizer.ContainerLocalizer;
-import org.apache.hadoop.yarn.server.nodemanager.containermanager.localizer.MockLocalizerHeartbeatResponse;
-import org.apache.hadoop.yarn.server.nodemanager.executor.ContainerStartContext;
-import org.apache.hadoop.yarn.server.nodemanager.executor.DeletionAsUserContext;
-import org.apache.hadoop.yarn.server.nodemanager.executor.LocalizerStartContext;
+import org.apache.hadoop.yarn.server.nodemanager.containermanager.localizer.FakeFSDataInputStream;
+
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
@@ -165,7 +165,8 @@ public class TestDefaultContainerExecutor {
         DefaultContainerExecutor.FILECACHE_PERM);
     final FsPermission appDirPerm = new FsPermission(
         DefaultContainerExecutor.APPDIR_PERM);
-
+    final FsPermission logDirPerm = new FsPermission(
+        DefaultContainerExecutor.LOGDIR_PERM);
     List<String> localDirs = new ArrayList<String>();
     localDirs.add(new Path(BASE_TMP_PATH, "localDirA").toString());
     localDirs.add(new Path(BASE_TMP_PATH, "localDirB").toString());
@@ -177,7 +178,6 @@ public class TestDefaultContainerExecutor {
     conf.set(CommonConfigurationKeys.FS_PERMISSIONS_UMASK_KEY, "077");
     FileContext lfs = FileContext.getLocalFSFileContext(conf);
     DefaultContainerExecutor executor = new DefaultContainerExecutor(lfs);
-    executor.setConf(conf);
     executor.init();
 
     try {
@@ -205,20 +205,11 @@ public class TestDefaultContainerExecutor {
         Assert.assertEquals(appDirPerm, stats.getPermission());
       }
 
-      String[] permissionsArray = { "000", "111", "555", "710", "777" };
+      executor.createAppLogDirs(appId, logDirs, user);
 
-      for (String perm : permissionsArray ) {
-        conf.set(YarnConfiguration.NM_DEFAULT_CONTAINER_EXECUTOR_LOG_DIRS_PERMISSIONS, perm);
-        executor.clearLogDirPermissions();
-        FsPermission logDirPerm = new FsPermission(
-            executor.getLogDirPermissions());
-        executor.createAppLogDirs(appId, logDirs, user);
-
-        for (String dir : logDirs) {
-          FileStatus stats = lfs.getFileStatus(new Path(dir, appId));
-          Assert.assertEquals(logDirPerm, stats.getPermission());
-          lfs.delete(new Path(dir, appId), true);
-        }
+      for (String dir : logDirs) {
+        FileStatus stats = lfs.getFileStatus(new Path(dir, appId));
+        Assert.assertEquals(logDirPerm, stats.getPermission());
       }
     } finally {
       deleteTmpFiles();
@@ -227,7 +218,7 @@ public class TestDefaultContainerExecutor {
 
   @Test
   public void testContainerLaunchError()
-      throws IOException, InterruptedException, ConfigurationException {
+      throws IOException, InterruptedException {
 
     if (Shell.WINDOWS) {
       BASE_TMP_PATH =
@@ -270,7 +261,6 @@ public class TestDefaultContainerExecutor {
     ContainerId cId = mock(ContainerId.class);
     ContainerLaunchContext context = mock(ContainerLaunchContext.class);
     HashMap<String, String> env = new HashMap<String, String>();
-    env.put("LANG", "C");
 
     when(container.getContainerId()).thenReturn(cId);
     when(container.getLaunchContext()).thenReturn(context);
@@ -319,33 +309,21 @@ public class TestDefaultContainerExecutor {
 
       mockExec.init();
       mockExec.activateContainer(cId, pidFile);
-      int ret = mockExec.launchContainer(new ContainerStartContext.Builder()
-          .setContainer(container)
-          .setNmPrivateContainerScriptPath(scriptPath)
-          .setNmPrivateTokensPath(tokensPath)
-          .setUser(appSubmitter)
-          .setAppId(appId)
-          .setContainerWorkDir(workDir)
-          .setLocalDirs(localDirs)
-          .setLogDirs(logDirs)
-          .build());
+      int ret = mockExec
+          .launchContainer(container, scriptPath, tokensPath, appSubmitter,
+              appId, workDir, localDirs, localDirs);
       Assert.assertNotSame(0, ret);
     } finally {
-      mockExec.deleteAsUser(new DeletionAsUserContext.Builder()
-          .setUser(appSubmitter)
-          .setSubDir(localDir)
-          .build());
-      mockExec.deleteAsUser(new DeletionAsUserContext.Builder()
-          .setUser(appSubmitter)
-          .setSubDir(logDir)
-          .build());
+      mockExec.deleteAsUser(appSubmitter, localDir);
+      mockExec.deleteAsUser(appSubmitter, logDir);
     }
   }
 
   @Test(timeout = 30000)
-  public void testStartLocalizer() throws IOException, InterruptedException,
-      YarnException {
-
+  public void testStartLocalizer()
+      throws IOException, InterruptedException {
+    InetSocketAddress localizationServerAddress;
+    
     final Path firstDir = new Path(BASE_TMP_PATH, "localDir1");
     List<String> localDirs = new ArrayList<String>();
     final Path secondDir = new Path(BASE_TMP_PATH, "localDir2");
@@ -355,6 +333,11 @@ public class TestDefaultContainerExecutor {
     FsPermission perms = new FsPermission((short)0770);
 
     Configuration conf = new Configuration();
+    localizationServerAddress = conf.getSocketAddr(
+        YarnConfiguration.NM_BIND_HOST,
+        YarnConfiguration.NM_LOCALIZER_ADDRESS,
+        YarnConfiguration.DEFAULT_NM_LOCALIZER_ADDRESS,
+        YarnConfiguration.DEFAULT_NM_LOCALIZER_PORT);
 
     final FileContext mockLfs = spy(FileContext.getLocalFSFileContext(conf));
     final FileContext.Util mockUtil = spy(mockLfs.util());
@@ -390,9 +373,8 @@ public class TestDefaultContainerExecutor {
           }
         }
         return null;
-      }}).when(mockUtil).copy(any(Path.class), any(Path.class),
-        anyBoolean(), anyBoolean());
-
+      }
+    }).when(mockUtil).copy(any(Path.class), any(Path.class));
     doAnswer(new Answer() {
       @Override
       public Object answer(InvocationOnMock invocationOnMock)
@@ -408,33 +390,8 @@ public class TestDefaultContainerExecutor {
       }
     }).when(mockLfs).getFsStatus(any(Path.class));
 
-    DefaultContainerExecutor mockExec =
-        spy(new DefaultContainerExecutor(mockLfs) {
-          @Override
-          public ContainerLocalizer createContainerLocalizer(String user,
-              String appId, String locId, List<String> localDirs,
-              FileContext localizerFc) throws IOException {
-
-            // Spy on the localizer and make it return valid heart-beat
-            // responses even though there is no real NodeManager.
-            ContainerLocalizer localizer =
-                super.createContainerLocalizer(user, appId, locId, localDirs,
-                  localizerFc);
-            ContainerLocalizer spyLocalizer = spy(localizer);
-            LocalizationProtocol nmProxy = mock(LocalizationProtocol.class);
-            try {
-              when(nmProxy.heartbeat(isA(LocalizerStatus.class))).thenReturn(
-                  new MockLocalizerHeartbeatResponse(LocalizerAction.DIE,
-                      new ArrayList<ResourceLocalizationSpec>()));
-            } catch (YarnException e) {
-              throw new IOException(e);
-            }
-            when(spyLocalizer.getProxy(any(InetSocketAddress.class)))
-              .thenReturn(nmProxy);
-
-            return spyLocalizer;
-          }
-        });
+    DefaultContainerExecutor mockExec = spy(new DefaultContainerExecutor(
+        mockLfs));
     mockExec.setConf(conf);
     localDirs.add(mockLfs.makeQualified(firstDir).toString());
     localDirs.add(mockLfs.makeQualified(secondDir).toString());
@@ -451,74 +408,19 @@ public class TestDefaultContainerExecutor {
     LocalDirsHandlerService  dirsHandler = mock(LocalDirsHandlerService.class);
     when(dirsHandler.getLocalDirs()).thenReturn(localDirs);
     when(dirsHandler.getLogDirs()).thenReturn(logDirs);
-
+    
     try {
-      mockExec.startLocalizer(new LocalizerStartContext.Builder()
-          .setNmPrivateContainerTokens(nmPrivateCTokensPath)
-          .setNmAddr(null)
-          .setUser(appSubmitter)
-          .setAppId(appId)
-          .setLocId(locId)
-          .setDirsHandler(dirsHandler)
-          .build());
-
+      mockExec.startLocalizer(nmPrivateCTokensPath, localizationServerAddress,
+          appSubmitter, appId, locId, dirsHandler);
     } catch (IOException e) {
-      Assert.fail("StartLocalizer failed to copy token file: "
-          + StringUtils.stringifyException(e));
+      Assert.fail("StartLocalizer failed to copy token file " + e);
     } finally {
-      mockExec.deleteAsUser(new DeletionAsUserContext.Builder()
-          .setUser(appSubmitter)
-          .setSubDir(firstDir)
-          .build());
-      mockExec.deleteAsUser(new DeletionAsUserContext.Builder()
-          .setUser(appSubmitter)
-          .setSubDir(secondDir)
-          .build());
-      mockExec.deleteAsUser(new DeletionAsUserContext.Builder()
-          .setUser(appSubmitter)
-          .setSubDir(logDir)
-          .build());
+      mockExec.deleteAsUser(appSubmitter, firstDir);
+      mockExec.deleteAsUser(appSubmitter, secondDir);
+      mockExec.deleteAsUser(appSubmitter, logDir);
       deleteTmpFiles();
     }
-
-    // Verify that the calls happen the expected number of times
-    verify(mockUtil, times(1)).copy(any(Path.class), any(Path.class),
-        anyBoolean(), anyBoolean());
-    verify(mockLfs, times(2)).getFsStatus(any(Path.class));
   }
-
-  @Test
-  public void testPickDirectory() throws Exception {
-    Configuration conf = new Configuration();
-    FileContext lfs = FileContext.getLocalFSFileContext(conf);
-    DefaultContainerExecutor executor = new DefaultContainerExecutor(lfs);
-
-    long[] availableOnDisk = new long[2];
-    availableOnDisk[0] = 100;
-    availableOnDisk[1] = 100;
-    assertEquals(0, executor.pickDirectory(0L, availableOnDisk));
-    assertEquals(0, executor.pickDirectory(99L, availableOnDisk));
-    assertEquals(1, executor.pickDirectory(100L, availableOnDisk));
-    assertEquals(1, executor.pickDirectory(101L, availableOnDisk));
-    assertEquals(1, executor.pickDirectory(199L, availableOnDisk));
-
-    long[] availableOnDisk2 = new long[5];
-    availableOnDisk2[0] = 100;
-    availableOnDisk2[1] = 10;
-    availableOnDisk2[2] = 400;
-    availableOnDisk2[3] = 200;
-    availableOnDisk2[4] = 350;
-    assertEquals(0, executor.pickDirectory(0L, availableOnDisk2));
-    assertEquals(0, executor.pickDirectory(99L, availableOnDisk2));
-    assertEquals(1, executor.pickDirectory(100L, availableOnDisk2));
-    assertEquals(1, executor.pickDirectory(105L, availableOnDisk2));
-    assertEquals(2, executor.pickDirectory(110L, availableOnDisk2));
-    assertEquals(2, executor.pickDirectory(259L, availableOnDisk2));
-    assertEquals(3, executor.pickDirectory(700L, availableOnDisk2));
-    assertEquals(4, executor.pickDirectory(710L, availableOnDisk2));
-    assertEquals(4, executor.pickDirectory(910L, availableOnDisk2));
-  }
-
 //  @Test
 //  public void testInit() throws IOException, InterruptedException {
 //    Configuration conf = new Configuration();

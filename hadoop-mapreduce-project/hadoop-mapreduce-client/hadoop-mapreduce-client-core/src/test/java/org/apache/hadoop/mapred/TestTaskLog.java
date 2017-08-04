@@ -27,26 +27,15 @@ import java.io.IOException;
 import java.io.InputStream;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.mapred.TaskLog.LogName;
+import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.junit.AfterClass;
 import org.junit.Test;
 
 /**
  * TestCounters checks the sanity and recoverability of Queue
  */
 public class TestTaskLog {
-
-  private static final String testDirName = TestTaskLog.class.getSimpleName();
-  private static final String testDir = System.getProperty("test.build.data",
-      "target" + File.separatorChar + "test-dir")
-      + File.separatorChar + testDirName;
-
-  @AfterClass
-  public static void cleanup() {
-    FileUtil.fullyDelete(new File(testDir));
-  }
 
   /**
    * test TaskAttemptID
@@ -78,7 +67,7 @@ public class TestTaskLog {
     indexFile.delete();
     indexFile.createNewFile();
 
-    TaskLog.syncLogs(testDir, taid, true);
+    TaskLog.syncLogs("location", taid, true);
 
     assertTrue(indexFile.getAbsolutePath().endsWith(
         "userlogs" + File.separatorChar + "job_job_0001"
@@ -87,7 +76,7 @@ public class TestTaskLog {
 
     f = TaskLog.getRealTaskLogFileLocation(taid, true, LogName.DEBUGOUT);
     if (f != null) {
-      assertTrue(f.getAbsolutePath().endsWith(testDirName
+      assertTrue(f.getAbsolutePath().endsWith("location"
           + File.separatorChar + "debugout"));
       FileUtils.copyFile(indexFile, f);
     }
@@ -95,13 +84,14 @@ public class TestTaskLog {
     assertTrue(TaskLog.obtainLogDirOwner(taid).length() > 0);
     // test TaskLog.Reader
     assertTrue(readTaskLog(TaskLog.LogName.DEBUGOUT, taid, true).length() > 0);
+
   }
 
-  private String readTaskLog(TaskLog.LogName filter,
+  public String readTaskLog(TaskLog.LogName filter,
       org.apache.hadoop.mapred.TaskAttemptID taskId, boolean isCleanup)
       throws IOException {
     // string buffer to store task log
-    StringBuilder result = new StringBuilder();
+    StringBuffer result = new StringBuffer();
     int res;
 
     // reads the whole tasklog into inputstream

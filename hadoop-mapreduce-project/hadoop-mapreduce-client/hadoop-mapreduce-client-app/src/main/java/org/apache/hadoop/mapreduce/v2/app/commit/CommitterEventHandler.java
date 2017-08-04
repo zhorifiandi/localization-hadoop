@@ -49,7 +49,6 @@ import org.apache.hadoop.mapreduce.v2.util.MRApps;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.service.AbstractService;
 import org.apache.hadoop.util.StringUtils;
-import org.apache.hadoop.util.concurrent.HadoopThreadPoolExecutor;
 import org.apache.hadoop.yarn.event.EventHandler;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 
@@ -134,7 +133,7 @@ public class CommitterEventHandler extends AbstractService
       tfBuilder.setThreadFactory(backingTf);
     }
     ThreadFactory tf = tfBuilder.build();
-    launcherPool = new HadoopThreadPoolExecutor(5, 5, 1,
+    launcherPool = new ThreadPoolExecutor(5, 5, 1,
         TimeUnit.HOURS, new LinkedBlockingQueue<Runnable>(), tf);
     eventHandlingThread = new Thread(new Runnable() {
       @Override
@@ -262,38 +261,27 @@ public class CommitterEventHandler extends AbstractService
       }
     }
 
-    // If job commit is repeatable, then we should allow
-    // startCommitFile/endCommitSuccessFile/endCommitFailureFile to be written
-    // by other AM before.
-    private void touchz(Path p, boolean overwrite) throws IOException {
-      fs.create(p, overwrite).close();
+    private void touchz(Path p) throws IOException {
+      fs.create(p, false).close();
     }
-
+    
     @SuppressWarnings("unchecked")
     protected void handleJobCommit(CommitterJobCommitEvent event) {
-      boolean commitJobIsRepeatable = false;
       try {
-        commitJobIsRepeatable = committer.isCommitJobRepeatable(
-            event.getJobContext());
-      } catch (IOException e) {
-        LOG.warn("Exception in committer.isCommitJobRepeatable():", e);
-      }
-
-      try {
-        touchz(startCommitFile, commitJobIsRepeatable);
+        touchz(startCommitFile);
         jobCommitStarted();
         waitForValidCommitWindow();
         committer.commitJob(event.getJobContext());
-        touchz(endCommitSuccessFile, commitJobIsRepeatable);
+        touchz(endCommitSuccessFile);
         context.getEventHandler().handle(
             new JobCommitCompletedEvent(event.getJobID()));
       } catch (Exception e) {
-        LOG.error("Could not commit job", e);
         try {
-          touchz(endCommitFailureFile, commitJobIsRepeatable);
+          touchz(endCommitFailureFile);
         } catch (Exception e2) {
           LOG.error("could not create failure file.", e2);
         }
+        LOG.error("Could not commit job", e);
         context.getEventHandler().handle(
             new JobCommitFailedEvent(event.getJobID(),
                 StringUtils.stringifyException(e)));

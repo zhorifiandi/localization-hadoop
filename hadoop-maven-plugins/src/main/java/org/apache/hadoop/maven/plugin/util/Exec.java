@@ -22,7 +22,6 @@ import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Exec is a helper class for executing an external process from a mojo.
@@ -43,26 +42,12 @@ public class Exec {
   /**
    * Runs the specified command and saves each line of the command's output to
    * the given list.
-   *
+   * 
    * @param command List containing command and all arguments
    * @param output List in/out parameter to receive command output
    * @return int exit code of command
    */
   public int run(List<String> command, List<String> output) {
-    return this.run(command, output, null);
-  }
-
-  /**
-   * Runs the specified command and saves each line of the command's output to
-   * the given list and each line of the command's stderr to the other list.
-   *
-   * @param command List containing command and all arguments
-   * @param output List in/out parameter to receive command output
-   * @param errors List in/out parameter to receive command stderr
-   * @return int exit code of command
-   */
-  public int run(List<String> command, List<String> output,
-      List<String> errors) {
     int retCode = 1;
     ProcessBuilder pb = new ProcessBuilder(command);
     try {
@@ -81,13 +66,8 @@ public class Exec {
       stdOut.join();
       stdErr.join();
       output.addAll(stdOut.getOutput());
-      if (errors != null) {
-        errors.addAll(stdErr.getOutput());
-      }
-    } catch (IOException ioe) {
-      mojo.getLog().warn(command + " failed: " + ioe.toString());
-    } catch (InterruptedException ie) {
-      mojo.getLog().warn(command + " failed: " + ie.toString());
+    } catch (Exception ex) {
+      mojo.getLog().warn(command + " failed: " + ex.toString());
     }
     return retCode;
   }
@@ -96,7 +76,7 @@ public class Exec {
    * OutputBufferThread is a background thread for consuming and storing output
    * of the external process.
    */
-  public static class OutputBufferThread extends Thread {
+  private static class OutputBufferThread extends Thread {
     private List<String> output;
     private BufferedReader reader;
 
@@ -129,57 +109,12 @@ public class Exec {
     }
 
     /**
-     * Get every line consumed from the input.
+     * Returns every line consumed from the input.
      * 
-     * @return  Every line consumed from the input
+     * @return List<String> every line consumed from the input
      */
     public List<String> getOutput() {
       return output;
     }
-  }
-
-  /**
-   * Add environment variables to a ProcessBuilder.
-   *
-   * @param pb      The ProcessBuilder
-   * @param env     A map of environment variable names to values.
-   */
-  public static void addEnvironment(ProcessBuilder pb,
-        Map<String, String> env) {
-    if (env == null) {
-      return;
-    }
-    Map<String, String> processEnv = pb.environment();
-    for (Map.Entry<String, String> entry : env.entrySet()) {
-      String val = entry.getValue();
-      if (val == null) {
-        val = "";
-      }
-      processEnv.put(entry.getKey(), val);
-    }
-  }
-
-  /**
-   * Pretty-print the environment to a StringBuilder.
-   *
-   * @param env     A map of environment variable names to values to print.
-   *
-   * @return        The pretty-printed string.
-   */
-  public static String envToString(Map<String, String> env) {
-    StringBuilder bld = new StringBuilder();
-    bld.append("{");
-    if (env != null) {
-      for (Map.Entry<String, String> entry : env.entrySet()) {
-        String val = entry.getValue();
-        if (val == null) {
-          val = "";
-        }
-        bld.append("\n  ").append(entry.getKey()).
-              append(" = '").append(val).append("'\n");
-      }
-    }
-    bld.append("}");
-    return bld.toString();
   }
 }

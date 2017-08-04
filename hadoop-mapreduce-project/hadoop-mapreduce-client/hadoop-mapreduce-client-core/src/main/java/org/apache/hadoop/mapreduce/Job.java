@@ -1359,6 +1359,7 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
                                    ) throws IOException, InterruptedException,
                                             ClassNotFoundException {
     if (state == JobState.DEFINE) {
+      LOG.info("ARIZHO >>  Submitting Job (JobId : "+jobId+" , Start Time at at"+ getStartTime() +".....");
       submit();
     }
     if (verbose) {
@@ -1374,6 +1375,9 @@ public class Job extends JobContextImpl implements JobContext, AutoCloseable {
         }
       }
     }
+
+    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done, Finish Time at at"+ getFinishTime() +".....");
+    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Started at "+getStartTime() +" ...");
     return isSuccessful();
   }
   

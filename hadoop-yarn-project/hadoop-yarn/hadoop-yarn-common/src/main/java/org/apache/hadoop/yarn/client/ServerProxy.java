@@ -53,19 +53,23 @@ public class ServerProxy {
     long maxWaitTime = conf.getLong(maxWaitTimeStr, defMaxWaitTime);
     long retryIntervalMS =
         conf.getLong(connectRetryIntervalStr, defRetryInterval);
-    if (maxWaitTime == -1) {
-      // wait forever.
-      return RetryPolicies.RETRY_FOREVER;
-    }
 
-    Preconditions.checkArgument(maxWaitTime > 0, "Invalid Configuration. "
-        + maxWaitTimeStr + " should be a positive value.");
+    Preconditions.checkArgument((maxWaitTime == -1 || maxWaitTime > 0),
+        "Invalid Configuration. " + maxWaitTimeStr + " should be either"
+            + " positive value or -1.");
     Preconditions.checkArgument(retryIntervalMS > 0, "Invalid Configuration. "
         + connectRetryIntervalStr + "should be a positive value.");
 
-    RetryPolicy retryPolicy =
-        RetryPolicies.retryUpToMaximumTimeWithFixedSleep(maxWaitTime,
-          retryIntervalMS, TimeUnit.MILLISECONDS);
+    RetryPolicy retryPolicy = null;
+    if (maxWaitTime == -1) {
+      // wait forever.
+      retryPolicy = RetryPolicies.retryForeverWithFixedSleep(retryIntervalMS,
+          TimeUnit.MILLISECONDS);
+    } else {
+      retryPolicy =
+          RetryPolicies.retryUpToMaximumTimeWithFixedSleep(maxWaitTime,
+              retryIntervalMS, TimeUnit.MILLISECONDS);
+    }
 
     Map<Class<? extends Exception>, RetryPolicy> exceptionToPolicyMap =
         new HashMap<Class<? extends Exception>, RetryPolicy>();
@@ -73,8 +77,14 @@ public class ServerProxy {
     exceptionToPolicyMap.put(ConnectException.class, retryPolicy);
     exceptionToPolicyMap.put(NoRouteToHostException.class, retryPolicy);
     exceptionToPolicyMap.put(UnknownHostException.class, retryPolicy);
+    exceptionToPolicyMap.put(ConnectTimeoutException.class, retryPolicy);
     exceptionToPolicyMap.put(RetriableException.class, retryPolicy);
     exceptionToPolicyMap.put(SocketException.class, retryPolicy);
+    
+    /*
+     * Still keeping this to cover case like newer client talking
+     * to an older version of server
+     */
     exceptionToPolicyMap.put(NMNotYetReadyException.class, retryPolicy);
 
     return RetryPolicies.retryByException(RetryPolicies.TRY_ONCE_THEN_FAIL,

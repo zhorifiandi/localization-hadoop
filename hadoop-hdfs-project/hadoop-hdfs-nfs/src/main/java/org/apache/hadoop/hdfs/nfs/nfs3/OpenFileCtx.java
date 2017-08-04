@@ -72,7 +72,7 @@ class OpenFileCtx {
   // Pending writes water mark for dump, 1MB
   private static long DUMP_WRITE_WATER_MARK = 1024 * 1024;
 
-  static enum COMMIT_STATUS {
+  enum COMMIT_STATUS {
     COMMIT_FINISHED,
     COMMIT_WAIT,
     COMMIT_INACTIVE_CTX,
@@ -253,9 +253,7 @@ class OpenFileCtx {
     enabledDump = dumpFilePath != null;
     nextOffset = new AtomicLong();
     nextOffset.set(latestAttr.getSize());
-    try {	
-      assert(nextOffset.get() == this.fos.getPos());
-    } catch (IOException e) {}
+    assert(nextOffset.get() == this.fos.getPos());
     dumpThread = null;
     this.client = client;
     this.iug = iug;
@@ -268,7 +266,7 @@ class OpenFileCtx {
   }
   
   // Get flushed offset. Note that flushed data may not be persisted.
-  private long getFlushedOffset() throws IOException {
+  private long getFlushedOffset() {
     return fos.getPos();
   }
   
@@ -492,11 +490,11 @@ class OpenFileCtx {
     int count = request.getCount();
     long smallerCount = offset + count - cachedOffset;
     if (LOG.isDebugEnabled()) {
-      LOG.debug(String.format("Got overwrite with appended data (%d-%d),"
-          + " current offset %d," + " drop the overlapped section (%d-%d)"
-          + " and append new data (%d-%d).", offset, (offset + count - 1),
-          cachedOffset, offset, (cachedOffset - 1), cachedOffset, (offset
-              + count - 1)));
+      LOG.debug(String.format("Got overwrite with appended data [%d-%d),"
+          + " current offset %d," + " drop the overlapped section [%d-%d)"
+          + " and append new data [%d-%d).", offset, (offset + count),
+          cachedOffset, offset, cachedOffset, cachedOffset, (offset
+              + count)));
     }
     
     ByteBuffer data = request.getData();
@@ -510,6 +508,22 @@ class OpenFileCtx {
     request.setCount((int) smallerCount);
   }
   
+  @VisibleForTesting
+  private static void trimWriteRequest(WriteCtx writeCtx,
+      long currentOffset) {
+    long offset = writeCtx.getOffset();
+    if (LOG.isDebugEnabled()) {
+      int count = writeCtx.getCount();
+      LOG.debug(String.format("Trim request [%d-%d),"
+          + " current offset %d," + " drop the overlapped section [%d-%d)"
+          + " and write new data [%d-%d)",
+          offset, (offset + count),
+          currentOffset, offset, (currentOffset),
+          currentOffset, (offset + count)));
+    }
+    writeCtx.trimWrite((int)(currentOffset - offset));
+  }
+
   /**
    * Creates and adds a WriteCtx into the pendingWrites map. This is a
    * synchronized method to handle concurrent writes.
@@ -529,23 +543,27 @@ class OpenFileCtx {
           + cachedOffset);
     }
 
-    // Handle a special case first
+    // Ignore write request with range below the current offset
+    if (offset + count <= cachedOffset) {
+      LOG.warn(String.format("Got overwrite [%d-%d) smaller than"
+          + " current offset %d," + " drop the request.",
+          offset, (offset + count), cachedOffset));
+      return null;
+    }
+
+    // Handle a special case: trim request whose offset is smaller than
+    // the current offset
     if ((offset < cachedOffset) && (offset + count > cachedOffset)) {
       // One Linux client behavior: after a file is closed and reopened to
       // write, the client sometimes combines previous written data(could still
       // be in kernel buffer) with newly appended data in one write. This is
       // usually the first write after file reopened. In this
       // case, we log the event and drop the overlapped section.
-      LOG.warn(String.format("Got overwrite with appended data (%d-%d),"
-          + " current offset %d," + " drop the overlapped section (%d-%d)"
-          + " and append new data (%d-%d).", offset, (offset + count - 1),
-          cachedOffset, offset, (cachedOffset - 1), cachedOffset, (offset
-              + count - 1)));
-
-      if (!pendingWrites.isEmpty()) {
-        LOG.warn("There are other pending writes, fail this jumbo write");
-        return null;
-      }
+      LOG.warn(String.format("Got overwrite with appended data [%d-%d),"
+          + " current offset %d," + " drop the overlapped section [%d-%d)"
+          + " and append new data [%d-%d).", offset, (offset + count),
+          cachedOffset, offset, cachedOffset, cachedOffset, (offset
+              + count)));
       
       LOG.warn("Modify this write to write only the appended data");
       alterWriteRequest(request, cachedOffset);
@@ -866,15 +884,8 @@ class OpenFileCtx {
         return COMMIT_STATUS.COMMIT_INACTIVE_WITH_PENDING_WRITE;
       }
     }
-
-    long flushed = 0;
-    try {
-      flushed = getFlushedOffset();
-    } catch (IOException e) {
-      LOG.error("Can't get flushed offset, error:" + e);
-      return COMMIT_STATUS.COMMIT_ERROR;
-    }
     
+    long flushed = getFlushedOffset();
     if (LOG.isDebugEnabled()) {
       LOG.debug("getFlushedOffset=" + flushed + " commitOffset=" + commitOffset
           + "nextOffset=" + nextOffset.get());
@@ -1011,45 +1022,56 @@ class OpenFileCtx {
       this.asyncStatus = false;
       return null;
     } 
-    
-      Entry<OffsetRange, WriteCtx> lastEntry = pendingWrites.lastEntry();
-      OffsetRange range = lastEntry.getKey();
-      WriteCtx toWrite = lastEntry.getValue();
-      
-      if (LOG.isTraceEnabled()) {
-        LOG.trace("range.getMin()=" + range.getMin() + " nextOffset="
-            + nextOffset);
+
+    Entry<OffsetRange, WriteCtx> lastEntry = pendingWrites.lastEntry();
+    OffsetRange range = lastEntry.getKey();
+    WriteCtx toWrite = lastEntry.getValue();
+
+    if (LOG.isTraceEnabled()) {
+      LOG.trace("range.getMin()=" + range.getMin() + " nextOffset="
+          + nextOffset);
+    }
+
+    long offset = nextOffset.get();
+    if (range.getMin() > offset) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("The next sequential write has not arrived yet");
       }
-      
-      long offset = nextOffset.get();
-      if (range.getMin() > offset) {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("The next sequential write has not arrived yet");
-        }
-        processCommits(nextOffset.get()); // handle race
-        this.asyncStatus = false;
-      } else if (range.getMin() < offset && range.getMax() > offset) {
-        // shouldn't happen since we do sync for overlapped concurrent writers
-        LOG.warn("Got an overlapping write (" + range.getMin() + ", "
-            + range.getMax() + "), nextOffset=" + offset
-            + ". Silently drop it now");
-        pendingWrites.remove(range);
-        processCommits(nextOffset.get()); // handle race
-      } else {
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Remove write(" + range.getMin() + "-" + range.getMax()
-              + ") from the list");
-        }
-        // after writing, remove the WriteCtx from cache 
-        pendingWrites.remove(range);
-        // update nextOffset
-        nextOffset.addAndGet(toWrite.getCount());
-        if (LOG.isDebugEnabled()) {
-          LOG.debug("Change nextOffset to " + nextOffset.get());
-        }
-        return toWrite;
+      processCommits(nextOffset.get()); // handle race
+      this.asyncStatus = false;
+    } else if (range.getMax() <= offset) {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Remove write " + range.toString()
+            + " which is already written from the list");
       }
-    
+      // remove the WriteCtx from cache
+      pendingWrites.remove(range);
+    } else if (range.getMin() < offset && range.getMax() > offset) {
+      LOG.warn("Got an overlapping write " + range.toString()
+          + ", nextOffset=" + offset
+          + ". Remove and trim it");
+      pendingWrites.remove(range);
+      trimWriteRequest(toWrite, offset);
+      // update nextOffset
+      nextOffset.addAndGet(toWrite.getCount());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Change nextOffset (after trim) to " + nextOffset.get());
+      }
+      return toWrite;
+    } else {
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Remove write " + range.toString()
+            + " from the list");
+      }
+      // after writing, remove the WriteCtx from cache
+      pendingWrites.remove(range);
+      // update nextOffset
+      nextOffset.addAndGet(toWrite.getCount());
+      if (LOG.isDebugEnabled()) {
+        LOG.debug("Change nextOffset to " + nextOffset.get());
+      }
+      return toWrite;
+    }
     return null;
   }
   
@@ -1093,18 +1115,16 @@ class OpenFileCtx {
 
   private void processCommits(long offset) {
     Preconditions.checkState(offset > 0);
-    long flushedOffset = 0;
-    Entry<Long, CommitCtx> entry = null;
+    long flushedOffset = getFlushedOffset();
+    Entry<Long, CommitCtx> entry = pendingCommits.firstEntry();
 
+    if (entry == null || entry.getValue().offset > flushedOffset) {
+      return;
+    }
+
+    // Now do sync for the ready commits
     int status = Nfs3Status.NFS3ERR_IO;
     try {
-      flushedOffset = getFlushedOffset();
-      entry = pendingCommits.firstEntry();
-      if (entry == null || entry.getValue().offset > flushedOffset) {
-        return;
-      }
-
-      // Now do sync for the ready commits
       // Sync file data and length
       fos.hsync(EnumSet.of(SyncFlag.UPDATE_LENGTH));
       status = Nfs3Status.NFS3_OK;
@@ -1283,8 +1303,8 @@ class OpenFileCtx {
     WccAttr preOpAttr = latestAttr.getWccAttr();
     while (!pendingWrites.isEmpty()) {
       OffsetRange key = pendingWrites.firstKey();
-      LOG.info("Fail pending write: (" + key.getMin() + ", " + key.getMax()
-          + "), nextOffset=" + nextOffset.get());
+      LOG.info("Fail pending write: " + key.toString()
+          + ", nextOffset=" + nextOffset.get());
       
       WriteCtx writeCtx = pendingWrites.remove(key);
       if (!writeCtx.getReplied()) {

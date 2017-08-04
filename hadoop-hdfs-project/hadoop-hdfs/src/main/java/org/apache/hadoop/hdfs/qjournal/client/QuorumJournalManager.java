@@ -41,6 +41,7 @@ import org.apache.hadoop.hdfs.qjournal.protocol.QJournalProtocolProtos.PrepareRe
 import org.apache.hadoop.hdfs.qjournal.protocol.QJournalProtocolProtos.SegmentStateProto;
 import org.apache.hadoop.hdfs.server.common.Storage;
 import org.apache.hadoop.hdfs.server.common.StorageInfo;
+import org.apache.hadoop.hdfs.server.common.Util;
 import org.apache.hadoop.hdfs.server.namenode.EditLogFileInputStream;
 import org.apache.hadoop.hdfs.server.namenode.EditLogInputStream;
 import org.apache.hadoop.hdfs.server.namenode.EditLogOutputStream;
@@ -50,8 +51,6 @@ import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLog;
 import org.apache.hadoop.hdfs.server.protocol.RemoteEditLogManifest;
 import org.apache.hadoop.hdfs.web.URLConnectionFactory;
-import org.apache.hadoop.net.NetUtils;
-import org.apache.hadoop.util.StringUtils;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Joiner;
@@ -86,9 +85,9 @@ public class QuorumJournalManager implements JournalManager {
   private static final int FINALIZE_TIMEOUT_MS          = 60000;
   private static final int PRE_UPGRADE_TIMEOUT_MS       = 60000;
   private static final int ROLL_BACK_TIMEOUT_MS         = 60000;
+  private static final int DISCARD_SEGMENTS_TIMEOUT_MS  = 60000;
   private static final int UPGRADE_TIMEOUT_MS           = 60000;
   private static final int GET_JOURNAL_CTIME_TIMEOUT_MS = 60000;
-  private static final int DISCARD_SEGMENTS_TIMEOUT_MS  = 60000;
   
   private final Configuration conf;
   private final URI uri;
@@ -361,36 +360,16 @@ public class QuorumJournalManager implements JournalManager {
       URI uri, NamespaceInfo nsInfo, AsyncLogger.Factory factory)
           throws IOException {
     List<AsyncLogger> ret = Lists.newArrayList();
-    List<InetSocketAddress> addrs = getLoggerAddresses(uri);
+    List<InetSocketAddress> addrs = Util.getAddressesList(uri);
+    if (addrs.size() % 2 == 0) {
+      LOG.warn("Quorum journal URI '" + uri + "' has an even number " +
+          "of Journal Nodes specified. This is not recommended!");
+    }
     String jid = parseJournalId(uri);
     for (InetSocketAddress addr : addrs) {
       ret.add(factory.createLogger(conf, nsInfo, jid, addr));
     }
     return ret;
-  }
- 
-  private static List<InetSocketAddress> getLoggerAddresses(URI uri)
-      throws IOException {
-    String authority = uri.getAuthority();
-    Preconditions.checkArgument(authority != null && !authority.isEmpty(),
-        "URI has no authority: " + uri);
-    
-    String[] parts = StringUtils.split(authority, ';');
-    for (int i = 0; i < parts.length; i++) {
-      parts[i] = parts[i].trim();
-    }
-
-    if (parts.length % 2 == 0) {
-      LOG.warn("Quorum journal URI '" + uri + "' has an even number " +
-          "of Journal Nodes specified. This is not recommended!");
-    }
-    
-    List<InetSocketAddress> addrs = Lists.newArrayList();
-    for (String addr : parts) {
-      addrs.add(NetUtils.createSocketAddr(
-          addr, DFSConfigKeys.DFS_JOURNALNODE_RPC_PORT_DEFAULT));
-    }
-    return addrs;
   }
   
   @Override
@@ -402,8 +381,11 @@ public class QuorumJournalManager implements JournalManager {
         layoutVersion);
     loggers.waitForWriteQuorum(q, startSegmentTimeoutMs,
         "startLogSegment(" + txId + ")");
-    return new QuorumOutputStream(loggers, txId,
-        outputBufferCapacity, writeTxnsTimeoutMs);
+    boolean updateCommittedTxId = conf.getBoolean(
+        DFSConfigKeys.DFS_HA_TAILEDITS_INPROGRESS_KEY,
+        DFSConfigKeys.DFS_HA_TAILEDITS_INPROGRESS_DEFAULT);
+    return new QuorumOutputStream(loggers, txId, outputBufferCapacity,
+        writeTxnsTimeoutMs, updateCommittedTxId);
   }
 
   @Override
@@ -462,9 +444,15 @@ public class QuorumJournalManager implements JournalManager {
     loggers.close();
   }
 
-  @Override
   public void selectInputStreams(Collection<EditLogInputStream> streams,
       long fromTxnId, boolean inProgressOk) throws IOException {
+    selectInputStreams(streams, fromTxnId, inProgressOk, false);
+  }
+
+  @Override
+  public void selectInputStreams(Collection<EditLogInputStream> streams,
+      long fromTxnId, boolean inProgressOk,
+      boolean onlyDurableTxns) throws IOException {
 
     QuorumCall<AsyncLogger, RemoteEditLogManifest> q =
         loggers.getEditLogManifest(fromTxnId, inProgressOk);
@@ -481,13 +469,22 @@ public class QuorumJournalManager implements JournalManager {
     for (Map.Entry<AsyncLogger, RemoteEditLogManifest> e : resps.entrySet()) {
       AsyncLogger logger = e.getKey();
       RemoteEditLogManifest manifest = e.getValue();
-      
+      long committedTxnId = manifest.getCommittedTxnId();
+
       for (RemoteEditLog remoteLog : manifest.getLogs()) {
         URL url = logger.buildURLToFetchLogs(remoteLog.getStartTxId());
 
+        long endTxId = remoteLog.getEndTxId();
+
+        // If it's bounded by durable Txns, endTxId could not be larger
+        // than committedTxnId. This ensures the consistency.
+        if (onlyDurableTxns && inProgressOk) {
+          endTxId = Math.min(endTxId, committedTxnId);
+        }
+
         EditLogInputStream elis = EditLogFileInputStream.fromUrl(
             connectionFactory, url, remoteLog.getStartTxId(),
-            remoteLog.getEndTxId(), remoteLog.isInProgress());
+            endTxId, remoteLog.isInProgress());
         allStreams.add(elis);
       }
     }
@@ -537,7 +534,7 @@ public class QuorumJournalManager implements JournalManager {
       throw new IOException("Timed out waiting for doUpgrade() response");
     }
   }
-
+  
   @Override
   public void doFinalize() throws IOException {
     QuorumCall<AsyncLogger, Void> call = loggers.doFinalize();
@@ -554,7 +551,7 @@ public class QuorumJournalManager implements JournalManager {
       throw new IOException("Timed out waiting for doFinalize() response");
     }
   }
-
+  
   @Override
   public boolean canRollBack(StorageInfo storage, StorageInfo prevStorage,
       int targetLayoutVersion) throws IOException {
@@ -606,7 +603,26 @@ public class QuorumJournalManager implements JournalManager {
       throw new IOException("Timed out waiting for doFinalize() response");
     }
   }
-
+  
+  @Override
+  public void discardSegments(long startTxId) throws IOException {
+    QuorumCall<AsyncLogger, Void> call = loggers.discardSegments(startTxId);
+    try {
+      call.waitFor(loggers.size(), loggers.size(), 0,
+          DISCARD_SEGMENTS_TIMEOUT_MS, "discardSegments");
+      if (call.countExceptions() > 0) {
+        call.rethrowException(
+            "Could not perform discardSegments of one or more JournalNodes");
+      }
+    } catch (InterruptedException e) {
+      throw new IOException(
+          "Interrupted waiting for discardSegments() response");
+    } catch (TimeoutException e) {
+      throw new IOException(
+          "Timed out waiting for discardSegments() response");
+    }
+  }
+  
   @Override
   public long getJournalCTime() throws IOException {
     QuorumCall<AsyncLogger, Long> call = loggers.getJournalCTime();
@@ -638,24 +654,5 @@ public class QuorumJournalManager implements JournalManager {
     }
     
     throw new AssertionError("Unreachable code.");
-  }
-
-  @Override
-  public void discardSegments(long startTxId) throws IOException {
-    QuorumCall<AsyncLogger, Void> call = loggers.discardSegments(startTxId);
-    try {
-      call.waitFor(loggers.size(), loggers.size(), 0,
-          DISCARD_SEGMENTS_TIMEOUT_MS, "discardSegments");
-      if (call.countExceptions() > 0) {
-        call.rethrowException(
-            "Could not perform discardSegments of one or more JournalNodes");
-      }
-    } catch (InterruptedException e) {
-      throw new IOException(
-          "Interrupted waiting for discardSegments() response");
-    } catch (TimeoutException e) {
-      throw new IOException(
-          "Timed out waiting for discardSegments() response");
-    }
   }
 }

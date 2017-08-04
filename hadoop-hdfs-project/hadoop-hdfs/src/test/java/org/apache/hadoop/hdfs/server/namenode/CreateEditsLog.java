@@ -23,6 +23,7 @@ import java.io.IOException;
 import org.apache.hadoop.fs.permission.FsPermission;
 import org.apache.hadoop.fs.permission.PermissionStatus;
 import org.apache.hadoop.hdfs.protocol.Block;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfo;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockInfoContiguous;
 import org.apache.hadoop.hdfs.server.common.GenerationStamp;
 import org.apache.hadoop.hdfs.server.common.Storage;
@@ -66,11 +67,11 @@ public class CreateEditsLog {
     INodeDirectory dirInode = new INodeDirectory(inodeId.nextValue(), null, p,
       0L);
     editLog.logMkDir(BASE_PATH, dirInode);
-    BlockInfoContiguous[] blocks = new BlockInfoContiguous[blocksPerFile];
+    BlockInfo[] blocks = new BlockInfo[blocksPerFile];
     for (int iB = 0; iB < blocksPerFile; ++iB) {
       blocks[iB] = 
        new BlockInfoContiguous(new Block(0, blockSize, BLOCK_GENERATION_STAMP),
-                               replication);
+           replication);
     }
     
     long currentBlockId = startingBlockId;
@@ -82,7 +83,7 @@ public class CreateEditsLog {
       }
 
       final INodeFile inode = new INodeFile(inodeId.nextValue(), null,
-          p, 0L, 0L, blocks, replication, blockSize, (byte)0);
+          p, 0L, 0L, blocks, replication, blockSize);
       inode.toUnderConstruction("", "");
 
      // Append path to filename with information about blockIDs 
@@ -97,7 +98,7 @@ public class CreateEditsLog {
         editLog.logMkDir(currentDir, dirInode);
       }
       INodeFile fileUc = new INodeFile(inodeId.nextValue(), null,
-          p, 0L, 0L, BlockInfoContiguous.EMPTY_ARRAY, replication, blockSize);
+          p, 0L, 0L, BlockInfo.EMPTY_ARRAY, replication, blockSize);
       fileUc.toUnderConstruction("", "");
       editLog.logOpenFile(filePath, fileUc, false, false);
       editLog.logCloseFile(filePath, inode);
@@ -198,11 +199,11 @@ public class CreateEditsLog {
         System.exit(-1);
       }
     }
-    
 
     FileNameGenerator nameGenerator = new FileNameGenerator(BASE_PATH, 100);
+    EditLogFileOutputStream.setShouldSkipFsyncForTesting(true);
     FSEditLog editLog = FSImageTestUtil.createStandaloneEditLog(editsLogDir);
-    editLog.openForWrite();
+    editLog.openForWrite(NameNodeLayoutVersion.CURRENT_LAYOUT_VERSION);
     addFiles(editLog, numFiles, replication, numBlocksPerFile, startingBlockId,
              blockSize, nameGenerator);
     editLog.logSync();

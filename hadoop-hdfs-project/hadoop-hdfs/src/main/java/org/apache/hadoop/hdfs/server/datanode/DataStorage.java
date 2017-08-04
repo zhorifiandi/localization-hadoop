@@ -18,49 +18,16 @@
 
 package org.apache.hadoop.hdfs.server.datanode;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.ComparisonChain;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.util.concurrent.Futures;
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.FileSystem;
-import org.apache.hadoop.fs.FileUtil;
-import org.apache.hadoop.fs.HardLink;
-import org.apache.hadoop.fs.LocalFileSystem;
-import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.hdfs.DFSConfigKeys;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
-import org.apache.hadoop.hdfs.protocol.Block;
-import org.apache.hadoop.hdfs.protocol.HdfsConstants;
-import org.apache.hadoop.hdfs.protocol.LayoutVersion;
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.NodeType;
-import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
-import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
-import org.apache.hadoop.hdfs.server.common.Storage;
-import org.apache.hadoop.hdfs.server.common.StorageInfo;
-import org.apache.hadoop.hdfs.server.protocol.DatanodeStorage;
-import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
-import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.io.nativeio.NativeIO;
-import org.apache.hadoop.util.Daemon;
-import org.apache.hadoop.util.DiskChecker;
-
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.channels.FileLock;
+import java.nio.channels.OverlappingFileLockException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -70,9 +37,34 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+
+import org.apache.hadoop.HadoopIllegalArgumentException;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileUtil;
+import org.apache.hadoop.fs.HardLink;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.DFSUtilClient;
+import org.apache.hadoop.hdfs.protocol.Block;
+import org.apache.hadoop.hdfs.protocol.LayoutVersion;
+import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
+import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.NodeType;
+import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.StartupOption;
+import org.apache.hadoop.hdfs.server.common.InconsistentFSStateException;
+import org.apache.hadoop.hdfs.server.common.Storage;
+import org.apache.hadoop.hdfs.server.common.StorageInfo;
+import org.apache.hadoop.hdfs.server.protocol.DatanodeStorage;
+import org.apache.hadoop.hdfs.server.protocol.NamespaceInfo;
+import org.apache.hadoop.util.Daemon;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ComparisonChain;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /** 
  * Data storage information file.
@@ -83,7 +75,6 @@ import java.util.concurrent.Future;
 public class DataStorage extends Storage {
 
   public final static String BLOCK_SUBDIR_PREFIX = "subdir";
-  final static String COPY_FILE_PREFIX = "dncp_";
   final static String STORAGE_DIR_DETACHED = "detach";
   public final static String STORAGE_DIR_RBW = "rbw";
   public final static String STORAGE_DIR_FINALIZED = "finalized";
@@ -109,10 +100,7 @@ public class DataStorage extends Storage {
    *  upgraded from a pre-UUID version. For compatibility with prior
    *  versions of Datanodes we cannot make this field a UUID.
    */
-  private String datanodeUuid = null;
-
-  // Flag to ensure we only initialize storage once
-  private boolean initialized = false;
+  private volatile String datanodeUuid = null;
   
   // Maps block pool IDs to block pool storage
   private final Map<String, BlockPoolSliceStorage> bpStorageMap
@@ -133,18 +121,28 @@ public class DataStorage extends Storage {
     super(storageInfo);
   }
 
-  public synchronized String getDatanodeUuid() {
+  public String getDatanodeUuid() {
     return datanodeUuid;
   }
 
-  public synchronized void setDatanodeUuid(String newDatanodeUuid) {
+  public void setDatanodeUuid(String newDatanodeUuid) {
     this.datanodeUuid = newDatanodeUuid;
+  }
+
+  private static boolean createStorageID(StorageDirectory sd, int lv) {
+    // Clusters previously upgraded from layout versions earlier than
+    // ADD_DATANODE_AND_STORAGE_UUIDS failed to correctly generate a
+    // new storage ID. We check for that and fix it now.
+    final boolean haveValidStorageId = DataNodeLayoutVersion.supports(
+        LayoutVersion.Feature.ADD_DATANODE_AND_STORAGE_UUIDS, lv)
+        && DatanodeStorage.isValidStorageId(sd.getStorageUuid());
+    return createStorageID(sd, !haveValidStorageId);
   }
 
   /** Create an ID for this storage.
    * @return true if a new storage ID was generated.
    * */
-  public synchronized boolean createStorageID(
+  public static boolean createStorageID(
       StorageDirectory sd, boolean regenerateStorageIds) {
     final String oldStorageID = sd.getStorageUuid();
     if (oldStorageID == null || regenerateStorageIds) {
@@ -182,11 +180,11 @@ public class DataStorage extends Storage {
   }
 
   public void setRollingUpgradeMarker(String bpid) throws IOException {
-    getBPStorage(bpid).setRollingUpgradeMarkers(storageDirs);
+    getBPStorage(bpid).setRollingUpgradeMarkers(getStorageDirs());
   }
 
   public void clearRollingUpgradeMarker(String bpid) throws IOException {
-    getBPStorage(bpid).clearRollingUpgradeMarkers(storageDirs);
+    getBPStorage(bpid).clearRollingUpgradeMarkers(getStorageDirs());
   }
 
   /**
@@ -198,9 +196,9 @@ public class DataStorage extends Storage {
    * @return trash directory if rolling upgrade is in progress, null
    *         otherwise.
    */
-  public String getTrashDirectoryForBlockFile(String bpid, File blockFile) {
+  public String getTrashDirectoryForReplica(String bpid, ReplicaInfo info) {
     if (trashEnabledBpids.contains(bpid)) {
-      return getBPStorage(bpid).getTrashDirectory(blockFile);
+      return getBPStorage(bpid).getTrashDirectory(info);
     }
     return null;
   }
@@ -257,23 +255,24 @@ public class DataStorage extends Storage {
   }
 
   private StorageDirectory loadStorageDirectory(DataNode datanode,
-      NamespaceInfo nsInfo, File dataDir, StartupOption startOpt)
-      throws IOException {
-    StorageDirectory sd = new StorageDirectory(dataDir, null, false);
+      NamespaceInfo nsInfo, StorageLocation location, StartupOption startOpt,
+      List<Callable<StorageDirectory>> callables) throws IOException {
+    StorageDirectory sd = new StorageDirectory(null, false, location);
     try {
-      StorageState curState = sd.analyzeStorage(startOpt, this);
+      StorageState curState = sd.analyzeStorage(startOpt, this, true);
       // sd is locked but not opened
       switch (curState) {
       case NORMAL:
         break;
       case NON_EXISTENT:
-        LOG.info("Storage directory " + dataDir + " does not exist");
-        throw new IOException("Storage directory " + dataDir
+        LOG.info("Storage directory with location " + location
+            + " does not exist");
+        throw new IOException("Storage directory with location " + location
             + " does not exist");
       case NOT_FORMATTED: // format
-        LOG.info("Storage directory " + dataDir + " is not formatted for "
-            + nsInfo.getBlockPoolID());
-        LOG.info("Formatting ...");
+        LOG.info("Storage directory with location " + location
+            + " is not formatted for namespace " + nsInfo.getNamespaceID()
+            + ". Formatting...");
         format(sd, nsInfo, datanode.getDatanodeUuid());
         break;
       default:  // recovery part is common
@@ -284,11 +283,12 @@ public class DataStorage extends Storage {
       // Each storage directory is treated individually.
       // During startup some of them can upgrade or roll back
       // while others could be up-to-date for the regular startup.
-      doTransition(datanode, sd, nsInfo, startOpt);
+      if (!doTransition(sd, nsInfo, startOpt, callables, datanode.getConf())) {
 
-      // 3. Update successfully loaded storage.
-      setServiceLayoutVersion(getServiceLayoutVersion());
-      writeProperties(sd);
+        // 3. Update successfully loaded storage.
+        setServiceLayoutVersion(getServiceLayoutVersion());
+        writeProperties(sd);
+      }
 
       return sd;
     } catch (IOException ioe) {
@@ -303,7 +303,7 @@ public class DataStorage extends Storage {
    * builder later.
    *
    * @param datanode DataNode object.
-   * @param volume the root path of a storage directory.
+   * @param location the StorageLocation for the storage directory.
    * @param nsInfos an array of namespace infos.
    * @return a VolumeBuilder that holds the metadata of this storage directory
    * and can be added to DataStorage later.
@@ -311,40 +311,51 @@ public class DataStorage extends Storage {
    *
    * Note that if there is IOException, the state of DataStorage is not modified.
    */
-  public VolumeBuilder prepareVolume(DataNode datanode, File volume,
-      List<NamespaceInfo> nsInfos) throws IOException {
-    if (containsStorageDir(volume)) {
+  public VolumeBuilder prepareVolume(DataNode datanode,
+      StorageLocation location, List<NamespaceInfo> nsInfos)
+          throws IOException {
+    if (containsStorageDir(location)) {
       final String errorMessage = "Storage directory is in use";
       LOG.warn(errorMessage + ".");
       throw new IOException(errorMessage);
     }
 
     StorageDirectory sd = loadStorageDirectory(
-        datanode, nsInfos.get(0), volume, StartupOption.HOTSWAP);
+        datanode, nsInfos.get(0), location, StartupOption.HOTSWAP, null);
     VolumeBuilder builder =
         new VolumeBuilder(this, sd);
     for (NamespaceInfo nsInfo : nsInfos) {
-      List<File> bpDataDirs = Lists.newArrayList();
-      bpDataDirs.add(BlockPoolSliceStorage.getBpRoot(
-          nsInfo.getBlockPoolID(), new File(volume, STORAGE_DIR_CURRENT)));
-      makeBlockPoolDataDir(bpDataDirs, null);
+      location.makeBlockPoolDir(nsInfo.getBlockPoolID(), null);
 
-      BlockPoolSliceStorage bpStorage;
-      final String bpid = nsInfo.getBlockPoolID();
-      synchronized (this) {
-        bpStorage = this.bpStorageMap.get(bpid);
-        if (bpStorage == null) {
-          bpStorage = new BlockPoolSliceStorage(
-              nsInfo.getNamespaceID(), bpid, nsInfo.getCTime(),
-              nsInfo.getClusterID());
-          addBlockPoolStorage(bpid, bpStorage);
-        }
-      }
-      builder.addBpStorageDirectories(
-          bpid, bpStorage.loadBpStorageDirectories(
-              datanode, nsInfo, bpDataDirs, StartupOption.HOTSWAP));
+      final BlockPoolSliceStorage bpStorage = getBlockPoolSliceStorage(nsInfo);
+      final List<StorageDirectory> dirs = bpStorage.loadBpStorageDirectories(
+          nsInfo, location, StartupOption.HOTSWAP, null, datanode.getConf());
+      builder.addBpStorageDirectories(nsInfo.getBlockPoolID(), dirs);
     }
     return builder;
+  }
+
+  static int getParallelVolumeLoadThreadsNum(int dataDirs, Configuration conf) {
+    final String key
+        = DFSConfigKeys.DFS_DATANODE_PARALLEL_VOLUME_LOAD_THREADS_NUM_KEY;
+    final int n = conf.getInt(key, dataDirs);
+    if (n < 1) {
+      throw new HadoopIllegalArgumentException(key + " = " + n + " < 1");
+    }
+    final int min = Math.min(n, dataDirs);
+    LOG.info("Using " + min + " threads to upgrade data directories ("
+        + key + "=" + n + ", dataDirs=" + dataDirs + ")");
+    return min;
+  }
+
+  static class UpgradeTask {
+    private final StorageLocation dataDir;
+    private final Future<StorageDirectory> future;
+
+    UpgradeTask(StorageLocation dataDir, Future<StorageDirectory> future) {
+      this.dataDir = dataDir;
+      this.future = future;
+    }
   }
 
   /**
@@ -355,53 +366,115 @@ public class DataStorage extends Storage {
    * @param nsInfo namespace information
    * @param dataDirs array of data storage directories
    * @param startOpt startup option
-   * @return a list of successfully loaded volumes.
-   * @throws IOException
+   * @return a list of successfully loaded storage directories.
    */
   @VisibleForTesting
-  synchronized List<StorageLocation> addStorageLocations(DataNode datanode,
+  synchronized List<StorageDirectory> addStorageLocations(DataNode datanode,
       NamespaceInfo nsInfo, Collection<StorageLocation> dataDirs,
       StartupOption startOpt) throws IOException {
-    final String bpid = nsInfo.getBlockPoolID();
-    List<StorageLocation> successVolumes = Lists.newArrayList();
+    final int numThreads = getParallelVolumeLoadThreadsNum(
+        dataDirs.size(), datanode.getConf());
+    final ExecutorService executor = Executors.newFixedThreadPool(numThreads);
+    try {
+      final List<StorageLocation> successLocations = loadDataStorage(
+          datanode, nsInfo, dataDirs, startOpt, executor);
+      return loadBlockPoolSliceStorage(
+          datanode, nsInfo, successLocations, startOpt, executor);
+    } finally {
+      executor.shutdown();
+    }
+  }
+
+  private List<StorageLocation> loadDataStorage(DataNode datanode,
+      NamespaceInfo nsInfo, Collection<StorageLocation> dataDirs,
+      StartupOption startOpt, ExecutorService executor) throws IOException {
+    final List<StorageLocation> success = Lists.newArrayList();
+    final List<UpgradeTask> tasks = Lists.newArrayList();
     for (StorageLocation dataDir : dataDirs) {
-      File root = dataDir.getFile();
-      if (!containsStorageDir(root)) {
+      if (!containsStorageDir(dataDir)) {
         try {
           // It first ensures the datanode level format is completed.
-          StorageDirectory sd = loadStorageDirectory(
-              datanode, nsInfo, root, startOpt);
-          addStorageDir(sd);
+          final List<Callable<StorageDirectory>> callables
+              = Lists.newArrayList();
+          final StorageDirectory sd = loadStorageDirectory(
+              datanode, nsInfo, dataDir, startOpt, callables);
+          if (callables.isEmpty()) {
+            addStorageDir(sd);
+            success.add(dataDir);
+          } else {
+            for(Callable<StorageDirectory> c : callables) {
+              tasks.add(new UpgradeTask(dataDir, executor.submit(c)));
+            }
+          }
         } catch (IOException e) {
-          LOG.warn(e);
-          continue;
+          LOG.warn("Failed to add storage directory " + dataDir, e);
         }
       } else {
         LOG.info("Storage directory " + dataDir + " has already been used.");
+        success.add(dataDir);
       }
-
-      List<File> bpDataDirs = new ArrayList<File>();
-      bpDataDirs.add(BlockPoolSliceStorage.getBpRoot(bpid, new File(root,
-              STORAGE_DIR_CURRENT)));
-      try {
-        makeBlockPoolDataDir(bpDataDirs, null);
-        BlockPoolSliceStorage bpStorage = this.bpStorageMap.get(bpid);
-        if (bpStorage == null) {
-          bpStorage = new BlockPoolSliceStorage(
-              nsInfo.getNamespaceID(), bpid, nsInfo.getCTime(),
-              nsInfo.getClusterID());
-        }
-
-        bpStorage.recoverTransitionRead(datanode, nsInfo, bpDataDirs, startOpt);
-        addBlockPoolStorage(bpid, bpStorage);
-      } catch (IOException e) {
-        LOG.warn("Failed to add storage for block pool: " + bpid + " : "
-            + e.getMessage());
-        continue;
-      }
-      successVolumes.add(dataDir);
     }
-    return successVolumes;
+
+    if (!tasks.isEmpty()) {
+      LOG.info("loadDataStorage: " + tasks.size() + " upgrade tasks");
+      for(UpgradeTask t : tasks) {
+        try {
+          addStorageDir(t.future.get());
+          success.add(t.dataDir);
+        } catch (ExecutionException e) {
+          LOG.warn("Failed to upgrade storage directory " + t.dataDir, e);
+        } catch (InterruptedException e) {
+          throw DFSUtilClient.toInterruptedIOException("Task interrupted", e);
+        }
+      }
+    }
+
+    return success;
+  }
+
+  private List<StorageDirectory> loadBlockPoolSliceStorage(DataNode datanode,
+      NamespaceInfo nsInfo, Collection<StorageLocation> dataDirs,
+      StartupOption startOpt, ExecutorService executor) throws IOException {
+    final String bpid = nsInfo.getBlockPoolID();
+    final BlockPoolSliceStorage bpStorage = getBlockPoolSliceStorage(nsInfo);
+    final List<StorageDirectory> success = Lists.newArrayList();
+    final List<UpgradeTask> tasks = Lists.newArrayList();
+    for (StorageLocation dataDir : dataDirs) {
+      dataDir.makeBlockPoolDir(bpid, null);
+      try {
+        final List<Callable<StorageDirectory>> callables = Lists.newArrayList();
+        final List<StorageDirectory> dirs = bpStorage.recoverTransitionRead(
+            nsInfo, dataDir, startOpt, callables, datanode.getConf());
+        if (callables.isEmpty()) {
+          for(StorageDirectory sd : dirs) {
+            success.add(sd);
+          }
+        } else {
+          for(Callable<StorageDirectory> c : callables) {
+            tasks.add(new UpgradeTask(dataDir, executor.submit(c)));
+          }
+        }
+      } catch (IOException e) {
+        LOG.warn("Failed to add storage directory " + dataDir
+            + " for block pool " + bpid, e);
+      }
+    }
+
+    if (!tasks.isEmpty()) {
+      LOG.info("loadBlockPoolSliceStorage: " + tasks.size() + " upgrade tasks");
+      for(UpgradeTask t : tasks) {
+        try {
+          success.add(t.future.get());
+        } catch (ExecutionException e) {
+          LOG.warn("Failed to upgrade storage directory " + t.dataDir
+              + " for block pool " + bpid, e);
+        } catch (InterruptedException e) {
+          throw DFSUtilClient.toInterruptedIOException("Task interrupted", e);
+        }
+      }
+    }
+
+    return success;
   }
 
   /**
@@ -411,17 +484,19 @@ public class DataStorage extends Storage {
    * @param dirsToRemove a set of storage directories to be removed.
    * @throws IOException if I/O error when unlocking storage directory.
    */
-  synchronized void removeVolumes(final Set<File> dirsToRemove)
+  synchronized void removeVolumes(
+      final Collection<StorageLocation> storageLocations)
       throws IOException {
-    if (dirsToRemove.isEmpty()) {
+    if (storageLocations.isEmpty()) {
       return;
     }
 
     StringBuilder errorMsgBuilder = new StringBuilder();
-    for (Iterator<StorageDirectory> it = this.storageDirs.iterator();
+    for (Iterator<StorageDirectory> it = getStorageDirs().iterator();
          it.hasNext(); ) {
       StorageDirectory sd = it.next();
-      if (dirsToRemove.contains(sd.getRoot())) {
+      StorageLocation sdLocation = sd.getStorageLocation();
+      if (storageLocations.contains(sdLocation)) {
         // Remove the block pool level storage first.
         for (Map.Entry<String, BlockPoolSliceStorage> entry :
             this.bpStorageMap.entrySet()) {
@@ -432,7 +507,7 @@ public class DataStorage extends Storage {
           bpsStorage.remove(bpRoot.getAbsoluteFile());
         }
 
-        it.remove();
+        getStorageDirs().remove(sd);
         try {
           sd.unlock();
         } catch (IOException e) {
@@ -466,61 +541,21 @@ public class DataStorage extends Storage {
    */
   void recoverTransitionRead(DataNode datanode, NamespaceInfo nsInfo,
       Collection<StorageLocation> dataDirs, StartupOption startOpt) throws IOException {
-    if (this.initialized) {
-      LOG.info("DataNode version: " + HdfsConstants.DATANODE_LAYOUT_VERSION
-          + " and NameNode layout version: " + nsInfo.getLayoutVersion());
-      this.storageDirs = new ArrayList<StorageDirectory>(dataDirs.size());
-      // mark DN storage is initialized
-      this.initialized = true;
-    }
-
     if (addStorageLocations(datanode, nsInfo, dataDirs, startOpt).isEmpty()) {
-      throw new IOException("All specified directories are failed to load.");
-    }
-  }
-
-  /**
-   * Create physical directory for block pools on the data node
-   * 
-   * @param dataDirs
-   *          List of data directories
-   * @param conf
-   *          Configuration instance to use.
-   * @throws IOException on errors
-   */
-  static void makeBlockPoolDataDir(Collection<File> dataDirs,
-      Configuration conf) throws IOException {
-    if (conf == null)
-      conf = new HdfsConfiguration();
-
-    LocalFileSystem localFS = FileSystem.getLocal(conf);
-    FsPermission permission = new FsPermission(conf.get(
-        DFSConfigKeys.DFS_DATANODE_DATA_DIR_PERMISSION_KEY,
-        DFSConfigKeys.DFS_DATANODE_DATA_DIR_PERMISSION_DEFAULT));
-    for (File data : dataDirs) {
-      try {
-        DiskChecker.checkDir(localFS, new Path(data.toURI()), permission);
-      } catch ( IOException e ) {
-        LOG.warn("Invalid directory in: " + data.getCanonicalPath() + ": "
-            + e.getMessage());
-      }
+      throw new IOException("All specified directories have failed to load.");
     }
   }
 
   void format(StorageDirectory sd, NamespaceInfo nsInfo,
               String datanodeUuid) throws IOException {
     sd.clearDirectory(); // create directory
-    this.layoutVersion = HdfsConstants.DATANODE_LAYOUT_VERSION;
+    this.layoutVersion = HdfsServerConstants.DATANODE_LAYOUT_VERSION;
     this.clusterID = nsInfo.getClusterID();
     this.namespaceID = nsInfo.getNamespaceID();
     this.cTime = 0;
     setDatanodeUuid(datanodeUuid);
 
-    if (sd.getStorageUuid() == null) {
-      // Assign a new Storage UUID.
-      sd.setStorageUuid(DatanodeStorage.generateUuid());
-    }
-
+    createStorageID(sd, false);
     writeProperties(sd);
   }
 
@@ -616,20 +651,22 @@ public class DataStorage extends Storage {
   @Override
   public boolean isPreUpgradableLayout(StorageDirectory sd) throws IOException {
     File oldF = new File(sd.getRoot(), "storage");
-    if (!oldF.exists())
+    if (!oldF.exists()) {
       return false;
+    }
     // check the layout version inside the storage file
     // Lock and Read old storage file
-    RandomAccessFile oldFile = new RandomAccessFile(oldF, "rws");
-    FileLock oldLock = oldFile.getChannel().tryLock();
-    try {
+    try (RandomAccessFile oldFile = new RandomAccessFile(oldF, "rws");
+      FileLock oldLock = oldFile.getChannel().tryLock()) {
+      if (null == oldLock) {
+        LOG.error("Unable to acquire file lock on path " + oldF.toString());
+        throw new OverlappingFileLockException();
+      }
       oldFile.seek(0);
       int oldVersion = oldFile.readInt();
-      if (oldVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION)
+      if (oldVersion < LAST_PRE_UPGRADE_LAYOUT_VERSION) {
         return false;
-    } finally {
-      oldLock.release();
-      oldFile.close();
+      }
     }
     return true;
   }
@@ -649,23 +686,20 @@ public class DataStorage extends Storage {
    * Upgrade if this.LV > LAYOUT_VERSION
    * Regular startup if this.LV = LAYOUT_VERSION
    * 
-   * @param datanode Datanode to which this storage belongs to
    * @param sd  storage directory
    * @param nsInfo  namespace info
    * @param startOpt  startup option
-   * @throws IOException
+   * @return true if the new properties has been written.
    */
-  private void doTransition( DataNode datanode,
-                             StorageDirectory sd, 
-                             NamespaceInfo nsInfo, 
-                             StartupOption startOpt
-                             ) throws IOException {
+  private boolean doTransition(StorageDirectory sd, NamespaceInfo nsInfo,
+      StartupOption startOpt, List<Callable<StorageDirectory>> callables,
+      Configuration conf) throws IOException {
     if (startOpt == StartupOption.ROLLBACK) {
       doRollback(sd, nsInfo); // rollback if applicable
     }
     readProperties(sd);
     checkVersionUpgradable(this.layoutVersion);
-    assert this.layoutVersion >= HdfsConstants.DATANODE_LAYOUT_VERSION :
+    assert this.layoutVersion >= HdfsServerConstants.DATANODE_LAYOUT_VERSION :
       "Future version is not allowed";
     
     boolean federationSupported = 
@@ -688,25 +722,22 @@ public class DataStorage extends Storage {
           + nsInfo.getClusterID() + "; datanode clusterID = " + getClusterID());
     }
 
-    // Clusters previously upgraded from layout versions earlier than
-    // ADD_DATANODE_AND_STORAGE_UUIDS failed to correctly generate a
-    // new storage ID. We check for that and fix it now.
-    boolean haveValidStorageId =
-        DataNodeLayoutVersion.supports(
-            LayoutVersion.Feature.ADD_DATANODE_AND_STORAGE_UUIDS, layoutVersion) &&
-            DatanodeStorage.isValidStorageId(sd.getStorageUuid());
-
     // regular start up.
-    if (this.layoutVersion == HdfsConstants.DATANODE_LAYOUT_VERSION) {
-      createStorageID(sd, !haveValidStorageId);
-      return; // regular startup
+    if (this.layoutVersion == HdfsServerConstants.DATANODE_LAYOUT_VERSION) {
+      createStorageID(sd, layoutVersion);
+      return false; // need to write properties
     }
 
     // do upgrade
-    if (this.layoutVersion > HdfsConstants.DATANODE_LAYOUT_VERSION) {
-      doUpgrade(datanode, sd, nsInfo);  // upgrade
-      createStorageID(sd, !haveValidStorageId);
-      return;
+    if (this.layoutVersion > HdfsServerConstants.DATANODE_LAYOUT_VERSION) {
+      if (federationSupported) {
+        // If the existing on-disk layout version supports federation,
+        // simply update the properties.
+        upgradeProperties(sd);
+      } else {
+        doUpgradePreFederation(sd, nsInfo, callables, conf);
+      }
+      return true; // doUgrade already has written properties
     }
     
     // layoutVersion < DATANODE_LAYOUT_VERSION. I.e. stored layout version is newer
@@ -715,11 +746,12 @@ public class DataStorage extends Storage {
     // failed.
     throw new IOException("BUG: The stored LV = " + this.getLayoutVersion()
         + " is newer than the supported LV = "
-        + HdfsConstants.DATANODE_LAYOUT_VERSION);
+        + HdfsServerConstants.DATANODE_LAYOUT_VERSION);
   }
 
   /**
-   * Upgrade -- Move current storage into a backup directory,
+   * Upgrade from a pre-federation layout.
+   * Move current storage into a backup directory,
    * and hardlink all its blocks into the new current directory.
    * 
    * Upgrade from pre-0.22 to 0.22 or later release e.g. 0.19/0.20/ => 0.22/0.23
@@ -738,34 +770,21 @@ public class DataStorage extends Storage {
    * There should be only ONE namenode in the cluster for first 
    * time upgrade to 0.22
    * @param sd  storage directory
-   * @throws IOException on error
    */
-  void doUpgrade(DataNode datanode, StorageDirectory sd, NamespaceInfo nsInfo)
-      throws IOException {
-    // If the existing on-disk layout version supportes federation, simply
-    // update its layout version.
-    if (DataNodeLayoutVersion.supports(
-        LayoutVersion.Feature.FEDERATION, layoutVersion)) {
-      // The VERSION file is already read in. Override the layoutVersion 
-      // field and overwrite the file. The upgrade work is handled by
-      // {@link BlockPoolSliceStorage#doUpgrade}
-      LOG.info("Updating layout version from " + layoutVersion + " to "
-          + HdfsConstants.DATANODE_LAYOUT_VERSION + " for storage "
-          + sd.getRoot());
-      layoutVersion = HdfsConstants.DATANODE_LAYOUT_VERSION;
-      writeProperties(sd);
-      return;
-    }
-    
+  void doUpgradePreFederation(final StorageDirectory sd,
+      final NamespaceInfo nsInfo,
+      final List<Callable<StorageDirectory>> callables,
+      final Configuration conf) throws IOException {
+    final int oldLV = getLayoutVersion();
     LOG.info("Upgrading storage directory " + sd.getRoot()
-             + ".\n   old LV = " + this.getLayoutVersion()
+             + ".\n   old LV = " + oldLV
              + "; old CTime = " + this.getCTime()
-             + ".\n   new LV = " + HdfsConstants.DATANODE_LAYOUT_VERSION
+             + ".\n   new LV = " + HdfsServerConstants.DATANODE_LAYOUT_VERSION
              + "; new CTime = " + nsInfo.getCTime());
     
-    File curDir = sd.getCurrentDir();
-    File prevDir = sd.getPreviousDir();
-    File bbwDir = new File(sd.getRoot(), Storage.STORAGE_1_BBW);
+    final File curDir = sd.getCurrentDir();
+    final File prevDir = sd.getPreviousDir();
+    final File bbwDir = new File(sd.getRoot(), Storage.STORAGE_1_BBW);
 
     assert curDir.exists() : "Data node current directory must exist.";
     // Cleanup directory "detach"
@@ -775,30 +794,55 @@ public class DataStorage extends Storage {
     if (prevDir.exists())
       deleteDir(prevDir);
     // get previous.tmp directory, <SD>/previous.tmp
-    File tmpDir = sd.getPreviousTmp();
+    final File tmpDir = sd.getPreviousTmp();
     assert !tmpDir.exists() : 
       "Data node previous.tmp directory must not exist.";
     
     // 2. Rename <SD>/current to <SD>/previous.tmp
     rename(curDir, tmpDir);
     
-    // 3. Format BP and hard link blocks from previous directory
+    // 3.1. Format BP
     File curBpDir = BlockPoolSliceStorage.getBpRoot(nsInfo.getBlockPoolID(), curDir);
-    BlockPoolSliceStorage bpStorage = new BlockPoolSliceStorage(nsInfo.getNamespaceID(), 
-        nsInfo.getBlockPoolID(), nsInfo.getCTime(), nsInfo.getClusterID());
+    BlockPoolSliceStorage bpStorage = getBlockPoolSliceStorage(nsInfo);
     bpStorage.format(curDir, nsInfo);
-    linkAllBlocks(datanode, tmpDir, bbwDir, new File(curBpDir,
-        STORAGE_DIR_CURRENT));
-    
+
+    final File toDir = new File(curBpDir, STORAGE_DIR_CURRENT);
+    if (callables == null) {
+      doUpgrade(sd, nsInfo, prevDir, tmpDir, bbwDir, toDir, oldLV, conf);
+    } else {
+      callables.add(new Callable<StorageDirectory>() {
+        @Override
+        public StorageDirectory call() throws Exception {
+          doUpgrade(sd, nsInfo, prevDir, tmpDir, bbwDir, toDir, oldLV, conf);
+          return sd;
+        }
+      });
+    }
+  }
+
+  private void doUpgrade(final StorageDirectory sd,
+      final NamespaceInfo nsInfo, final File prevDir,
+      final File tmpDir, final File bbwDir, final File toDir, final int oldLV,
+      Configuration conf) throws IOException {
+    // 3.2. Link block files from <SD>/previous.tmp to <SD>/current
+    linkAllBlocks(tmpDir, bbwDir, toDir, oldLV, conf);
+
     // 4. Write version file under <SD>/current
-    layoutVersion = HdfsConstants.DATANODE_LAYOUT_VERSION;
     clusterID = nsInfo.getClusterID();
-    writeProperties(sd);
+    upgradeProperties(sd);
     
     // 5. Rename <SD>/previous.tmp to <SD>/previous
     rename(tmpDir, prevDir);
     LOG.info("Upgrade of " + sd.getRoot()+ " is complete");
-    addBlockPoolStorage(nsInfo.getBlockPoolID(), bpStorage);
+  }
+
+  void upgradeProperties(StorageDirectory sd) throws IOException {
+    createStorageID(sd, layoutVersion);
+    LOG.info("Updating layout version from " + layoutVersion
+        + " to " + HdfsServerConstants.DATANODE_LAYOUT_VERSION
+        + " for storage " + sd.getRoot());
+    layoutVersion = HdfsServerConstants.DATANODE_LAYOUT_VERSION;
+    writeProperties(sd);
   }
 
   /**
@@ -849,11 +893,11 @@ public class DataStorage extends Storage {
     // This is a regular startup or a post-federation rollback
     if (!prevDir.exists()) {
       if (DataNodeLayoutVersion.supports(LayoutVersion.Feature.FEDERATION,
-          HdfsConstants.DATANODE_LAYOUT_VERSION)) {
-        readProperties(sd, HdfsConstants.DATANODE_LAYOUT_VERSION);
+          HdfsServerConstants.DATANODE_LAYOUT_VERSION)) {
+        readProperties(sd, HdfsServerConstants.DATANODE_LAYOUT_VERSION);
         writeProperties(sd);
         LOG.info("Layout version rolled back to "
-            + HdfsConstants.DATANODE_LAYOUT_VERSION + " for storage "
+            + HdfsServerConstants.DATANODE_LAYOUT_VERSION + " for storage "
             + sd.getRoot());
       }
       return;
@@ -863,16 +907,16 @@ public class DataStorage extends Storage {
 
     // We allow rollback to a state, which is either consistent with
     // the namespace state or can be further upgraded to it.
-    if (!(prevInfo.getLayoutVersion() >= HdfsConstants.DATANODE_LAYOUT_VERSION
+    if (!(prevInfo.getLayoutVersion() >= HdfsServerConstants.DATANODE_LAYOUT_VERSION
           && prevInfo.getCTime() <= nsInfo.getCTime()))  // cannot rollback
       throw new InconsistentFSStateException(sd.getRoot(),
           "Cannot rollback to a newer state.\nDatanode previous state: LV = "
               + prevInfo.getLayoutVersion() + " CTime = " + prevInfo.getCTime()
               + " is newer than the namespace state: LV = "
-              + HdfsConstants.DATANODE_LAYOUT_VERSION + " CTime = "
+              + HdfsServerConstants.DATANODE_LAYOUT_VERSION + " CTime = "
               + nsInfo.getCTime());
     LOG.info("Rolling back storage directory " + sd.getRoot()
-        + ".\n   target LV = " + HdfsConstants.DATANODE_LAYOUT_VERSION
+        + ".\n   target LV = " + HdfsServerConstants.DATANODE_LAYOUT_VERSION
         + "; target CTime = " + nsInfo.getCTime());
     File tmpDir = sd.getRemovedTmp();
     assert !tmpDir.exists() : "removed.tmp directory must not exist.";
@@ -943,7 +987,7 @@ public class DataStorage extends Storage {
     // To handle finalizing a snapshot taken at datanode level while
     // upgrading to federation, if datanode level snapshot previous exists, 
     // then finalize it. Else finalize the corresponding BP.
-    for (StorageDirectory sd : storageDirs) {
+    for (StorageDirectory sd : getStorageDirs()) {
       File prevDir = sd.getPreviousDir();
       if (prevDir.exists()) {
         // data node level storage finalize
@@ -966,23 +1010,22 @@ public class DataStorage extends Storage {
    *
    * @throws IOException If error occurs during hardlink
    */
-  private void linkAllBlocks(DataNode datanode, File fromDir, File fromBbwDir,
-      File toDir) throws IOException {
+  private static void linkAllBlocks(File fromDir, File fromBbwDir, File toDir,
+      int diskLayoutVersion, Configuration conf) throws IOException {
     HardLink hardLink = new HardLink();
     // do the link
-    int diskLayoutVersion = this.getLayoutVersion();
     if (DataNodeLayoutVersion.supports(
         LayoutVersion.Feature.APPEND_RBW_DIR, diskLayoutVersion)) {
       // hardlink finalized blocks in tmpDir/finalized
-      linkBlocks(datanode, new File(fromDir, STORAGE_DIR_FINALIZED),
-          new File(toDir, STORAGE_DIR_FINALIZED), diskLayoutVersion, hardLink);
+      linkBlocks(fromDir, toDir, STORAGE_DIR_FINALIZED,
+          diskLayoutVersion, hardLink, conf);
       // hardlink rbw blocks in tmpDir/rbw
-      linkBlocks(datanode, new File(fromDir, STORAGE_DIR_RBW),
-          new File(toDir, STORAGE_DIR_RBW), diskLayoutVersion, hardLink);
+      linkBlocks(fromDir, toDir, STORAGE_DIR_RBW,
+          diskLayoutVersion, hardLink, conf);
     } else { // pre-RBW version
       // hardlink finalized blocks in tmpDir
-      linkBlocks(datanode, fromDir, new File(toDir, STORAGE_DIR_FINALIZED),
-          diskLayoutVersion, hardLink);      
+      linkBlocks(fromDir, new File(toDir, STORAGE_DIR_FINALIZED),
+          diskLayoutVersion, hardLink, conf);
       if (fromBbwDir.exists()) {
         /*
          * We need to put the 'blocksBeingWritten' from HDFS 1.x into the rbw
@@ -990,11 +1033,12 @@ public class DataStorage extends Storage {
          * NOT underneath the 'current' directory in those releases.  See
          * HDFS-3731 for details.
          */
-        linkBlocks(datanode, fromBbwDir,
-            new File(toDir, STORAGE_DIR_RBW), diskLayoutVersion, hardLink);
+        linkBlocks(fromBbwDir, new File(toDir, STORAGE_DIR_RBW),
+            diskLayoutVersion, hardLink, conf);
       }
-    } 
-    LOG.info( hardLink.linkStats.report() );
+    }
+    LOG.info("Linked blocks from " + fromDir + " to " + toDir + ". "
+        + hardLink.linkStats.report());
   }
 
   private static class LinkArgs {
@@ -1007,14 +1051,24 @@ public class DataStorage extends Storage {
     }
   }
 
-  static void linkBlocks(DataNode datanode, File from, File to, int oldLV,
-      HardLink hl) throws IOException {
+  static void linkBlocks(File fromDir, File toDir, String subdir, int oldLV,
+      HardLink hl, Configuration conf) throws IOException {
+    linkBlocks(new File(fromDir, subdir), new File(toDir, subdir),
+        oldLV, hl, conf);
+  }
+
+  private static void linkBlocks(File from, File to, int oldLV,
+      HardLink hl, Configuration conf) throws IOException {
+    LOG.info("Start linking block files from " + from + " to " + to);
     boolean upgradeToIdBasedLayout = false;
     // If we are upgrading from a version older than the one where we introduced
-    // block ID-based layout AND we're working with the finalized directory,
-    // we'll need to upgrade from the old flat layout to the block ID-based one
-    if (oldLV > DataNodeLayoutVersion.Feature.BLOCKID_BASED_LAYOUT.getInfo().
-        getLayoutVersion() && to.getName().equals(STORAGE_DIR_FINALIZED)) {
+    // block ID-based layout (32x32) AND we're working with the finalized
+    // directory, we'll need to upgrade from the old layout to the new one. The
+    // upgrade path from pre-blockid based layouts (>-56) and blockid based
+    // 256x256 layouts (-56) is fortunately the same.
+    if (oldLV > DataNodeLayoutVersion.Feature.BLOCKID_BASED_LAYOUT_32_by_32
+        .getInfo().getLayoutVersion()
+        && to.getName().equals(STORAGE_DIR_FINALIZED)) {
       upgradeToIdBasedLayout = true;
     }
 
@@ -1031,7 +1085,7 @@ public class DataStorage extends Storage {
       removeDuplicateEntries(idBasedLayoutSingleLinks, duplicates);
     }
 
-    int numLinkWorkers = datanode.getConf().getInt(
+    final int numLinkWorkers = conf.getInt(
         DFSConfigKeys.DFS_DATANODE_BLOCK_ID_LAYOUT_UPGRADE_THREADS_KEY,
         DFSConfigKeys.DFS_DATANODE_BLOCK_ID_LAYOUT_UPGRADE_THREADS);
     ExecutorService linkWorkers = Executors.newFixedThreadPool(numLinkWorkers);
@@ -1046,7 +1100,7 @@ public class DataStorage extends Storage {
               idBasedLayoutSingleLinks.size());
           for (int j = iCopy; j < upperBound; j++) {
             LinkArgs cur = idBasedLayoutSingleLinks.get(j);
-            NativeIO.link(cur.src, cur.dst);
+            HardLink.createHardLink(cur.src, cur.dst);
           }
           return null;
         }
@@ -1054,7 +1108,14 @@ public class DataStorage extends Storage {
     }
     linkWorkers.shutdown();
     for (Future<Void> f : futures) {
-      Futures.get(f, IOException.class);
+      try {
+        f.get();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new IOException(e);
+      } catch (ExecutionException e) {
+        throw new IOException(e);
+      }
     }
   }
 
@@ -1220,23 +1281,8 @@ public class DataStorage extends Storage {
       return;
     }
     if (!from.isDirectory()) {
-      if (from.getName().startsWith(COPY_FILE_PREFIX)) {
-        FileInputStream in = new FileInputStream(from);
-        try {
-          FileOutputStream out = new FileOutputStream(to);
-          try {
-            IOUtils.copyBytes(in, out, 16*1024);
-            hl.linkStats.countPhysicalFileCopies++;
-          } finally {
-            out.close();
-          }
-        } finally {
-          in.close();
-        }
-      } else {
-        HardLink.createHardLink(from, to);
-        hl.linkStats.countSingleLinks++;
-      }
+      HardLink.createHardLink(from, to);
+      hl.linkStats.countSingleLinks++;
       return;
     }
     // from is a directory
@@ -1287,8 +1333,7 @@ public class DataStorage extends Storage {
     String[] otherNames = from.list(new java.io.FilenameFilter() {
         @Override
         public boolean accept(File dir, String name) {
-          return name.startsWith(BLOCK_SUBDIR_PREFIX) 
-            || name.startsWith(COPY_FILE_PREFIX);
+          return name.startsWith(BLOCK_SUBDIR_PREFIX);
         }
       });
     for(int i = 0; i < otherNames.length; i++)
@@ -1298,16 +1343,33 @@ public class DataStorage extends Storage {
   }
 
   /**
-   * Add bpStorage into bpStorageMap
+   * Get the BlockPoolSliceStorage from {@link bpStorageMap}.
+   * If the object is not found, create a new object and put it to the map.
    */
-  private void addBlockPoolStorage(String bpID, BlockPoolSliceStorage bpStorage
-      ) {
-    if (!this.bpStorageMap.containsKey(bpID)) {
-      this.bpStorageMap.put(bpID, bpStorage);
+  synchronized BlockPoolSliceStorage getBlockPoolSliceStorage(
+      final NamespaceInfo nsInfo) {
+    final String bpid = nsInfo.getBlockPoolID();
+    BlockPoolSliceStorage bpStorage = bpStorageMap.get(bpid);
+    if (bpStorage == null) {
+      bpStorage = new BlockPoolSliceStorage(nsInfo.getNamespaceID(), bpid,
+            nsInfo.getCTime(), nsInfo.getClusterID());
+      bpStorageMap.put(bpid, bpStorage);
     }
+    return bpStorage;
   }
 
   synchronized void removeBlockPoolStorage(String bpId) {
     bpStorageMap.remove(bpId);
+  }
+
+  /**
+   * Prefer FileIoProvider#fullydelete.
+   * @param dir
+   * @return
+   */
+  @Deprecated
+  public static boolean fullyDelete(final File dir) {
+    boolean result = FileUtil.fullyDelete(dir);
+    return result;
   }
 }

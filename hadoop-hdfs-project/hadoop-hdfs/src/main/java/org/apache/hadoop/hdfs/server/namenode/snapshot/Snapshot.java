@@ -41,6 +41,7 @@ import org.apache.hadoop.hdfs.util.ReadOnlyList;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+import org.apache.hadoop.security.AccessControlException;
 
 /** Snapshot of a sub-tree in the namesystem. */
 @InterfaceAudience.Private
@@ -173,17 +174,25 @@ public class Snapshot implements Comparable<byte[]> {
     public INode getChild(byte[] name, int snapshotId) {
       return getParent().getChild(name, snapshotId);
     }
-    
+
     @Override
     public ContentSummaryComputationContext computeContentSummary(
-        ContentSummaryComputationContext summary) {
-      int snapshotId = getParent().getSnapshot(getLocalNameBytes()).getId();
+        int snapshotId, ContentSummaryComputationContext summary)
+        throws AccessControlException {
       return computeDirectoryContentSummary(summary, snapshotId);
     }
-    
+
     @Override
     public String getFullPathName() {
       return getSnapshotPath(getParent().getFullPathName(), getLocalName());
+    }
+
+    /**
+     * Get the full path name of the root directory of this snapshot.
+     * @return full path to the root directory of the snapshot
+     */
+    public String getRootFullPathName() {
+      return getParent().getFullPathName();
     }
   }
 

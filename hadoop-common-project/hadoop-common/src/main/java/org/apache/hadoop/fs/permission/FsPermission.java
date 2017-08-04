@@ -20,9 +20,10 @@ package org.apache.hadoop.fs.permission;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.InvalidObjectException;
+import java.io.ObjectInputValidation;
+import java.io.Serializable;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.conf.Configuration;
@@ -30,14 +31,18 @@ import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.WritableFactories;
 import org.apache.hadoop.io.WritableFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A class for file/directory permissions.
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable
-public class FsPermission implements Writable {
-  private static final Log LOG = LogFactory.getLog(FsPermission.class);
+public class FsPermission implements Writable, Serializable,
+    ObjectInputValidation {
+  private static final Logger LOG = LoggerFactory.getLogger(FsPermission.class);
+  private static final long serialVersionUID = 0x2fe08564;
 
   static final WritableFactory FACTORY = new WritableFactory() {
     @Override
@@ -60,7 +65,7 @@ public class FsPermission implements Writable {
   private FsAction useraction = null;
   private FsAction groupaction = null;
   private FsAction otheraction = null;
-  private boolean stickyBit = false;
+  private Boolean stickyBit = false;
 
   private FsPermission() {}
 
@@ -103,7 +108,7 @@ public class FsPermission implements Writable {
    * @throws IllegalArgumentException if <code>mode</code> is invalid
    */
   public FsPermission(String mode) {
-    this(new UmaskParser(mode).getUMask());
+    this(new RawParser(mode).getPermission());
   }
 
   /** Return user {@link FsAction}. */
@@ -128,13 +133,29 @@ public class FsPermission implements Writable {
   }
 
   @Override
+  @Deprecated
   public void write(DataOutput out) throws IOException {
     out.writeShort(toShort());
   }
 
   @Override
+  @Deprecated
   public void readFields(DataInput in) throws IOException {
     fromShort(in.readShort());
+  }
+
+  /**
+   * Get masked permission if exists.
+   */
+  public FsPermission getMasked() {
+    return null;
+  }
+
+  /**
+   * Get unmasked permission if exists.
+   */
+  public FsPermission getUnmasked() {
+    return null;
   }
 
   /**
@@ -165,8 +186,21 @@ public class FsPermission implements Writable {
    *
    * @return short extended short representation of this permission
    */
+  @Deprecated
   public short toExtendedShort() {
     return toShort();
+  }
+
+  /**
+   * Returns the FsPermission in an octal format.
+   *
+   * @return short Unlike {@link #toShort()} which provides a binary
+   * representation, this method returns the standard octal style permission.
+   */
+  public short toOctal() {
+    int n = this.toShort();
+    int octal = (n>>>9&1)*1000 + (n>>>6&7)*100 + (n>>>3&7)*10 + (n&7);
+    return (short)octal;
   }
 
   @Override
@@ -176,7 +210,7 @@ public class FsPermission implements Writable {
       return this.useraction == that.useraction
           && this.groupaction == that.groupaction
           && this.otheraction == that.otheraction
-          && this.stickyBit == that.stickyBit;
+          && this.stickyBit.booleanValue() == that.stickyBit.booleanValue();
     }
     return false;
   }
@@ -215,9 +249,6 @@ public class FsPermission implements Writable {
         otheraction.and(umask.otheraction.not()));
   }
 
-  /** umask property label deprecated key and code in getUMask method
-   *  to accommodate it may be removed in version .23 */
-  public static final String DEPRECATED_UMASK_LABEL = "dfs.umask"; 
   public static final String UMASK_LABEL = 
                   CommonConfigurationKeys.FS_PERMISSIONS_UMASK_KEY;
   public static final int DEFAULT_UMASK = 
@@ -236,8 +267,6 @@ public class FsPermission implements Writable {
    * '-' sets bits in the mask.
    * 
    * Octal umask, the specified bits are set in the file mode creation mask.
-   * 
-   * {@code DEPRECATED_UMASK_LABEL} config param has umask value set to decimal.
    */
   public static FsPermission getUMask(Configuration conf) {
     int umask = DEFAULT_UMASK;
@@ -246,7 +275,6 @@ public class FsPermission implements Writable {
     // If the deprecated key is not present then check for the new key
     if(conf != null) {
       String confUmask = conf.get(UMASK_LABEL);
-      int oldUmask = conf.getInt(DEPRECATED_UMASK_LABEL, Integer.MIN_VALUE);
       try {
         if(confUmask != null) {
           umask = new UmaskParser(confUmask).getUMask();
@@ -258,22 +286,8 @@ public class FsPermission implements Writable {
         String error = "Unable to parse configuration " + UMASK_LABEL
             + " with value " + confUmask + " as " + type + " umask.";
         LOG.warn(error);
-        
-        // If oldUmask is not set, then throw the exception
-        if (oldUmask == Integer.MIN_VALUE) {
-          throw new IllegalArgumentException(error);
-        }
-      }
-        
-      if(oldUmask != Integer.MIN_VALUE) { // Property was set with old key
-        if (umask != oldUmask) {
-          LOG.warn(DEPRECATED_UMASK_LABEL
-              + " configuration key is deprecated. " + "Convert to "
-              + UMASK_LABEL + ", using octal or symbolic umask "
-              + "specifications.");
-          // Old and new umask values do not match - Use old umask
-          umask = oldUmask;
-        }
+
+        throw new IllegalArgumentException(error);
       }
     }
     
@@ -288,7 +302,10 @@ public class FsPermission implements Writable {
    * Returns true if there is also an ACL (access control list).
    *
    * @return boolean true if there is also an ACL (access control list).
+   * @deprecated Get acl bit from the {@link org.apache.hadoop.fs.FileStatus}
+   * object.
    */
+  @Deprecated
   public boolean getAclBit() {
     // File system subclasses that support the ACL bit would override this.
     return false;
@@ -296,15 +313,27 @@ public class FsPermission implements Writable {
 
   /**
    * Returns true if the file is encrypted or directory is in an encryption zone
+   * @deprecated Get encryption bit from the
+   * {@link org.apache.hadoop.fs.FileStatus} object.
    */
+  @Deprecated
   public boolean getEncryptedBit() {
+    return false;
+  }
+
+  /**
+   * Returns true if the file or directory is erasure coded.
+   * @deprecated Get ec bit from the {@link org.apache.hadoop.fs.FileStatus}
+   * object.
+   */
+  @Deprecated
+  public boolean getErasureCodedBit() {
     return false;
   }
 
   /** Set the user file creation mask (umask) */
   public static void setUMask(Configuration conf, FsPermission umask) {
     conf.set(UMASK_LABEL, String.format("%1$03o", umask.toShort()));
-    conf.setInt(DEPRECATED_UMASK_LABEL, umask.toShort());
   }
 
   /**
@@ -372,6 +401,7 @@ public class FsPermission implements Writable {
   }
   
   private static class ImmutableFsPermission extends FsPermission {
+    private static final long serialVersionUID = 0x1bab54bd;
     public ImmutableFsPermission(short permission) {
       super(permission);
     }
@@ -379,6 +409,16 @@ public class FsPermission implements Writable {
     @Override
     public void readFields(DataInput in) throws IOException {
       throw new UnsupportedOperationException();
+    }
+  }
+
+  @Override
+  public void validateObject() throws InvalidObjectException {
+    if (null == useraction || null == groupaction || null == otheraction) {
+      throw new InvalidObjectException("Invalid mode in FsPermission");
+    }
+    if (null == stickyBit) {
+      throw new InvalidObjectException("No sticky bit in FsPermission");
     }
   }
 }

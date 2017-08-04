@@ -23,6 +23,8 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.nio.charset.Charset;
 import java.text.DecimalFormat;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -38,17 +40,23 @@ import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.ToolRunner;
+import org.apache.hadoop.yarn.api.protocolrecords.UpdateApplicationTimeoutsRequest;
+import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptReport;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.ApplicationResourceUsageReport;
+import org.apache.hadoop.yarn.api.records.ApplicationTimeout;
+import org.apache.hadoop.yarn.api.records.ApplicationTimeoutType;
+import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.ContainerReport;
+import org.apache.hadoop.yarn.api.records.Priority;
+import org.apache.hadoop.yarn.api.records.SignalContainerCommand;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.exceptions.ApplicationAttemptNotFoundException;
 import org.apache.hadoop.yarn.exceptions.ApplicationNotFoundException;
 import org.apache.hadoop.yarn.exceptions.ContainerNotFoundException;
 import org.apache.hadoop.yarn.exceptions.YarnException;
-import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.util.Times;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -62,17 +70,25 @@ public class ApplicationCLI extends YarnCLI {
   private static final String APPLICATION_ATTEMPTS_PATTERN =
     "%30s\t%20s\t%35s\t%35s"
       + System.getProperty("line.separator");
-  private static final String CONTAINER_PATTERN = 
-    "%30s\t%20s\t%20s\t%20s\t%20s\t%20s\t%35s"
-      + System.getProperty("line.separator");
 
   private static final String APP_TYPE_CMD = "appTypes";
   private static final String APP_STATE_CMD = "appStates";
+  private static final String APP_TAG_CMD = "appTags";
   private static final String ALLSTATES_OPTION = "ALL";
   private static final String QUEUE_CMD = "queue";
+
+  @VisibleForTesting
+  protected static final String CONTAINER_PATTERN =
+    "%30s\t%20s\t%20s\t%20s\t%20s\t%20s\t%35s"
+      + System.getProperty("line.separator");
+
   public static final String APPLICATION = "application";
   public static final String APPLICATION_ATTEMPT = "applicationattempt";
   public static final String CONTAINER = "container";
+  public static final String APP_ID = "appId";
+  public static final String UPDATE_PRIORITY = "updatePriority";
+  public static final String UPDATE_LIFETIME = "updateLifetime";
+  public static final String CHANGE_APPLICATION_QUEUE = "changeQueue";
 
   private boolean allAppStates;
 
@@ -95,11 +111,11 @@ public class ApplicationCLI extends YarnCLI {
           "Prints the status of the application.");
       opts.addOption(LIST_CMD, false, "List applications. "
           + "Supports optional use of -appTypes to filter applications "
-          + "based on application type, "
-          + "and -appStates to filter applications based on application state.");
-      opts.addOption(KILL_CMD, true, "Kills the application.");
+          + "based on application type, -appStates to filter applications "
+          + "based on application state and -appTags to filter applications "
+          + "based on application tag.");
       opts.addOption(MOVE_TO_QUEUE_CMD, true, "Moves the application to a "
-          + "different queue.");
+          + "different queue. Deprecated command. Use 'changeQueue' instead.");
       opts.addOption(QUEUE_CMD, true, "Works with the movetoqueue command to"
           + " specify which queue to move an application to.");
       opts.addOption(HELP_CMD, false, "Displays help for all commands.");
@@ -117,19 +133,49 @@ public class ApplicationCLI extends YarnCLI {
       appStateOpt.setArgs(Option.UNLIMITED_VALUES);
       appStateOpt.setArgName("States");
       opts.addOption(appStateOpt);
-      opts.getOption(KILL_CMD).setArgName("Application ID");
+      Option appTagOpt = new Option(APP_TAG_CMD, true, "Works with -list to "
+          + "filter applications based on input comma-separated list of "
+          + "application tags.");
+      appTagOpt.setValueSeparator(',');
+      appTagOpt.setArgs(Option.UNLIMITED_VALUES);
+      appTagOpt.setArgName("Tags");
+      opts.addOption(appTagOpt);
+      opts.addOption(APP_ID, true, "Specify Application Id to be operated");
+      opts.addOption(UPDATE_PRIORITY, true,
+          "update priority of an application. ApplicationId can be"
+              + " passed using 'appId' option.");
+      opts.addOption(UPDATE_LIFETIME, true,
+          "update timeout of an application from NOW. ApplicationId can be"
+              + " passed using 'appId' option. Timeout value is in seconds.");
+      opts.addOption(CHANGE_APPLICATION_QUEUE, true,
+          "Moves application to a new queue. ApplicationId can be"
+              + " passed using 'appId' option. 'movetoqueue' command is"
+              + " deprecated, this new command 'changeQueue' performs same"
+              + " functionality.");
+      Option killOpt = new Option(KILL_CMD, true, "Kills the application. "
+          + "Set of applications can be provided separated with space");
+      killOpt.setValueSeparator(' ');
+      killOpt.setArgs(Option.UNLIMITED_VALUES);
+      killOpt.setArgName("Application ID");
+      opts.addOption(killOpt);
       opts.getOption(MOVE_TO_QUEUE_CMD).setArgName("Application ID");
       opts.getOption(QUEUE_CMD).setArgName("Queue Name");
       opts.getOption(STATUS_CMD).setArgName("Application ID");
+      opts.getOption(APP_ID).setArgName("Application ID");
+      opts.getOption(UPDATE_PRIORITY).setArgName("Priority");
+      opts.getOption(UPDATE_LIFETIME).setArgName("Timeout");
+      opts.getOption(CHANGE_APPLICATION_QUEUE).setArgName("Queue Name");
     } else if (args.length > 0 && args[0].equalsIgnoreCase(APPLICATION_ATTEMPT)) {
       title = APPLICATION_ATTEMPT;
       opts.addOption(STATUS_CMD, true,
           "Prints the status of the application attempt.");
       opts.addOption(LIST_CMD, true,
-          "List application attempts for aplication.");
+          "List application attempts for application.");
+      opts.addOption(FAIL_CMD, true, "Fails application attempt.");
       opts.addOption(HELP_CMD, false, "Displays help for all commands.");
       opts.getOption(STATUS_CMD).setArgName("Application Attempt ID");
       opts.getOption(LIST_CMD).setArgName("Application ID");
+      opts.getOption(FAIL_CMD).setArgName("Application Attempt ID");
     } else if (args.length > 0 && args[0].equalsIgnoreCase(CONTAINER)) {
       title = CONTAINER;
       opts.addOption(STATUS_CMD, true,
@@ -139,6 +185,12 @@ public class ApplicationCLI extends YarnCLI {
       opts.addOption(HELP_CMD, false, "Displays help for all commands.");
       opts.getOption(STATUS_CMD).setArgName("Container ID");
       opts.getOption(LIST_CMD).setArgName("Application Attempt ID");
+      opts.addOption(SIGNAL_CMD, true,
+          "Signal the container. The available signal commands are " +
+          java.util.Arrays.asList(SignalContainerCommand.values()) +
+          " Default command is OUTPUT_THREAD_DUMP.");
+      opts.getOption(SIGNAL_CMD).setArgName("container ID [signal command]");
+      opts.getOption(SIGNAL_CMD).setArgs(3);
     }
 
     int exitCode = -1;
@@ -204,7 +256,19 @@ public class ApplicationCLI extends YarnCLI {
             }
           }
         }
-        listApplications(appTypes, appStates);
+
+        Set<String> appTags = new HashSet<String>();
+        if (cliParser.hasOption(APP_TAG_CMD)) {
+          String[] tags = cliParser.getOptionValues(APP_TAG_CMD);
+          if (tags != null) {
+            for (String tag : tags) {
+              if (!tag.trim().isEmpty()) {
+                appTags.add(tag.trim());
+              }
+            }
+          }
+        }
+        listApplications(appTypes, appStates, appTags);
       } else if (args[0].equalsIgnoreCase(APPLICATION_ATTEMPT)) {
         if (args.length != 3) {
           printUsage(title, opts);
@@ -219,15 +283,11 @@ public class ApplicationCLI extends YarnCLI {
         listContainers(cliParser.getOptionValue(LIST_CMD));
       }
     } else if (cliParser.hasOption(KILL_CMD)) {
-      if (args.length != 3) {
+      if (args.length < 3 || hasAnyOtherCLIOptions(cliParser, opts, KILL_CMD)) {
         printUsage(title, opts);
         return exitCode;
       }
-      try{
-        killApplication(cliParser.getOptionValue(KILL_CMD));
-      } catch (ApplicationNotFoundException e) {
-        return exitCode;
-      }
+      return killApplication(cliParser.getOptionValues(KILL_CMD));
     } else if (cliParser.hasOption(MOVE_TO_QUEUE_CMD)) {
       if (!cliParser.hasOption(QUEUE_CMD)) {
         printUsage(title, opts);
@@ -235,14 +295,88 @@ public class ApplicationCLI extends YarnCLI {
       }
       moveApplicationAcrossQueues(cliParser.getOptionValue(MOVE_TO_QUEUE_CMD),
           cliParser.getOptionValue(QUEUE_CMD));
+    } else if (cliParser.hasOption(FAIL_CMD)) {
+      if (!args[0].equalsIgnoreCase(APPLICATION_ATTEMPT)) {
+        printUsage(title, opts);
+        return exitCode;
+      }
+      failApplicationAttempt(cliParser.getOptionValue(FAIL_CMD));
     } else if (cliParser.hasOption(HELP_CMD)) {
       printUsage(title, opts);
       return 0;
+    } else if (cliParser.hasOption(UPDATE_PRIORITY)) {
+      if (!cliParser.hasOption(APP_ID)) {
+        printUsage(title, opts);
+        return exitCode;
+      }
+      updateApplicationPriority(cliParser.getOptionValue(APP_ID),
+          cliParser.getOptionValue(UPDATE_PRIORITY));
+    } else if (cliParser.hasOption(UPDATE_LIFETIME)) {
+      if (!cliParser.hasOption(APP_ID)) {
+        printUsage(title, opts);
+        return exitCode;
+      }
+
+      long timeoutInSec =
+          Long.parseLong(cliParser.getOptionValue(UPDATE_LIFETIME));
+
+      updateApplicationTimeout(cliParser.getOptionValue(APP_ID),
+          ApplicationTimeoutType.LIFETIME, timeoutInSec);
+    } else if (cliParser.hasOption(CHANGE_APPLICATION_QUEUE)) {
+      if (!cliParser.hasOption(APP_ID)) {
+        printUsage(title, opts);
+        return exitCode;
+      }
+      moveApplicationAcrossQueues(cliParser.getOptionValue(APP_ID),
+          cliParser.getOptionValue(CHANGE_APPLICATION_QUEUE));
+    } else if (cliParser.hasOption(SIGNAL_CMD)) {
+      if (args.length < 3 || args.length > 4) {
+        printUsage(title, opts);
+        return exitCode;
+      }
+      final String[] signalArgs = cliParser.getOptionValues(SIGNAL_CMD);
+      final String containerId = signalArgs[0];
+      SignalContainerCommand command =
+          SignalContainerCommand.OUTPUT_THREAD_DUMP;
+      if (signalArgs.length == 2) {
+        command = SignalContainerCommand.valueOf(signalArgs[1]);
+      }
+      signalToContainer(containerId, command);
     } else {
       syserr.println("Invalid Command Usage : ");
       printUsage(title, opts);
     }
     return 0;
+  }
+
+  private void updateApplicationTimeout(String applicationId,
+      ApplicationTimeoutType timeoutType, long timeoutInSec)
+      throws YarnException, IOException {
+    ApplicationId appId = ApplicationId.fromString(applicationId);
+    String newTimeout =
+        Times.formatISO8601(System.currentTimeMillis() + timeoutInSec * 1000);
+    sysout.println("Updating timeout for given timeoutType: "
+        + timeoutType.toString() + " of an application " + applicationId);
+    UpdateApplicationTimeoutsRequest request = UpdateApplicationTimeoutsRequest
+        .newInstance(appId, Collections.singletonMap(timeoutType, newTimeout));
+    client.updateApplicationTimeouts(request);
+    sysout.println(
+        "Successfully updated " + timeoutType.toString() + " of an application "
+            + applicationId + ". New expiry time is " + newTimeout);
+  }
+
+  /**
+   * Signals the containerId
+   *
+   * @param containerIdStr the container id
+   * @param command the signal command
+   * @throws YarnException
+   */
+  private void signalToContainer(String containerIdStr,
+      SignalContainerCommand command) throws YarnException, IOException {
+    ContainerId containerId = ContainerId.fromString(containerIdStr);
+    sysout.println("Signalling container " + containerIdStr);
+    client.signalToContainer(containerId, command);
   }
 
   /**
@@ -266,8 +400,8 @@ public class ApplicationCLI extends YarnCLI {
       throws YarnException, IOException {
     ApplicationAttemptReport appAttemptReport = null;
     try {
-      appAttemptReport = client.getApplicationAttemptReport(ConverterUtils
-          .toApplicationAttemptId(applicationAttemptId));
+      appAttemptReport = client.getApplicationAttemptReport(
+          ApplicationAttemptId.fromString(applicationAttemptId));
     } catch (ApplicationNotFoundException e) {
       sysout.println("Application for AppAttempt with id '"
           + applicationAttemptId + "' doesn't exist in RM or Timeline Server.");
@@ -289,8 +423,9 @@ public class ApplicationCLI extends YarnCLI {
       appAttemptReportStr.println(appAttemptReport
           .getYarnApplicationAttemptState());
       appAttemptReportStr.print("\tAMContainer : ");
-      appAttemptReportStr.println(appAttemptReport.getAMContainerId()
-          .toString());
+      appAttemptReportStr
+          .println(appAttemptReport.getAMContainerId() == null ? "N/A"
+              : appAttemptReport.getAMContainerId().toString());
       appAttemptReportStr.print("\tTracking-URL : ");
       appAttemptReportStr.println(appAttemptReport.getTrackingUrl());
       appAttemptReportStr.print("\tRPC Port : ");
@@ -322,8 +457,7 @@ public class ApplicationCLI extends YarnCLI {
       IOException {
     ContainerReport containerReport = null;
     try {
-      containerReport = client.getContainerReport((ConverterUtils
-          .toContainerId(containerId)));
+      containerReport = client.getContainerReport(ContainerId.fromString(containerId));
     } catch (ApplicationNotFoundException e) {
       sysout.println("Application for Container with id '" + containerId
           + "' doesn't exist in RM or Timeline Server.");
@@ -373,17 +507,18 @@ public class ApplicationCLI extends YarnCLI {
   }
 
   /**
-   * Lists the applications matching the given application Types And application
-   * States present in the Resource Manager
+   * Lists the applications matching the given application Types, application
+   * States and application Tags present in the Resource Manager.
    * 
    * @param appTypes
    * @param appStates
+   * @param appTags
    * @throws YarnException
    * @throws IOException
    */
   private void listApplications(Set<String> appTypes,
-      EnumSet<YarnApplicationState> appStates) throws YarnException,
-      IOException {
+      EnumSet<YarnApplicationState> appStates, Set<String> appTags)
+      throws YarnException, IOException {
     PrintWriter writer = new PrintWriter(
         new OutputStreamWriter(sysout, Charset.forName("UTF-8")));
     if (allAppStates) {
@@ -399,11 +534,11 @@ public class ApplicationCLI extends YarnCLI {
     }
 
     List<ApplicationReport> appsReport = client.getApplications(appTypes,
-        appStates);
+        appStates, appTags);
 
     writer.println("Total number of applications (application-types: "
-        + appTypes + " and states: " + appStates + ")" + ":"
-        + appsReport.size());
+        + appTypes + ", states: " + appStates + " and tags: " + appTags + ")"
+        + ":" + appsReport.size());
     writer.printf(APPLICATIONS_PATTERN, "Application-Id", "Application-Name",
         "Application-Type", "User", "Queue", "State", "Final-State",
         "Progress", "Tracking-URL");
@@ -421,6 +556,30 @@ public class ApplicationCLI extends YarnCLI {
   }
 
   /**
+   * Kills applications with the application id as appId
+   *
+   * @param Array of applicationIds
+   * @return errorCode
+   * @throws YarnException
+   * @throws IOException
+   */
+  private int killApplication(String[] applicationIds) throws YarnException,
+      IOException {
+    int returnCode = -1;
+    for (String applicationId : applicationIds) {
+      try {
+        killApplication(applicationId);
+        returnCode = 0;
+      } catch (ApplicationNotFoundException e) {
+        // Suppress all ApplicationNotFoundException for now.
+        continue;
+      }
+    }
+
+    return returnCode;
+  }
+
+  /**
    * Kills the application with the application id as appId
    * 
    * @param applicationId
@@ -429,7 +588,7 @@ public class ApplicationCLI extends YarnCLI {
    */
   private void killApplication(String applicationId) throws YarnException,
       IOException {
-    ApplicationId appId = ConverterUtils.toApplicationId(applicationId);
+    ApplicationId appId = ApplicationId.fromString(applicationId);
     ApplicationReport  appReport = null;
     try {
       appReport = client.getApplicationReport(appId);
@@ -454,7 +613,7 @@ public class ApplicationCLI extends YarnCLI {
    */
   private void moveApplicationAcrossQueues(String applicationId, String queue)
       throws YarnException, IOException {
-    ApplicationId appId = ConverterUtils.toApplicationId(applicationId);
+    ApplicationId appId = ApplicationId.fromString(applicationId);
     ApplicationReport appReport = client.getApplicationReport(appId);
     if (appReport.getYarnApplicationState() == YarnApplicationState.FINISHED
         || appReport.getYarnApplicationState() == YarnApplicationState.KILLED
@@ -468,6 +627,25 @@ public class ApplicationCLI extends YarnCLI {
   }
 
   /**
+   * Fails an application attempt.
+   *
+   * @param attemptId ID of the attempt to fail. If provided, applicationId
+   *        parameter is not used.
+   * @throws YarnException
+   * @throws IOException
+   */
+  private void failApplicationAttempt(String attemptId) throws YarnException,
+      IOException {
+    ApplicationId appId;
+    ApplicationAttemptId attId;
+    attId = ApplicationAttemptId.fromString(attemptId);
+    appId = attId.getApplicationId();
+
+    sysout.println("Failing attempt " + attId + " of application " + appId);
+    client.failApplicationAttempt(attId);
+  }
+
+  /**
    * Prints the application report for an application id.
    * 
    * @param applicationId
@@ -478,8 +656,8 @@ public class ApplicationCLI extends YarnCLI {
       throws YarnException, IOException {
     ApplicationReport appReport = null;
     try {
-      appReport = client.getApplicationReport(ConverterUtils
-          .toApplicationId(applicationId));
+      appReport = client.getApplicationReport(
+          ApplicationId.fromString(applicationId));
     } catch (ApplicationNotFoundException e) {
       sysout.println("Application with id '" + applicationId
           + "' doesn't exist in RM or Timeline Server.");
@@ -501,6 +679,8 @@ public class ApplicationCLI extends YarnCLI {
       appReportStr.println(appReport.getUser());
       appReportStr.print("\tQueue : ");
       appReportStr.println(appReport.getQueue());
+      appReportStr.print("\tApplication Priority : ");
+      appReportStr.println(appReport.getPriority());
       appReportStr.print("\tStart-Time : ");
       appReportStr.println(appReport.getStartTime());
       appReportStr.print("\tFinish-Time : ");
@@ -527,11 +707,34 @@ public class ApplicationCLI extends YarnCLI {
         //completed app report in the timeline server doesn't have usage report
         appReportStr.print(usageReport.getMemorySeconds() + " MB-seconds, ");
         appReportStr.println(usageReport.getVcoreSeconds() + " vcore-seconds");
+        appReportStr.print("\tAggregate Resource Preempted : ");
+        appReportStr.print(usageReport.getPreemptedMemorySeconds() +
+            " MB-seconds, ");
+        appReportStr.println(usageReport.getPreemptedVcoreSeconds() +
+            " vcore-seconds");
       } else {
         appReportStr.println("N/A");
+        appReportStr.print("\tAggregate Resource Preempted : ");
+        appReportStr.println("N/A");
       }
+      appReportStr.print("\tLog Aggregation Status : ");
+      appReportStr.println(appReport.getLogAggregationStatus() == null ? "N/A"
+          : appReport.getLogAggregationStatus());
       appReportStr.print("\tDiagnostics : ");
-      appReportStr.print(appReport.getDiagnostics());
+      appReportStr.println(appReport.getDiagnostics());
+      appReportStr.print("\tUnmanaged Application : ");
+      appReportStr.println(appReport.isUnmanagedApp());
+      appReportStr.print("\tApplication Node Label Expression : ");
+      appReportStr.println(appReport.getAppNodeLabelExpression());
+      appReportStr.print("\tAM container Node Label Expression : ");
+      appReportStr.println(appReport.getAmNodeLabelExpression());
+      for (ApplicationTimeout timeout : appReport.getApplicationTimeouts()
+          .values()) {
+        appReportStr.print("\tTimeoutType : " + timeout.getTimeoutType());
+        appReportStr.print("\tExpiryTime : " + timeout.getExpiryTime());
+        appReportStr.println(
+            "\tRemainingTime : " + timeout.getRemainingTime() + "seconds");
+      }
     } else {
       appReportStr.print("Application with id '" + applicationId
           + "' doesn't exist in RM.");
@@ -568,7 +771,7 @@ public class ApplicationCLI extends YarnCLI {
         new OutputStreamWriter(sysout, Charset.forName("UTF-8")));
 
     List<ApplicationAttemptReport> appAttemptsReport = client
-        .getApplicationAttempts(ConverterUtils.toApplicationId(applicationId));
+        .getApplicationAttempts(ApplicationId.fromString(applicationId));
     writer.println("Total number of application attempts " + ":"
         + appAttemptsReport.size());
     writer.printf(APPLICATION_ATTEMPTS_PATTERN, "ApplicationAttempt-Id",
@@ -577,6 +780,7 @@ public class ApplicationCLI extends YarnCLI {
       writer.printf(APPLICATION_ATTEMPTS_PATTERN, appAttemptReport
           .getApplicationAttemptId(), appAttemptReport
           .getYarnApplicationAttemptState(), appAttemptReport
+          .getAMContainerId() == null ? "N/A" : appAttemptReport
           .getAMContainerId().toString(), appAttemptReport.getTrackingUrl());
     }
     writer.flush();
@@ -594,8 +798,8 @@ public class ApplicationCLI extends YarnCLI {
     PrintWriter writer = new PrintWriter(
         new OutputStreamWriter(sysout, Charset.forName("UTF-8")));
 
-    List<ContainerReport> appsReport = client
-        .getContainers(ConverterUtils.toApplicationAttemptId(appAttemptId));
+    List<ContainerReport> appsReport = client.getContainers(
+        ApplicationAttemptId.fromString(appAttemptId));
     writer.println("Total number of containers " + ":" + appsReport.size());
     writer.printf(CONTAINER_PATTERN, "Container-Id", "Start Time",
         "Finish Time", "State", "Host", "Node Http Address", "LOG-URL");
@@ -611,5 +815,43 @@ public class ApplicationCLI extends YarnCLI {
           containerReport.getLogUrl());
     }
     writer.flush();
+  }
+
+  /**
+   * Updates priority of an application with the given ID.
+   */
+  private void updateApplicationPriority(String applicationId, String priority)
+      throws YarnException, IOException {
+    ApplicationId appId = ApplicationId.fromString(applicationId);
+    Priority newAppPriority = Priority.newInstance(Integer.parseInt(priority));
+    sysout.println("Updating priority of an application " + applicationId);
+    Priority updateApplicationPriority =
+        client.updateApplicationPriority(appId, newAppPriority);
+    if (newAppPriority.equals(updateApplicationPriority)) {
+      sysout.println("Successfully updated the application "
+          + applicationId + " with priority '" + priority + "'");
+    } else {
+      sysout
+          .println("Updated priority of an application  "
+              + applicationId
+          + " to cluster max priority OR keeping old priority"
+          + " as application is in final states");
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  private boolean hasAnyOtherCLIOptions(CommandLine cliParser, Options opts,
+      String excludeOption) {
+    Collection<Option> ops = opts.getOptions();
+    for (Option op : ops) {
+      // Skip exclude option from the option list
+      if (op.getOpt().equals(excludeOption)) {
+        continue;
+      }
+      if (cliParser.hasOption(op.getOpt())) {
+        return true;
+      }
+    }
+    return false;
   }
 }

@@ -41,7 +41,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,6 +52,8 @@ import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import org.apache.hadoop.util.concurrent.HadoopExecutors;
+import org.apache.hadoop.yarn.api.records.URL;
 import org.junit.Assert;
 
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
@@ -103,7 +104,7 @@ public class TestFSDownload {
       Random r, LocalResourceVisibility vis) throws IOException {
     createFile(files, p, len, r);
     LocalResource ret = recordFactory.newRecordInstance(LocalResource.class);
-    ret.setResource(ConverterUtils.getYarnUrlFromPath(p));
+    ret.setResource(URL.fromPath(p));
     ret.setSize(len);
     ret.setType(LocalResourceType.FILE);
     ret.setVisibility(vis);
@@ -134,7 +135,7 @@ public class TestFSDownload {
     LOG.info("Done writing jar stream ");
     out.close();
     LocalResource ret = recordFactory.newRecordInstance(LocalResource.class);
-    ret.setResource(ConverterUtils.getYarnUrlFromPath(p));
+    ret.setResource(URL.fromPath(p));
     FileStatus status = files.getFileStatus(p);
     ret.setSize(status.getLen());
     ret.setTimestamp(status.getModificationTime());
@@ -162,7 +163,7 @@ public class TestFSDownload {
     out.close();
 
     LocalResource ret = recordFactory.newRecordInstance(LocalResource.class);
-    ret.setResource(ConverterUtils.getYarnUrlFromPath(new Path(p.toString()
+    ret.setResource(URL.fromPath(new Path(p.toString()
         + ".tar")));
     ret.setSize(len);
     ret.setType(LocalResourceType.ARCHIVE);
@@ -190,7 +191,7 @@ public class TestFSDownload {
     out.close();
 
     LocalResource ret = recordFactory.newRecordInstance(LocalResource.class);
-    ret.setResource(ConverterUtils.getYarnUrlFromPath(new Path(p.toString()
+    ret.setResource(URL.fromPath(new Path(p.toString()
         + ".tar.gz")));
     ret.setSize(len);
     ret.setType(LocalResourceType.ARCHIVE);
@@ -216,7 +217,7 @@ public class TestFSDownload {
     out.close();
 
     LocalResource ret = recordFactory.newRecordInstance(LocalResource.class);
-    ret.setResource(ConverterUtils.getYarnUrlFromPath(new Path(p.toString()
+    ret.setResource(URL.fromPath(new Path(p.toString()
         + ".jar")));
     ret.setSize(len);
     ret.setType(LocalResourceType.ARCHIVE);
@@ -242,7 +243,7 @@ public class TestFSDownload {
     out.close();
 
     LocalResource ret = recordFactory.newRecordInstance(LocalResource.class);
-    ret.setResource(ConverterUtils.getYarnUrlFromPath(new Path(p.toString()
+    ret.setResource(URL.fromPath(new Path(p.toString()
         + ".ZIP")));
     ret.setSize(len);
     ret.setType(LocalResourceType.ARCHIVE);
@@ -273,7 +274,7 @@ public class TestFSDownload {
 
     Map<LocalResource,Future<Path>> pending =
       new HashMap<LocalResource,Future<Path>>();
-    ExecutorService exec = Executors.newSingleThreadExecutor();
+    ExecutorService exec = HadoopExecutors.newSingleThreadExecutor();
     LocalDirAllocator dirs =
       new LocalDirAllocator(TestFSDownload.class.getName());
     int size = 512;
@@ -362,7 +363,7 @@ public class TestFSDownload {
       });
     }
 
-    ExecutorService exec = Executors.newFixedThreadPool(fileCount);
+    ExecutorService exec = HadoopExecutors.newFixedThreadPool(fileCount);
     try {
       List<Future<Boolean>> futures = exec.invokeAll(tasks);
       // files should be public
@@ -399,7 +400,7 @@ public class TestFSDownload {
 
     Map<LocalResource,Future<Path>> pending =
       new HashMap<LocalResource,Future<Path>>();
-    ExecutorService exec = Executors.newSingleThreadExecutor();
+    ExecutorService exec = HadoopExecutors.newSingleThreadExecutor();
     LocalDirAllocator dirs =
       new LocalDirAllocator(TestFSDownload.class.getName());
     int[] sizes = new int[10];
@@ -431,7 +432,7 @@ public class TestFSDownload {
     try {
       for (Map.Entry<LocalResource,Future<Path>> p : pending.entrySet()) {
         Path localized = p.getValue().get();
-        assertEquals(sizes[Integer.valueOf(localized.getName())], p.getKey()
+        assertEquals(sizes[Integer.parseInt(localized.getName())], p.getKey()
             .getSize());
 
         FileStatus status = files.getFileStatus(localized.getParent());
@@ -468,7 +469,7 @@ public class TestFSDownload {
     System.out.println("SEED: " + sharedSeed);
 
     Map<LocalResource, Future<Path>> pending = new HashMap<LocalResource, Future<Path>>();
-    ExecutorService exec = Executors.newSingleThreadExecutor();
+    ExecutorService exec = HadoopExecutors.newSingleThreadExecutor();
     LocalDirAllocator dirs = new LocalDirAllocator(
         TestFSDownload.class.getName());
 
@@ -619,7 +620,7 @@ public class TestFSDownload {
 
     Map<LocalResource,Future<Path>> pending =
       new HashMap<LocalResource,Future<Path>>();
-    ExecutorService exec = Executors.newSingleThreadExecutor();
+    ExecutorService exec = HadoopExecutors.newSingleThreadExecutor();
     LocalDirAllocator dirs =
       new LocalDirAllocator(TestFSDownload.class.getName());
     for (int i = 0; i < 5; ++i) {
@@ -674,7 +675,8 @@ public class TestFSDownload {
     files.mkdir(basedir, null, true);
     conf.setStrings(TestFSDownload.class.getName(), basedir.toString());
 
-    ExecutorService singleThreadedExec = Executors.newSingleThreadExecutor();
+    ExecutorService singleThreadedExec = HadoopExecutors
+        .newSingleThreadExecutor();
 
     LocalDirAllocator dirs =
         new LocalDirAllocator(TestFSDownload.class.getName());

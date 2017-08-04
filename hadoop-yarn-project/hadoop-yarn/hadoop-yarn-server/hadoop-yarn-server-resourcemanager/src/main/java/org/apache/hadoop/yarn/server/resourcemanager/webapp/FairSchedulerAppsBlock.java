@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
@@ -40,9 +41,9 @@ import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMAppState;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.fair.FairScheduler;
 import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.AppInfo;
 import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.FairSchedulerInfo;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
 import org.apache.hadoop.yarn.webapp.util.WebAppUtils;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
@@ -91,8 +92,13 @@ public class FairSchedulerAppsBlock extends HtmlBlock {
             th(".finishtime", "FinishTime").
             th(".state", "State").
             th(".finalstatus", "FinalStatus").
+            th(".runningcontainer", "Running Containers").
+            th(".allocatedCpu", "Allocated CPU VCores").
+            th(".allocatedMemory", "Allocated Memory MB").
+            th(".reservedCpu", "Reserved CPU VCores").
+            th(".reservedMemory", "Reserved Memory MB").
             th(".progress", "Progress").
-            th(".ui", "Tracking UI")._()._().
+            th(".ui", "Tracking UI").__().__().
         tbody();
     Collection<YarnApplicationState> reqAppStates = null;
     String reqStateString = $(APP_STATE);
@@ -109,9 +115,9 @@ public class FairSchedulerAppsBlock extends HtmlBlock {
         continue;
       }
       AppInfo appInfo = new AppInfo(rm, app, true, WebAppUtils.getHttpSchemePrefix(conf));
-      String percent = String.format("%.1f", appInfo.getProgress());
+      String percent = StringUtils.format("%.1f", appInfo.getProgress());
       ApplicationAttemptId attemptId = app.getCurrentAppAttempt().getAppAttemptId();
-      int fairShare = fsinfo.getAppFairShare(attemptId);
+      long fairShare = fsinfo.getAppFairShare(attemptId);
       if (fairShare == FairSchedulerInfo.INVALID_FAIR_SHARE) {
         // FairScheduler#applications don't have the entry. Skip it.
         continue;
@@ -132,6 +138,16 @@ public class FairSchedulerAppsBlock extends HtmlBlock {
       .append(appInfo.getFinishTime()).append("\",\"")
       .append(appInfo.getState()).append("\",\"")
       .append(appInfo.getFinalStatus()).append("\",\"")
+      .append(appInfo.getRunningContainers() == -1 ? "N/A" : String
+         .valueOf(appInfo.getRunningContainers())).append("\",\"")
+      .append(appInfo.getAllocatedVCores() == -1 ? "N/A" : String
+        .valueOf(appInfo.getAllocatedVCores())).append("\",\"")
+      .append(appInfo.getAllocatedMB() == -1 ? "N/A" : String
+        .valueOf(appInfo.getAllocatedMB())).append("\",\"")
+      .append(appInfo.getReservedVCores() == -1 ? "N/A" : String
+        .valueOf(appInfo.getReservedVCores())).append("\",\"")
+      .append(appInfo.getReservedMB() == -1 ? "N/A" : String
+        .valueOf(appInfo.getReservedMB())).append("\",\"")
       // Progress bar
       .append("<br title='").append(percent)
       .append("'> <div class='").append(C_PROGRESSBAR).append("' title='")
@@ -152,8 +168,8 @@ public class FairSchedulerAppsBlock extends HtmlBlock {
     }
     appsTableData.append("]");
     html.script().$type("text/javascript").
-    _("var appsTableData=" + appsTableData)._();
+        __("var appsTableData=" + appsTableData).__();
 
-    tbody._()._();
+    tbody.__().__();
   }
 }

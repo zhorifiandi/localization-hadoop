@@ -23,21 +23,26 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.ipc.CallerContext;
 import org.apache.hadoop.yarn.MockApps;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.ApplicationResourceUsageReport;
 import org.apache.hadoop.yarn.api.records.ApplicationSubmissionContext;
+import org.apache.hadoop.yarn.api.records.ApplicationTimeoutType;
 import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
+import org.apache.hadoop.yarn.api.records.LogAggregationStatus;
 import org.apache.hadoop.yarn.api.records.NodeId;
+import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.ReservationId;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.ResourceRequest;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
+import org.apache.hadoop.yarn.server.api.protocolrecords.LogAggregationReport;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMAppEvent;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMAppMetrics;
@@ -52,7 +57,7 @@ import com.google.common.collect.Lists;
 public abstract class MockAsm extends MockApps {
 
   public static class ApplicationBase implements RMApp {
-    ResourceRequest amReq;
+    List<ResourceRequest> amReqs;
     @Override
     public String getUser() {
       throw new UnsupportedOperationException("Not supported yet.");
@@ -89,6 +94,18 @@ public abstract class MockAsm extends MockApps {
     }
     @Override
     public StringBuilder getDiagnostics() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+    @Override
+    public String getCollectorAddr() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+    @Override
+    public void setCollectorAddr(String collectorAddr) {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+    @Override
+    public void removeCollectorAddr() {
       throw new UnsupportedOperationException("Not supported yet.");
     }
     @Override
@@ -178,7 +195,7 @@ public abstract class MockAsm extends MockApps {
 
     @Override
     public RMAppMetrics getRMAppMetrics() {
-      return new RMAppMetrics(Resource.newInstance(0, 0), 0, 0, 0, 0);
+      return new RMAppMetrics(Resource.newInstance(0, 0), 0, 0, 0, 0, 0, 0);
     }
 
     @Override
@@ -187,8 +204,47 @@ public abstract class MockAsm extends MockApps {
     }
     
     @Override
-    public ResourceRequest getAMResourceRequest() {
-      return this.amReq; 
+    public List<ResourceRequest> getAMResourceRequests() {
+      return this.amReqs;
+    }
+
+    @Override
+    public Map<NodeId, LogAggregationReport> getLogAggregationReportsForApp() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public LogAggregationStatus getLogAggregationStatusForAppReport() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public String getAmNodeLabelExpression() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public String getAppNodeLabelExpression() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    public CallerContext getCallerContext() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public Map<ApplicationTimeoutType, Long> getApplicationTimeouts() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public Priority getApplicationPriority() {
+      throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public boolean isAppInCompletedStates() {
+      throw new UnsupportedOperationException("Not supported yet.");
     }
   }
 
@@ -283,7 +339,7 @@ public abstract class MockAsm extends MockApps {
           String clientUserName, boolean allowAccess) {
         ApplicationResourceUsageReport usageReport =
             ApplicationResourceUsageReport.newInstance(0, 0, null, null, null, 
-            0, 0);
+            0, 0, 0, 0, 0, 0);
         ApplicationReport report = ApplicationReport.newInstance(
             getApplicationId(), appAttemptId, getUser(), getQueue(), 
             getName(), null, 0, null, null, getDiagnostics().toString(), 

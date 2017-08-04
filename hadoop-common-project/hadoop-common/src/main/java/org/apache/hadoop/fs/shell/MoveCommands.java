@@ -25,7 +25,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.PathIOException;
 import org.apache.hadoop.fs.PathExistsException;
-import org.apache.hadoop.fs.shell.CopyCommands.CopyFromLocal;
+import org.apache.hadoop.fs.shell.CopyCommands.Put;
 
 /** Various commands for moving files */
 @InterfaceAudience.Private
@@ -41,7 +41,7 @@ class MoveCommands {
   /**
    *  Move local files to a remote filesystem
    */
-  public static class MoveFromLocal extends CopyFromLocal {
+  public static class MoveFromLocal extends Put {
     public static final String NAME = "moveFromLocal";
     public static final String USAGE = "<localsrc> ... <dst>";
     public static final String DESCRIPTION = 
@@ -82,7 +82,7 @@ class MoveCommands {
     }
   }
 
-  /** move/rename paths on the same fileystem */
+  /** move/rename paths on the same filesystem */
   public static class Rename extends CommandWithDestination {
     public static final String NAME = "mv";
     public static final String USAGE = "<src> ... <dst>";
@@ -100,7 +100,11 @@ class MoveCommands {
 
     @Override
     protected void processPath(PathData src, PathData target) throws IOException {
-      if (!src.fs.getUri().equals(target.fs.getUri())) {
+      String srcUri = src.fs.getUri().getScheme() + "://" +
+          src.fs.getUri().getHost();
+      String dstUri = target.fs.getUri().getScheme() + "://" +
+          target.fs.getUri().getHost();
+      if (!srcUri.equals(dstUri)) {
         throw new PathIOException(src.toString(),
             "Does not match target filesystem");
       }

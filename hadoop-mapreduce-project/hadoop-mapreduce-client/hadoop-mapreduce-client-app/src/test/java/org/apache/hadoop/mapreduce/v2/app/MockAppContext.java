@@ -26,6 +26,7 @@ import org.apache.hadoop.mapreduce.v2.api.records.JobId;
 import org.apache.hadoop.mapreduce.v2.app.job.Job;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
+import org.apache.hadoop.yarn.event.Event;
 import org.apache.hadoop.yarn.event.EventHandler;
 import org.apache.hadoop.yarn.security.client.ClientToAMTokenSecretManager;
 import org.apache.hadoop.yarn.util.Clock;
@@ -92,10 +93,9 @@ public class MockAppContext implements AppContext {
     return jobs; // OK
   }
 
-  @SuppressWarnings("rawtypes")
   @Override
-  public EventHandler getEventHandler() {
-    return null;
+  public EventHandler<Event> getEventHandler() {
+    return new MockEventHandler();
   }
 
   @Override
@@ -148,4 +148,10 @@ public class MockAppContext implements AppContext {
     // bogus - Not Required
     return null;
   }
+
+  @Override
+  public TaskAttemptFinishingMonitor getTaskAttemptFinishingMonitor() {
+      return null;
+  }
+
 }

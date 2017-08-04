@@ -25,9 +25,8 @@ import java.nio.ByteBuffer;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.compress.Compressor;
 import org.apache.hadoop.util.NativeCodeLoader;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A {@link Compressor} based on the popular 
@@ -37,12 +36,10 @@ import org.apache.commons.logging.LogFactory;
  */
 public class ZlibCompressor implements Compressor {
 
-  private static final Log LOG = LogFactory.getLog(ZlibCompressor.class);
+  private static final Logger LOG =
+      LoggerFactory.getLogger(ZlibCompressor.class);
 
   private static final int DEFAULT_DIRECT_BUFFER_SIZE = 64*1024;
-
-  // HACK - Use this as a global lock in the JNI layer
-  private static Class clazz = ZlibCompressor.class;
 
   private long stream;
   private CompressionLevel level;
@@ -60,7 +57,7 @@ public class ZlibCompressor implements Compressor {
   /**
    * The compression level for zlib library.
    */
-  public static enum CompressionLevel {
+  public enum CompressionLevel {
     /**
      * Compression level for no compression.
      */
@@ -70,7 +67,47 @@ public class ZlibCompressor implements Compressor {
      * Compression level for fastest compression.
      */
     BEST_SPEED (1),
-    
+
+    /**
+     * Compression level 2.
+     */
+    TWO (2),
+
+
+    /**
+     * Compression level 3.
+     */
+    THREE (3),
+
+
+    /**
+     * Compression level 4.
+     */
+    FOUR (4),
+
+
+    /**
+     * Compression level 5.
+     */
+    FIVE (5),
+
+
+    /**
+     * Compression level 6.
+     */
+    SIX (6),
+
+    /**
+     * Compression level 7.
+     */
+    SEVEN (7),
+
+    /**
+     * Compression level 8.
+     */
+    EIGHT (8),
+
+
     /**
      * Compression level for best compression.
      */
@@ -96,7 +133,7 @@ public class ZlibCompressor implements Compressor {
   /**
    * The compression level for zlib library.
    */
-  public static enum CompressionStrategy {
+  public enum CompressionStrategy {
     /**
      * Compression strategy best used for data consisting mostly of small
      * values with a somewhat random distribution. Forces more Huffman coding
@@ -141,7 +178,7 @@ public class ZlibCompressor implements Compressor {
   /**
    * The type of header for compressed data.
    */
-  public static enum CompressionHeader {
+  public enum CompressionHeader {
     /**
      * No headers/trailers/checksums.
      */

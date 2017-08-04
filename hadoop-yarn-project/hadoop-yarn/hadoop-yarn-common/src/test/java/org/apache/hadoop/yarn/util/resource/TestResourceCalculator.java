@@ -41,6 +41,35 @@ public class TestResourceCalculator {
   public TestResourceCalculator(ResourceCalculator rs) {
     this.resourceCalculator = rs;
   }
+  
+  @Test(timeout = 10000)
+  public void testFitsIn() {
+    Resource cluster = Resource.newInstance(1024, 1);
+
+    if (resourceCalculator instanceof DefaultResourceCalculator) {
+      Assert.assertTrue(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(2, 1)));
+      Assert.assertTrue(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(2, 2)));
+      Assert.assertTrue(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(1, 2)));
+      Assert.assertTrue(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(1, 1)));
+      Assert.assertFalse(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(2, 1), Resource.newInstance(1, 2)));
+    } else if (resourceCalculator instanceof DominantResourceCalculator) {
+      Assert.assertFalse(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(2, 1)));
+      Assert.assertTrue(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(2, 2)));
+      Assert.assertTrue(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(1, 2)));
+      Assert.assertFalse(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(1, 2), Resource.newInstance(1, 1)));
+      Assert.assertFalse(resourceCalculator.fitsIn(cluster,
+          Resource.newInstance(2, 1), Resource.newInstance(1, 2)));
+    }
+  }
 
   @Test(timeout = 10000)
   public void testResourceCalculatorCompareMethod() {
@@ -92,7 +121,6 @@ public class TestResourceCalculator {
 
   }
 
-
   private void assertResourcesOperations(Resource clusterResource,
       Resource lhs, Resource rhs, boolean lessThan, boolean lessThanOrEqual,
       boolean greaterThan, boolean greaterThanOrEqual, Resource max,
@@ -122,4 +150,83 @@ public class TestResourceCalculator {
         Resources.min(resourceCalculator, clusterResource, lhs, rhs));
   }
 
+  /**
+   * Test resource normalization.
+   */
+  @Test(timeout = 10000)
+  public void testNormalize() {
+    // requested resources value cannot be an arbitrary number.
+    Resource ask = Resource.newInstance(1111, 2);
+    Resource min = Resource.newInstance(1024, 1);
+    Resource max = Resource.newInstance(8 * 1024, 8);
+    Resource increment = Resource.newInstance(1024, 4);
+    if (resourceCalculator instanceof DefaultResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(2 * 1024, result.getMemorySize());
+    } else if (resourceCalculator instanceof DominantResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(2 * 1024, result.getMemorySize());
+      Assert.assertEquals(4, result.getVirtualCores());
+    }
+
+    // if resources asked are less than minimum resource, then normalize it to
+    // minimum resource.
+    ask = Resource.newInstance(512, 0);
+    min = Resource.newInstance(2 * 1024, 2);
+    max = Resource.newInstance(8 * 1024, 8);
+    increment = Resource.newInstance(1024, 1);
+    if (resourceCalculator instanceof DefaultResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(2 * 1024, result.getMemorySize());
+    } else if (resourceCalculator instanceof DominantResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(2 * 1024, result.getMemorySize());
+      Assert.assertEquals(2, result.getVirtualCores());
+    }
+
+    // if resources asked are larger than maximum resource, then normalize it to
+    // maximum resources.
+    ask = Resource.newInstance(9 * 1024, 9);
+    min = Resource.newInstance(2 * 1024, 2);
+    max = Resource.newInstance(8 * 1024, 8);
+    increment = Resource.newInstance(1024, 1);
+    if (resourceCalculator instanceof DefaultResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(8 * 1024, result.getMemorySize());
+    } else if (resourceCalculator instanceof DominantResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(8 * 1024, result.getMemorySize());
+      Assert.assertEquals(8, result.getVirtualCores());
+    }
+
+    // if increment is 0, use minimum resource as the increment resource.
+    ask = Resource.newInstance(1111, 2);
+    min = Resource.newInstance(2 * 1024, 2);
+    max = Resource.newInstance(8 * 1024, 8);
+    increment = Resource.newInstance(0, 0);
+    if (resourceCalculator instanceof DefaultResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(2 * 1024, result.getMemorySize());
+    } else if (resourceCalculator instanceof DominantResourceCalculator) {
+      Resource result = Resources.normalize(resourceCalculator,
+          ask, min, max, increment);
+
+      Assert.assertEquals(2 * 1024, result.getMemorySize());
+      Assert.assertEquals(2, result.getVirtualCores());
+    }
+  }
 }

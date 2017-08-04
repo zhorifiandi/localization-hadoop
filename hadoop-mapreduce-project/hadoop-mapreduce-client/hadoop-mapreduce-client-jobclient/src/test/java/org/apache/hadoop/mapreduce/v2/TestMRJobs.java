@@ -24,6 +24,7 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.StringReader;
 import java.net.URI;
 import java.security.PrivilegedExceptionAction;
@@ -62,6 +63,7 @@ import org.apache.hadoop.mapred.TaskLog;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.Job;
 import org.apache.hadoop.mapreduce.JobCounter;
+import org.apache.hadoop.mapreduce.JobPriority;
 import org.apache.hadoop.mapreduce.JobStatus;
 import org.apache.hadoop.mapreduce.MRConfig;
 import org.apache.hadoop.mapreduce.MRJobConfig;
@@ -131,6 +133,8 @@ public class TestMRJobs {
   static Path APP_JAR = new Path(TEST_ROOT_DIR, "MRAppJar.jar");
   private static final String OUTPUT_ROOT_DIR = "/tmp/" +
     TestMRJobs.class.getSimpleName();
+  private static final Path TEST_RESOURCES_DIR = new Path(TEST_ROOT_DIR,
+      "localizedResources");
 
   @BeforeClass
   public static void setup() throws IOException {
@@ -154,6 +158,7 @@ public class TestMRJobs {
       Configuration conf = new Configuration();
       conf.set("fs.defaultFS", remoteFs.getUri().toString());   // use HDFS
       conf.set(MRJobConfig.MR_AM_STAGING_DIR, "/apps_staging_dir");
+      conf.setInt(YarnConfiguration.MAX_CLUSTER_LEVEL_APPLICATION_PRIORITY, 10);
       mrCluster.init(conf);
       mrCluster.start();
     }
@@ -165,7 +170,7 @@ public class TestMRJobs {
   }
 
   @AfterClass
-  public static void tearDown() {
+  public static void tearDown() throws IOException {
     if (mrCluster != null) {
       mrCluster.stop();
       mrCluster = null;
@@ -174,11 +179,48 @@ public class TestMRJobs {
       dfsCluster.shutdown();
       dfsCluster = null;
     }
+    if (localFs.exists(TEST_RESOURCES_DIR)) {
+      // clean up resource directory
+      localFs.delete(TEST_RESOURCES_DIR, true);
+    }
   }
 
   @After
   public void resetInit() {
     numSleepReducers = DEFAULT_REDUCES;
+  }
+
+  private static void setupJobResourceDirs() throws IOException {
+    if (localFs.exists(TEST_RESOURCES_DIR)) {
+      // clean up directory
+      localFs.delete(TEST_RESOURCES_DIR, true);
+    }
+
+    localFs.mkdirs(TEST_RESOURCES_DIR);
+    FSDataOutputStream outF1 = null;
+    try {
+      // 10KB file
+      outF1 = localFs.create(new Path(TEST_RESOURCES_DIR, "file1.txt"));
+      outF1.write(new byte[10 * 1024]);
+    } finally {
+      if (outF1 != null) {
+        outF1.close();
+      }
+    }
+    localFs.createNewFile(new Path(TEST_RESOURCES_DIR, "file2.txt"));
+    Path subDir = new Path(TEST_RESOURCES_DIR, "subDir");
+    localFs.mkdirs(subDir);
+    FSDataOutputStream outF3 = null;
+    try {
+      // 1MB (plus 10 Bytes) file
+      outF3 = localFs.create(new Path(subDir, "file3.txt"));
+      outF3.write(new byte[(1 * 1024 * 1024) + 10]);
+    } finally {
+      if (outF3 != null) {
+        outF3.close();
+      }
+    }
+    localFs.createNewFile(new Path(subDir, "file4.txt"));
   }
 
   @Test (timeout = 300000)
@@ -191,8 +233,92 @@ public class TestMRJobs {
     testSleepJobInternal(true);
   }
 
+  @Test(timeout = 300000)
+  public void testSleepJobWithLocalResourceUnderLimit() throws Exception {
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set limits to well above what is expected
+    sleepConf.setInt(MRJobConfig.MAX_RESOURCES, 6);
+    sleepConf.setLong(MRJobConfig.MAX_RESOURCES_MB, 6);
+    setupJobResourceDirs();
+    sleepConf.set("tmpfiles", TEST_RESOURCES_DIR.toString());
+    testSleepJobInternal(sleepConf, false, true, null);
+  }
+
+  @Test(timeout = 300000)
+  public void testSleepJobWithLocalResourceSizeOverLimit() throws Exception {
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set limits to well below what is expected
+    sleepConf.setLong(MRJobConfig.MAX_RESOURCES_MB, 1);
+    setupJobResourceDirs();
+    sleepConf.set("tmpfiles", TEST_RESOURCES_DIR.toString());
+    testSleepJobInternal(sleepConf, false, false,
+        ResourceViolation.TOTAL_RESOURCE_SIZE);
+  }
+
+  @Test(timeout = 300000)
+  public void testSleepJobWithLocalResourceNumberOverLimit() throws Exception {
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set limits to well below what is expected
+    sleepConf.setInt(MRJobConfig.MAX_RESOURCES, 1);
+    setupJobResourceDirs();
+    sleepConf.set("tmpfiles", TEST_RESOURCES_DIR.toString());
+    testSleepJobInternal(sleepConf, false, false,
+        ResourceViolation.NUMBER_OF_RESOURCES);
+  }
+
+  @Test(timeout = 300000)
+  public void testSleepJobWithLocalResourceCheckAndRemoteJar()
+      throws Exception {
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set limits to well above what is expected
+    sleepConf.setInt(MRJobConfig.MAX_RESOURCES, 6);
+    sleepConf.setLong(MRJobConfig.MAX_RESOURCES_MB, 6);
+    setupJobResourceDirs();
+    sleepConf.set("tmpfiles", TEST_RESOURCES_DIR.toString());
+    testSleepJobInternal(sleepConf, true, true, null);
+  }
+
+  @Test(timeout = 300000)
+  public void testSleepJobWithLocalIndividualResourceOverLimit()
+      throws Exception {
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set limits to well below what is expected
+    sleepConf.setInt(MRJobConfig.MAX_SINGLE_RESOURCE_MB, 1);
+    setupJobResourceDirs();
+    sleepConf.set("tmpfiles", TEST_RESOURCES_DIR.toString());
+    testSleepJobInternal(sleepConf, false, false,
+        ResourceViolation.SINGLE_RESOURCE_SIZE);
+  }
+
+  @Test(timeout = 300000)
+  public void testSleepJobWithLocalIndividualResourceUnderLimit()
+      throws Exception {
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set limits to well below what is expected
+    sleepConf.setInt(MRJobConfig.MAX_SINGLE_RESOURCE_MB, 2);
+    setupJobResourceDirs();
+    sleepConf.set("tmpfiles", TEST_RESOURCES_DIR.toString());
+    testSleepJobInternal(sleepConf, false, true, null);
+  }
+
   private void testSleepJobInternal(boolean useRemoteJar) throws Exception {
+    testSleepJobInternal(new Configuration(mrCluster.getConfig()),
+        useRemoteJar, true, null);
+  }
+
+  private enum ResourceViolation {
+    NUMBER_OF_RESOURCES, TOTAL_RESOURCE_SIZE, SINGLE_RESOURCE_SIZE;
+  }
+
+  private void testSleepJobInternal(Configuration sleepConf,
+      boolean useRemoteJar, boolean jobSubmissionShouldSucceed,
+      ResourceViolation violation) throws Exception {
     LOG.info("\n\n\nStarting testSleepJob: useRemoteJar=" + useRemoteJar);
+
+    if (!jobSubmissionShouldSucceed && violation == null) {
+      Assert.fail("Test is misconfigured. jobSubmissionShouldSucceed is set"
+          + " to false and a ResourceViolation is not specified.");
+    }
 
     if (!(new File(MiniMRYarnCluster.APPJAR)).exists()) {
       LOG.info("MRAppJar " + MiniMRYarnCluster.APPJAR
@@ -200,7 +326,6 @@ public class TestMRJobs {
       return;
     }
 
-    Configuration sleepConf = new Configuration(mrCluster.getConfig());
     // set master address to local to test that local mode applied iff framework == local
     sleepConf.set(MRConfig.MASTER_ADDRESS, "local");	
     
@@ -221,7 +346,45 @@ public class TestMRJobs {
       job.setJarByClass(SleepJob.class);
     }
     job.setMaxMapAttempts(1); // speed up failures
-    job.submit();
+    try {
+      job.submit();
+      Assert.assertTrue("JobSubmission succeeded when it should have failed.",
+          jobSubmissionShouldSucceed);
+    } catch (IOException e) {
+      if (jobSubmissionShouldSucceed) {
+        Assert
+            .fail("Job submission failed when it should have succeeded: " + e);
+      }
+      switch (violation) {
+      case NUMBER_OF_RESOURCES:
+        if (!e.getMessage().contains(
+            "This job has exceeded the maximum number of"
+                + " submitted resources")) {
+          Assert.fail("Test failed unexpectedly: " + e);
+        }
+        break;
+
+      case TOTAL_RESOURCE_SIZE:
+        if (!e.getMessage().contains(
+            "This job has exceeded the maximum size of submitted resources")) {
+          Assert.fail("Test failed unexpectedly: " + e);
+        }
+        break;
+
+      case SINGLE_RESOURCE_SIZE:
+        if (!e.getMessage().contains(
+            "This job has exceeded the maximum size of a single submitted")) {
+          Assert.fail("Test failed unexpectedly: " + e);
+        }
+        break;
+
+      default:
+        Assert.fail("Test failed unexpectedly: " + e);
+        break;
+      }
+      // we are done with the test (job submission failed)
+      return;
+    }
     String trackingUrl = job.getTrackingURL();
     String jobId = job.getJobID().toString();
     boolean succeeded = job.waitForCompletion(true);
@@ -235,6 +398,66 @@ public class TestMRJobs {
     
     // TODO later:  add explicit "isUber()" checks of some sort (extend
     // JobStatus?)--compare against MRJobConfig.JOB_UBERTASK_ENABLE value
+  }
+
+  @Test(timeout = 3000000)
+  public void testJobWithChangePriority() throws Exception {
+
+    if (!(new File(MiniMRYarnCluster.APPJAR)).exists()) {
+      LOG.info("MRAppJar " + MiniMRYarnCluster.APPJAR
+          + " not found. Not running test.");
+      return;
+    }
+
+    Configuration sleepConf = new Configuration(mrCluster.getConfig());
+    // set master address to local to test that local mode applied if framework
+    // equals local
+    sleepConf.set(MRConfig.MASTER_ADDRESS, "local");
+    sleepConf.setInt(MRJobConfig.MR_AM_TO_RM_HEARTBEAT_INTERVAL_MS, 5);
+
+    SleepJob sleepJob = new SleepJob();
+    sleepJob.setConf(sleepConf);
+    Job job = sleepJob.createJob(1, 1, 1000, 20, 50, 1);
+
+    job.addFileToClassPath(APP_JAR); // The AppMaster jar itself.
+    job.setJarByClass(SleepJob.class);
+    job.setMaxMapAttempts(1); // speed up failures
+    job.submit();
+
+    // Set the priority to HIGH
+    job.setPriority(JobPriority.HIGH);
+    waitForPriorityToUpdate(job, JobPriority.HIGH);
+    // Verify the priority from job itself
+    Assert.assertEquals(job.getPriority(), JobPriority.HIGH);
+
+    // Change priority to NORMAL (3) with new api
+    job.setPriorityAsInteger(3); // Verify the priority from job itself
+    waitForPriorityToUpdate(job, JobPriority.NORMAL);
+    Assert.assertEquals(job.getPriority(), JobPriority.NORMAL);
+
+    // Change priority to a high integer value with new api
+    job.setPriorityAsInteger(89); // Verify the priority from job itself
+    waitForPriorityToUpdate(job, JobPriority.UNDEFINED_PRIORITY);
+    Assert.assertEquals(job.getPriority(), JobPriority.UNDEFINED_PRIORITY);
+
+    boolean succeeded = job.waitForCompletion(true);
+    Assert.assertTrue(succeeded);
+    Assert.assertEquals(JobStatus.State.SUCCEEDED, job.getJobState());
+  }
+
+  private void waitForPriorityToUpdate(Job job, JobPriority expectedStatus)
+      throws IOException, InterruptedException {
+    // Max wait time to get the priority update can be kept as 20sec (100 *
+    // 100ms)
+    int waitCnt = 200;
+    while (waitCnt-- > 0) {
+      if (job.getPriority().equals(expectedStatus)) {
+        // Stop waiting as priority is updated.
+        break;
+      } else {
+        Thread.sleep(100);
+      }
+    }
   }
 
   @Test(timeout = 300000)
@@ -356,12 +579,6 @@ public class TestMRJobs {
         .getValue());
     Assert.assertEquals(numSleepReducers,
         counters.findCounter(JobCounter.TOTAL_LAUNCHED_REDUCES).getValue());
-    Assert
-        .assertTrue(counters.findCounter(JobCounter.SLOTS_MILLIS_MAPS) != null
-            && counters.findCounter(JobCounter.SLOTS_MILLIS_MAPS).getValue() != 0);
-    Assert
-        .assertTrue(counters.findCounter(JobCounter.SLOTS_MILLIS_MAPS) != null
-            && counters.findCounter(JobCounter.SLOTS_MILLIS_MAPS).getValue() != 0);
   }
   
   protected void verifyTaskProgress(Job job) throws InterruptedException,
@@ -433,9 +650,6 @@ public class TestMRJobs {
         .getValue());
     Assert.assertEquals(3, counters.findCounter(JobCounter.TOTAL_LAUNCHED_MAPS)
         .getValue());
-    Assert
-        .assertTrue(counters.findCounter(JobCounter.SLOTS_MILLIS_MAPS) != null
-            && counters.findCounter(JobCounter.SLOTS_MILLIS_MAPS).getValue() != 0);
   }
 
   @Test (timeout = 60000)
@@ -642,7 +856,7 @@ public class TestMRJobs {
           boolean foundAppMaster = job.isUber();
           final Path containerPathComponent = slog.getPath().getParent();
           if (!foundAppMaster) {
-            final ContainerId cid = ConverterUtils.toContainerId(
+            final ContainerId cid = ContainerId.fromString(
                 containerPathComponent.getName());
             foundAppMaster =
                 ((cid.getContainerId() & ContainerId.CONTAINER_ID_BITMASK)== 1);
@@ -804,7 +1018,8 @@ public class TestMRJobs {
     }
   }
 
-  public void _testDistributedCache(String jobJarPath) throws Exception {
+  private void testDistributedCache(String jobJarPath, boolean withWildcard)
+      throws Exception {
     if (!(new File(MiniMRYarnCluster.APPJAR)).exists()) {
       LOG.info("MRAppJar " + MiniMRYarnCluster.APPJAR
            + " not found. Not running test.");
@@ -813,7 +1028,7 @@ public class TestMRJobs {
 
     // Create a temporary file of length 1.
     Path first = createTempFile("distributed.first", "x");
-    // Create two jars with a single file inside them.
+    // Create three jars with a single file inside them.
     Path second =
         makeJar(new Path(TEST_ROOT_DIR, "distributed.second.jar"), 2);
     Path third =
@@ -822,16 +1037,28 @@ public class TestMRJobs {
         makeJar(new Path(TEST_ROOT_DIR, "distributed.fourth.jar"), 4);
 
     Job job = Job.getInstance(mrCluster.getConfig());
-    
+
     // Set the job jar to a new "dummy" jar so we can check that its extracted 
     // properly
     job.setJar(jobJarPath);
-    // Because the job jar is a "dummy" jar, we need to include the jar with
-    // DistributedCacheChecker or it won't be able to find it
-    Path distributedCacheCheckerJar = new Path(
-            JarFinder.getJar(DistributedCacheChecker.class));
-    job.addFileToClassPath(distributedCacheCheckerJar.makeQualified(
-            localFs.getUri(), distributedCacheCheckerJar.getParent()));
+
+    if (withWildcard) {
+      // If testing with wildcards, upload the DistributedCacheChecker into HDFS
+      // and add the directory as a wildcard.
+      Path libs = new Path("testLibs");
+      Path wildcard = remoteFs.makeQualified(new Path(libs, "*"));
+
+      remoteFs.mkdirs(libs);
+      remoteFs.copyFromLocalFile(third, libs);
+      job.addCacheFile(wildcard.toUri());
+    } else {
+      // Otherwise add the DistributedCacheChecker directly to the classpath.
+      // Because the job jar is a "dummy" jar, we need to include the jar with
+      // DistributedCacheChecker or it won't be able to find it
+      Path distributedCacheCheckerJar = new Path(
+              JarFinder.getJar(DistributedCacheChecker.class));
+      job.addFileToClassPath(localFs.makeQualified(distributedCacheCheckerJar));
+    }
     
     job.setMapperClass(DistributedCacheChecker.class);
     job.setOutputFormatClass(NullOutputFormat.class);
@@ -857,11 +1084,10 @@ public class TestMRJobs {
           trackingUrl.endsWith(jobId.substring(jobId.lastIndexOf("_")) + "/"));
   }
   
-  @Test (timeout = 600000)
-  public void testDistributedCache() throws Exception {
+  private void testDistributedCache(boolean withWildcard) throws Exception {
     // Test with a local (file:///) Job Jar
     Path localJobJarPath = makeJobJarWithLib(TEST_ROOT_DIR.toUri().toString());
-    _testDistributedCache(localJobJarPath.toUri().toString());
+    testDistributedCache(localJobJarPath.toUri().toString(), withWildcard);
     
     // Test with a remote (hdfs://) Job Jar
     Path remoteJobJarPath = new Path(remoteFs.getUri().toString() + "/",
@@ -871,7 +1097,135 @@ public class TestMRJobs {
     if (localJobJarFile.exists()) {     // just to make sure
         localJobJarFile.delete();
     }
-    _testDistributedCache(remoteJobJarPath.toUri().toString());
+    testDistributedCache(remoteJobJarPath.toUri().toString(), withWildcard);
+  }
+
+  @Test (timeout = 300000)
+  public void testDistributedCache() throws Exception {
+    testDistributedCache(false);
+  }
+
+  @Test (timeout = 300000)
+  public void testDistributedCacheWithWildcards() throws Exception {
+    testDistributedCache(true);
+  }
+
+  @Test(timeout = 120000)
+  public void testThreadDumpOnTaskTimeout() throws IOException,
+      InterruptedException, ClassNotFoundException {
+    if (!(new File(MiniMRYarnCluster.APPJAR)).exists()) {
+      LOG.info("MRAppJar " + MiniMRYarnCluster.APPJAR
+          + " not found. Not running test.");
+      return;
+    }
+
+    final SleepJob sleepJob = new SleepJob();
+    final JobConf sleepConf = new JobConf(mrCluster.getConfig());
+    sleepConf.setLong(MRJobConfig.TASK_TIMEOUT, 3 * 1000L);
+    sleepConf.setInt(MRJobConfig.MAP_MAX_ATTEMPTS, 1);
+    sleepJob.setConf(sleepConf);
+    if (this instanceof TestUberAM) {
+      sleepConf.setInt(MRJobConfig.MR_AM_TO_RM_HEARTBEAT_INTERVAL_MS,
+          30 * 1000);
+    }
+    // sleep for 10 seconds to trigger a kill with thread dump
+    final Job job = sleepJob.createJob(1, 0, 10 * 60 * 1000L, 1, 0L, 0);
+    job.setJarByClass(SleepJob.class);
+    job.addFileToClassPath(APP_JAR); // The AppMaster jar itself.
+    job.waitForCompletion(true);
+    final JobId jobId = TypeConverter.toYarn(job.getJobID());
+    final ApplicationId appID = jobId.getAppId();
+    int pollElapsed = 0;
+    while (true) {
+      Thread.sleep(1000);
+      pollElapsed += 1000;
+      if (TERMINAL_RM_APP_STATES.contains(mrCluster.getResourceManager()
+          .getRMContext().getRMApps().get(appID).getState())) {
+        break;
+      }
+      if (pollElapsed >= 60000) {
+        LOG.warn("application did not reach terminal state within 60 seconds");
+        break;
+      }
+    }
+
+    // Job finished, verify logs
+    //
+
+    final String appIdStr = appID.toString();
+    final String appIdSuffix = appIdStr.substring("application_".length(),
+        appIdStr.length());
+    final String containerGlob = "container_" + appIdSuffix + "_*_*";
+    final String syslogGlob = appIdStr
+        + Path.SEPARATOR + containerGlob
+        + Path.SEPARATOR + TaskLog.LogName.SYSLOG;
+    int numAppMasters = 0;
+    int numMapTasks = 0;
+
+    for (int i = 0; i < NUM_NODE_MGRS; i++) {
+      final Configuration nmConf = mrCluster.getNodeManager(i).getConfig();
+      for (String logDir :
+               nmConf.getTrimmedStrings(YarnConfiguration.NM_LOG_DIRS)) {
+        final Path absSyslogGlob =
+            new Path(logDir + Path.SEPARATOR + syslogGlob);
+        LOG.info("Checking for glob: " + absSyslogGlob);
+        for (FileStatus syslog : localFs.globStatus(absSyslogGlob)) {
+          boolean foundAppMaster = false;
+          boolean foundThreadDump = false;
+
+          // Determine the container type
+          final BufferedReader syslogReader = new BufferedReader(
+              new InputStreamReader(localFs.open(syslog.getPath())));
+          try {
+            for (String line; (line = syslogReader.readLine()) != null; ) {
+              if (line.contains(MRAppMaster.class.getName())) {
+                foundAppMaster = true;
+                break;
+              }
+            }
+          } finally {
+            syslogReader.close();
+          }
+
+          // Check for thread dump in stdout
+          final Path stdoutPath = new Path(syslog.getPath().getParent(),
+              TaskLog.LogName.STDOUT.toString());
+          final BufferedReader stdoutReader = new BufferedReader(
+              new InputStreamReader(localFs.open(stdoutPath)));
+          try {
+            for (String line; (line = stdoutReader.readLine()) != null; ) {
+              if (line.contains("Full thread dump")) {
+                foundThreadDump = true;
+                break;
+              }
+            }
+          } finally {
+            stdoutReader.close();
+          }
+
+          if (foundAppMaster) {
+            numAppMasters++;
+            if (this instanceof TestUberAM) {
+              Assert.assertTrue("No thread dump", foundThreadDump);
+            } else {
+              Assert.assertFalse("Unexpected thread dump", foundThreadDump);
+            }
+          } else {
+            numMapTasks++;
+            Assert.assertTrue("No thread dump", foundThreadDump);
+          }
+        }
+      }
+    }
+
+    // Make sure we checked non-empty set
+    //
+    Assert.assertEquals("No AppMaster log found!", 1, numAppMasters);
+    if (sleepConf.getBoolean(MRJobConfig.JOB_UBERTASK_ENABLE, false)) {
+      Assert.assertSame("MapTask log with uber found!", 0, numMapTasks);
+    } else {
+      Assert.assertSame("No MapTask log found!", 1, numMapTasks);
+    }
   }
 
   private Path createTempFile(String filename, String contents)
@@ -945,6 +1299,15 @@ public class TestMRJobs {
         throws IOException, InterruptedException {
       super.setup(context);
       final Configuration conf = context.getConfiguration();
+      // check if the job classloader is enabled and verify the TCCL
+      if (conf.getBoolean(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER, false)) {
+        ClassLoader tccl = Thread.currentThread().getContextClassLoader();
+        if (!(tccl instanceof ApplicationClassLoader)) {
+          throw new IOException("TCCL expected: " +
+              ApplicationClassLoader.class.getName() + ", actual: " +
+              tccl.getClass().getName());
+        }
+      }
       final String ioSortMb = conf.get(MRJobConfig.IO_SORT_MB);
       if (!TEST_IO_SORT_MB.equals(ioSortMb)) {
         throw new IOException("io.sort.mb expected: " + TEST_IO_SORT_MB

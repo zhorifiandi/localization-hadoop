@@ -24,8 +24,6 @@ import java.util.Arrays;
 import java.util.LinkedList;
 
 import org.apache.commons.lang.WordUtils;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.conf.Configured;
@@ -33,23 +31,32 @@ import org.apache.hadoop.fs.shell.Command;
 import org.apache.hadoop.fs.shell.CommandFactory;
 import org.apache.hadoop.fs.shell.FsCommand;
 import org.apache.hadoop.tools.TableListing;
+import org.apache.hadoop.tracing.TraceUtils;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
+import org.apache.htrace.core.TraceScope;
+import org.apache.htrace.core.Tracer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Provide command line access to a FileSystem. */
 @InterfaceAudience.Private
 public class FsShell extends Configured implements Tool {
   
-  static final Log LOG = LogFactory.getLog(FsShell.class);
+  static final Logger LOG = LoggerFactory.getLogger(FsShell.class);
 
   private static final int MAX_LINE_WIDTH = 80;
 
   private FileSystem fs;
   private Trash trash;
+  private Help help;
   protected CommandFactory commandFactory;
 
   private final String usagePrefix =
     "Usage: hadoop fs [generic options]";
+
+  static final String SHELL_HTRACE_PREFIX = "fs.shell.htrace.";
 
   /**
    * Default ctor with no configuration.  Be sure to invoke
@@ -82,6 +89,13 @@ public class FsShell extends Configured implements Tool {
     }
     return this.trash;
   }
+
+  protected Help getHelp() throws IOException {
+    if (this.help == null){
+      this.help = new Help();
+    }
+    return this.help;
+  }
   
   protected void init() throws IOException {
     getConf().setQuietMode(true);
@@ -111,11 +125,25 @@ public class FsShell extends Configured implements Tool {
     return getTrash().getCurrentTrashDir();
   }
 
+  /**
+   * Returns the current trash location for the path specified
+   * @param path to be deleted
+   * @return path to the trash
+   * @throws IOException
+   */
+  public Path getCurrentTrashDir(Path path) throws IOException {
+    return getTrash().getCurrentTrashDir(path);
+  }
+
+  protected String getUsagePrefix() {
+    return usagePrefix;
+  }
+
   // NOTE: Usage/Help are inner classes to allow access to outer methods
   // that access commandFactory
   
   /**
-   *  Display help for commands with their short usage and long description
+   *  Display help for commands with their short usage and long description.
    */
    protected class Usage extends FsCommand {
     public static final String NAME = "usage";
@@ -194,7 +222,7 @@ public class FsShell extends Configured implements Tool {
       }
     } else {
       // display help or usage for all commands 
-      out.println(usagePrefix);
+      out.println(getUsagePrefix());
       
       // display list of short usages
       ArrayList<Command> instances = new ArrayList<Command>();
@@ -218,7 +246,7 @@ public class FsShell extends Configured implements Tool {
   }
 
   private void printInstanceUsage(PrintStream out, Command instance) {
-    out.println(usagePrefix + " " + instance.getUsage());
+    out.println(getUsagePrefix() + " " + instance.getUsage());
   }
 
   private void printInstanceHelp(PrintStream out, Command instance) {
@@ -272,7 +300,9 @@ public class FsShell extends Configured implements Tool {
   public int run(String argv[]) throws Exception {
     // initialize FsShell
     init();
-
+    Tracer tracer = new Tracer.Builder("FsShell").
+        conf(TraceUtils.wrapHadoopConf(SHELL_HTRACE_PREFIX, getConf())).
+        build();
     int exitCode = -1;
     if (argv.length < 1) {
       printUsage(System.err);
@@ -284,9 +314,27 @@ public class FsShell extends Configured implements Tool {
         if (instance == null) {
           throw new UnknownCommandException();
         }
-        exitCode = instance.run(Arrays.copyOfRange(argv, 1, argv.length));
+        TraceScope scope = tracer.newScope(instance.getCommandName());
+        if (scope.getSpan() != null) {
+          String args = StringUtils.join(" ", argv);
+          if (args.length() > 2048) {
+            args = args.substring(0, 2048);
+          }
+          scope.getSpan().addKVAnnotation("args", args);
+        }
+        try {
+          exitCode = instance.run(Arrays.copyOfRange(argv, 1, argv.length));
+        } finally {
+          scope.close();
+        }
       } catch (IllegalArgumentException e) {
-        displayError(cmd, e.getLocalizedMessage());
+        if (e.getMessage() == null) {
+          displayError(cmd, "Null exception message");
+          e.printStackTrace(System.err);
+        } else {
+          displayError(cmd, e.getLocalizedMessage());
+        }
+        printUsage(System.err);
         if (instance != null) {
           printInstanceUsage(System.err, instance);
         }
@@ -297,6 +345,7 @@ public class FsShell extends Configured implements Tool {
         e.printStackTrace(System.err);
       }
     }
+    tracer.close();
     return exitCode;
   }
   

@@ -23,11 +23,12 @@ import org.apache.hadoop.mapred.lib.*;
 import org.apache.hadoop.mapreduce.MapReduceTestUtil;
 import org.apache.hadoop.mapreduce.lib.fieldsel.FieldSelectionHelper;
 import org.apache.hadoop.mapreduce.lib.fieldsel.TestMRFieldSelection;
+import org.junit.Test;
+import static org.junit.Assert.assertEquals;
 
-import junit.framework.TestCase;
 import java.text.NumberFormat;
 
-public class TestFieldSelection extends TestCase {
+public class TestFieldSelection {
 
 private static NumberFormat idFormat = NumberFormat.getInstance();
   static {
@@ -35,6 +36,7 @@ private static NumberFormat idFormat = NumberFormat.getInstance();
     idFormat.setGroupingUsed(false);
   }
 
+  @Test
   public void testFieldSelection() throws Exception {
     launch();
   }
@@ -44,8 +46,9 @@ private static NumberFormat idFormat = NumberFormat.getInstance();
     FileSystem fs = FileSystem.get(conf);
     int numOfInputLines = 10;
 
-    Path OUTPUT_DIR = new Path("build/test/output_for_field_selection_test");
-    Path INPUT_DIR = new Path("build/test/input_for_field_selection_test");
+    String baseDir = System.getProperty("test.build.data", "build/test/data");
+    Path OUTPUT_DIR = new Path(baseDir + "/output_for_field_selection_test");
+    Path INPUT_DIR = new Path(baseDir + "/input_for_field_selection_test");
     String inputFile = "input.txt";
     fs.delete(INPUT_DIR, true);
     fs.mkdirs(INPUT_DIR);
@@ -74,7 +77,7 @@ private static NumberFormat idFormat = NumberFormat.getInstance();
     job.setOutputFormat(TextOutputFormat.class);
     job.setNumReduceTasks(1);
 
-    job.set(FieldSelectionHelper.DATA_FIELD_SEPERATOR, "-");
+    job.set(FieldSelectionHelper.DATA_FIELD_SEPARATOR, "-");
     job.set(FieldSelectionHelper.MAP_OUTPUT_KEY_VALUE_SPEC, "6,5,1-3:0-");
     job.set(FieldSelectionHelper.REDUCE_OUTPUT_KEY_VALUE_SPEC, ":4,3,2,1,0,0-");
 

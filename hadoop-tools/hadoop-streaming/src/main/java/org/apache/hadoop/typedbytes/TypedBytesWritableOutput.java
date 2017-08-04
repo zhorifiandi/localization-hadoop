@@ -58,8 +58,10 @@ public class TypedBytesWritableOutput {
     this.out = out;
   }
 
-  private static ThreadLocal tbOut = new ThreadLocal() {
-    protected synchronized Object initialValue() {
+  private static final ThreadLocal<TypedBytesWritableOutput> TB_OUT =
+      new ThreadLocal<TypedBytesWritableOutput>() {
+    @Override
+    protected TypedBytesWritableOutput initialValue() {
       return new TypedBytesWritableOutput();
     }
   };
@@ -73,7 +75,7 @@ public class TypedBytesWritableOutput {
    *         {@link TypedBytesOutput}.
    */
   public static TypedBytesWritableOutput get(TypedBytesOutput out) {
-    TypedBytesWritableOutput bout = (TypedBytesWritableOutput) tbOut.get();
+    TypedBytesWritableOutput bout = TB_OUT.get();
     bout.setTypedBytesOutput(out);
     return bout;
   }
@@ -129,7 +131,7 @@ public class TypedBytesWritableOutput {
     } else if (w instanceof MapWritable) {
       writeMap((MapWritable) w);
     } else if (w instanceof SortedMapWritable) {
-      writeSortedMap((SortedMapWritable) w);
+      writeSortedMap((SortedMapWritable<?>) w);
     } else if (w instanceof Record) {
       writeRecord((Record) w);
     } else {
@@ -198,9 +200,9 @@ public class TypedBytesWritableOutput {
     }
   }
 
-  public void writeSortedMap(SortedMapWritable smw) throws IOException {
+  public void writeSortedMap(SortedMapWritable<?> smw) throws IOException {
     out.writeMapHeader(smw.size());
-    for (Map.Entry<WritableComparable, Writable> entry : smw.entrySet()) {
+    for (Map.Entry<? extends WritableComparable<?>, Writable> entry : smw.entrySet()) {
       write(entry.getKey());
       write(entry.getValue());
     }

@@ -18,6 +18,7 @@
 package org.apache.hadoop.mapred;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -84,6 +85,8 @@ public class TestCounters {
    */
   private void testCounter(Counters counter) throws ParseException {
     String compactEscapedString = counter.makeEscapedCompactString();
+    assertFalse("compactEscapedString should not contain null",
+                compactEscapedString.contains("null"));
     
     Counters recoveredCounter = 
       Counters.fromEscapedCompactString(compactEscapedString);
@@ -345,7 +348,36 @@ public class TestCounters {
         counterGroup.findCounter("Unknown");
     Assert.assertNull(count2);
   }
-  
+
+  @SuppressWarnings("rawtypes")
+  @Test
+  public void testTaskCounter() {
+    GroupFactory groupFactory = new GroupFactoryForTest();
+    FrameworkGroupFactory frameworkGroupFactory =
+        groupFactory.newFrameworkGroupFactory(TaskCounter.class);
+    Group group = (Group) frameworkGroupFactory.newGroup("TaskCounter");
+
+    FrameworkCounterGroup counterGroup =
+        (FrameworkCounterGroup) group.getUnderlyingGroup();
+
+    org.apache.hadoop.mapreduce.Counter count1 =
+        counterGroup.findCounter(
+            TaskCounter.PHYSICAL_MEMORY_BYTES.toString());
+    Assert.assertNotNull(count1);
+    count1.increment(10);
+    count1.increment(10);
+    Assert.assertEquals(20, count1.getValue());
+
+    // Verify no exception get thrown when finding an unknown counter
+    org.apache.hadoop.mapreduce.Counter count2 =
+        counterGroup.findCounter(
+            TaskCounter.MAP_PHYSICAL_MEMORY_BYTES_MAX.toString());
+    Assert.assertNotNull(count2);
+    count2.increment(5);
+    count2.increment(10);
+    Assert.assertEquals(10, count2.getValue());
+  }
+
   @Test
   public void testFilesystemCounter() {
     GroupFactory groupFactory = new GroupFactoryForTest();

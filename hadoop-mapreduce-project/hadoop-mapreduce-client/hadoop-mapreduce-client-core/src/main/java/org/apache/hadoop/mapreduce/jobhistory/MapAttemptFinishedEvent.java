@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
+import java.util.Set;
+
 import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
@@ -26,6 +28,10 @@ import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskID;
 import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.mapreduce.util.JobHistoryEventUtils;
+import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 
 /**
  * Event to record successful completion of a map attempt
@@ -33,7 +39,7 @@ import org.apache.hadoop.mapreduce.TaskType;
  */
 @InterfaceAudience.Private
 @InterfaceStability.Unstable
-public class MapAttemptFinishedEvent  implements HistoryEvent {
+public class MapAttemptFinishedEvent implements HistoryEvent {
 
   private MapAttemptFinished datum = null;
 
@@ -125,48 +131,48 @@ public class MapAttemptFinishedEvent  implements HistoryEvent {
   public Object getDatum() {
     if (datum == null) {
       datum = new MapAttemptFinished();
-      datum.taskid = new Utf8(attemptId.getTaskID().toString());
-      datum.attemptId = new Utf8(attemptId.toString());
-      datum.taskType = new Utf8(taskType.name());
-      datum.taskStatus = new Utf8(taskStatus);
-      datum.mapFinishTime = mapFinishTime;
-      datum.finishTime = finishTime;
-      datum.hostname = new Utf8(hostname);
-      datum.port = port;
+      datum.setTaskid(new Utf8(attemptId.getTaskID().toString()));
+      datum.setAttemptId(new Utf8(attemptId.toString()));
+      datum.setTaskType(new Utf8(taskType.name()));
+      datum.setTaskStatus(new Utf8(taskStatus));
+      datum.setMapFinishTime(mapFinishTime);
+      datum.setFinishTime(finishTime);
+      datum.setHostname(new Utf8(hostname));
+      datum.setPort(port);
       if (rackName != null) {
-        datum.rackname = new Utf8(rackName);
+        datum.setRackname(new Utf8(rackName));
       }
-      datum.state = new Utf8(state);
-      datum.counters = EventWriter.toAvro(counters);
+      datum.setState(new Utf8(state));
+      datum.setCounters(EventWriter.toAvro(counters));
 
-      datum.clockSplits = AvroArrayUtils.toAvro(ProgressSplitsBlock
-        .arrayGetWallclockTime(allSplits));
-      datum.cpuUsages = AvroArrayUtils.toAvro(ProgressSplitsBlock
-        .arrayGetCPUTime(allSplits));
-      datum.vMemKbytes = AvroArrayUtils.toAvro(ProgressSplitsBlock
-        .arrayGetVMemKbytes(allSplits));
-      datum.physMemKbytes = AvroArrayUtils.toAvro(ProgressSplitsBlock
-        .arrayGetPhysMemKbytes(allSplits));
+      datum.setClockSplits(AvroArrayUtils.toAvro(ProgressSplitsBlock
+          .arrayGetWallclockTime(allSplits)));
+      datum.setCpuUsages(AvroArrayUtils.toAvro(ProgressSplitsBlock
+          .arrayGetCPUTime(allSplits)));
+      datum.setVMemKbytes(AvroArrayUtils.toAvro(ProgressSplitsBlock
+          .arrayGetVMemKbytes(allSplits)));
+      datum.setPhysMemKbytes(AvroArrayUtils.toAvro(ProgressSplitsBlock
+          .arrayGetPhysMemKbytes(allSplits)));
     }
     return datum;
   }
 
   public void setDatum(Object oDatum) {
     this.datum = (MapAttemptFinished)oDatum;
-    this.attemptId = TaskAttemptID.forName(datum.attemptId.toString());
-    this.taskType = TaskType.valueOf(datum.taskType.toString());
-    this.taskStatus = datum.taskStatus.toString();
-    this.mapFinishTime = datum.mapFinishTime;
-    this.finishTime = datum.finishTime;
-    this.hostname = datum.hostname.toString();
-    this.rackName = datum.rackname.toString();
-    this.port = datum.port;
-    this.state = datum.state.toString();
-    this.counters = EventReader.fromAvro(datum.counters);
-    this.clockSplits = AvroArrayUtils.fromAvro(datum.clockSplits);
-    this.cpuUsages = AvroArrayUtils.fromAvro(datum.cpuUsages);
-    this.vMemKbytes = AvroArrayUtils.fromAvro(datum.vMemKbytes);
-    this.physMemKbytes = AvroArrayUtils.fromAvro(datum.physMemKbytes);
+    this.attemptId = TaskAttemptID.forName(datum.getAttemptId().toString());
+    this.taskType = TaskType.valueOf(datum.getTaskType().toString());
+    this.taskStatus = datum.getTaskStatus().toString();
+    this.mapFinishTime = datum.getMapFinishTime();
+    this.finishTime = datum.getFinishTime();
+    this.hostname = datum.getHostname().toString();
+    this.rackName = datum.getRackname().toString();
+    this.port = datum.getPort();
+    this.state = datum.getState().toString();
+    this.counters = EventReader.fromAvro(datum.getCounters());
+    this.clockSplits = AvroArrayUtils.fromAvro(datum.getClockSplits());
+    this.cpuUsages = AvroArrayUtils.fromAvro(datum.getCpuUsages());
+    this.vMemKbytes = AvroArrayUtils.fromAvro(datum.getVMemKbytes());
+    this.physMemKbytes = AvroArrayUtils.fromAvro(datum.getPhysMemKbytes());
   }
 
   /** Get the task ID */
@@ -218,4 +224,28 @@ public class MapAttemptFinishedEvent  implements HistoryEvent {
     return physMemKbytes;
   }
   
+  @Override
+  public TimelineEvent toTimelineEvent() {
+    TimelineEvent tEvent = new TimelineEvent();
+    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
+    tEvent.addInfo("TASK_TYPE", getTaskType().toString());
+    tEvent.addInfo("FINISH_TIME", getFinishTime());
+    tEvent.addInfo("STATUS", getTaskStatus());
+    tEvent.addInfo("STATE", getState());
+    tEvent.addInfo("MAP_FINISH_TIME", getMapFinishTime());
+    tEvent.addInfo("HOSTNAME", getHostname());
+    tEvent.addInfo("PORT", getPort());
+    tEvent.addInfo("RACK_NAME", getRackName());
+    tEvent.addInfo("ATTEMPT_ID", getAttemptId() == null ?
+        "" : getAttemptId().toString());
+    return tEvent;
+  }
+
+  @Override
+  public Set<TimelineMetric> getTimelineMetrics() {
+    Set<TimelineMetric> metrics = JobHistoryEventUtils
+        .countersToTimelineMetric(getCounters(), finishTime);
+    return metrics;
+  }
+
 }

@@ -18,10 +18,12 @@
 
 package org.apache.hadoop.yarn.server.resourcemanager;
 
+import com.google.common.base.Supplier;
+import org.apache.hadoop.test.GenericTestUtils;
+import org.apache.hadoop.yarn.event.DrainDispatcher;
 import org.junit.Before;
 import static org.mockito.Matchers.argThat;
 import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
 
 import java.util.ArrayList;
@@ -45,7 +47,6 @@ import org.apache.hadoop.yarn.api.protocolrecords.GetApplicationsResponse;
 import org.apache.hadoop.yarn.api.protocolrecords.GetNewApplicationResponse;
 import org.apache.hadoop.yarn.api.protocolrecords.KillApplicationRequest;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
-import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
@@ -58,11 +59,9 @@ import org.apache.hadoop.yarn.api.records.Token;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.event.AbstractEvent;
-import org.apache.hadoop.yarn.event.AsyncDispatcher;
 import org.apache.hadoop.yarn.event.Dispatcher;
+import org.apache.hadoop.yarn.event.Event;
 import org.apache.hadoop.yarn.event.EventHandler;
-import org.apache.hadoop.yarn.server.resourcemanager.TestRMRestart.TestSecurityMockRM;
-import org.apache.hadoop.yarn.server.resourcemanager.recovery.MemoryRMStateStore;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMAppEvent;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMAppEventType;
@@ -73,14 +72,13 @@ import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttemptE
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttemptState;
 import org.apache.hadoop.yarn.server.resourcemanager.rmnode.RMNode;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacitySchedulerConfiguration;
 import org.apache.hadoop.yarn.server.resourcemanager.security.NMTokenSecretManagerInRM;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.apache.log4j.Logger;
 import org.junit.Test;
 import org.mockito.ArgumentMatcher;
-import org.mockito.invocation.InvocationOnMock;
-import org.mockito.stubbing.Answer;
 
 @SuppressWarnings({"unchecked", "rawtypes"})
 public class TestRM extends ParameterizedSchedulerTestBase {
@@ -90,10 +88,6 @@ public class TestRM extends ParameterizedSchedulerTestBase {
   private final static int WAIT_SLEEP_MS = 100;
 
   private YarnConfiguration conf;
-
-  public TestRM(SchedulerType type) {
-    super(type);
-  }
 
   @Before
   public void setup() {
@@ -116,7 +110,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     
     GetNewApplicationResponse resp = rm.getNewAppId();
     assert (resp.getApplicationId().getId() != 0);    
-    assert (resp.getMaximumResourceCapability().getMemory() > 0);    
+    assert (resp.getMaximumResourceCapability().getMemorySize() > 0);
     rm.stop();
   }
   
@@ -138,7 +132,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     am.registerAppAttempt();
     am.unregisterAppAttempt();
     nm1.nodeHeartbeat(attempt.getAppAttemptId(), 1, ContainerState.COMPLETE);
-    am.waitForState(RMAppAttemptState.FINISHED);
+    rm.waitForState(am.getApplicationAttemptId(), RMAppAttemptState.FINISHED);
     rm.stop();
   }
 
@@ -146,7 +140,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
   public void testAppOnMultiNode() throws Exception {
     Logger rootLogger = LogManager.getRootLogger();
     rootLogger.setLevel(Level.DEBUG);
-    conf.set("yarn.scheduler.capacity.node-locality-delay", "-1");
+    conf.set(CapacitySchedulerConfiguration.NODE_LOCALITY_DELAY, "-1");
     MockRM rm = new MockRM(conf);
     rm.start();
     MockNM nm1 = rm.registerNode("h1:1234", 5120);
@@ -195,7 +189,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
 
     am.unregisterAppAttempt();
     nm1.nodeHeartbeat(attempt.getAppAttemptId(), 1, ContainerState.COMPLETE);
-    am.waitForState(RMAppAttemptState.FINISHED);
+    rm.waitForState(am.getApplicationAttemptId(), RMAppAttemptState.FINISHED);
 
     rm.stop();
   }
@@ -218,8 +212,6 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     CapacityScheduler cs = (CapacityScheduler) rm.getResourceScheduler();
     cs.getApplicationAttempt(attempt.getAppAttemptId()).getNewContainerId();
 
-    // kick the scheduling
-    nm1.nodeHeartbeat(true);
     MockAM am = MockRM.launchAM(app, rm, nm1);
     // am container Id not equal to 1.
     Assert.assertTrue(
@@ -402,7 +394,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
       }
       nm1.nodeHeartbeat(am.getApplicationAttemptId(), 1,
         ContainerState.COMPLETE);
-      am.waitForState(RMAppAttemptState.FINISHED);
+      rm.waitForState(am.getApplicationAttemptId(), RMAppAttemptState.FINISHED);
       Assert.assertFalse(nmTokenSecretManager
           .isApplicationAttemptRegistered(attempt.getAppAttemptId()));
     } finally {
@@ -502,7 +494,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     RMApp app2 = rm1.submitApp(200);
     MockAM am2 = MockRM.launchAndRegisterAM(app2, rm1, nm1);
     nm1.nodeHeartbeat(am2.getApplicationAttemptId(), 1, ContainerState.COMPLETE);
-    am2.waitForState(RMAppAttemptState.FAILED);
+    rm1.waitForState(am2.getApplicationAttemptId(), RMAppAttemptState.FAILED);
     rm1.waitForState(app2.getApplicationId(), RMAppState.FAILED);
 
     // a killed app
@@ -549,7 +541,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     MockAM am2 = MockRM.launchAndRegisterAM(app2, rm1, nm1);
     nm1
       .nodeHeartbeat(am2.getApplicationAttemptId(), 1, ContainerState.COMPLETE);
-    am2.waitForState(RMAppAttemptState.FAILED);
+    rm1.waitForState(am2.getApplicationAttemptId(), RMAppAttemptState.FAILED);
     rm1.waitForState(app2.getApplicationId(), RMAppState.ACCEPTED);
 
     // before new attempt is launched, the app report returns the invalid AM
@@ -570,9 +562,9 @@ public class TestRM extends ParameterizedSchedulerTestBase {
   @Test (timeout = 60000)
   public void testApplicationKillAtAcceptedState() throws Exception {
 
-    final Dispatcher dispatcher = new AsyncDispatcher() {
+    final Dispatcher dispatcher = new DrainDispatcher() {
       @Override
-      public EventHandler getEventHandler() {
+      public EventHandler<Event> getEventHandler() {
 
         class EventArgMatcher extends ArgumentMatcher<AbstractEvent> {
           @Override
@@ -614,7 +606,7 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     // a failed app
     RMApp application = rm.submitApp(200);
     MockAM am = MockRM.launchAM(application, rm, nm1);
-    am.waitForState(RMAppAttemptState.LAUNCHED);
+    rm.waitForState(am.getApplicationAttemptId(), RMAppAttemptState.LAUNCHED);
     nm1.nodeHeartbeat(am.getApplicationAttemptId(), 1, ContainerState.RUNNING);
     rm.waitForState(application.getApplicationId(), RMAppState.ACCEPTED);
 
@@ -641,7 +633,13 @@ public class TestRM extends ParameterizedSchedulerTestBase {
     rm.waitForState(application.getApplicationId(), RMAppState.KILLED);
 
     // test metrics
-    metrics = rm.getResourceScheduler().getRootQueueMetrics();
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        return appsKilled + 1 == metrics.getAppsKilled()
+            && appsSubmitted + 1 == metrics.getAppsSubmitted();
+      }
+    }, 100, 10000);
     Assert.assertEquals(appsKilled + 1, metrics.getAppsKilled());
     Assert.assertEquals(appsSubmitted + 1, metrics.getAppsSubmitted());
   }
@@ -651,9 +649,9 @@ public class TestRM extends ParameterizedSchedulerTestBase {
   public void testKillFinishingApp() throws Exception{
 
     // this dispatcher ignores RMAppAttemptEventType.KILL event
-    final Dispatcher dispatcher = new AsyncDispatcher() {
+    final Dispatcher dispatcher = new DrainDispatcher() {
       @Override
-      public EventHandler getEventHandler() {
+      public EventHandler<Event> getEventHandler() {
 
         class EventArgMatcher extends ArgumentMatcher<AbstractEvent> {
           @Override
@@ -705,9 +703,9 @@ public class TestRM extends ParameterizedSchedulerTestBase {
   public void testKillFailingApp() throws Exception{
 
     // this dispatcher ignores RMAppAttemptEventType.KILL event
-    final Dispatcher dispatcher = new AsyncDispatcher() {
+    final Dispatcher dispatcher = new DrainDispatcher() {
       @Override
-      public EventHandler getEventHandler() {
+      public EventHandler<Event> getEventHandler() {
 
         class EventArgMatcher extends ArgumentMatcher<AbstractEvent> {
           @Override

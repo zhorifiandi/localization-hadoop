@@ -29,6 +29,7 @@ option java_generate_equals_and_hash = true;
 package hadoop.hdfs.qjournal;
 
 import "hdfs.proto";
+import "HdfsServer.proto";
 
 message JournalIdProto {
   required string identifier = 1;
@@ -135,17 +136,6 @@ message IsFormattedResponseProto {
 }
 
 /**
- * discardSegments()
- */
-message DiscardSegmentsRequestProto {
-  required JournalIdProto jid = 1;
-  required uint64 startTxId = 2;
-}
-
-message DiscardSegmentsResponseProto {
-}
-
-/**
  * getJournalCTime()
  */
 message GetJournalCTimeRequestProto {
@@ -209,6 +199,17 @@ message DoRollbackRequestProto {
 }
 
 message DoRollbackResponseProto {
+}
+
+/**
+ * discardSegments()
+ */
+message DiscardSegmentsRequestProto {
+  required JournalIdProto jid = 1;
+  required uint64 startTxId = 2;
+}
+
+message DiscardSegmentsResponseProto {
 }
 
 /**
@@ -314,8 +315,6 @@ message AcceptRecoveryResponseProto {
 service QJournalProtocolService {
   rpc isFormatted(IsFormattedRequestProto) returns (IsFormattedResponseProto);
 
-  rpc discardSegments(DiscardSegmentsRequestProto) returns (DiscardSegmentsResponseProto);
-
   rpc getJournalCTime(GetJournalCTimeRequestProto) returns (GetJournalCTimeResponseProto);
   
   rpc doPreUpgrade(DoPreUpgradeRequestProto) returns (DoPreUpgradeResponseProto);
@@ -327,6 +326,8 @@ service QJournalProtocolService {
   rpc canRollBack(CanRollBackRequestProto) returns (CanRollBackResponseProto);
 
   rpc doRollback(DoRollbackRequestProto) returns (DoRollbackResponseProto);
+
+  rpc discardSegments(DiscardSegmentsRequestProto) returns (DiscardSegmentsResponseProto);
 
   rpc getJournalState(GetJournalStateRequestProto) returns (GetJournalStateResponseProto);
 

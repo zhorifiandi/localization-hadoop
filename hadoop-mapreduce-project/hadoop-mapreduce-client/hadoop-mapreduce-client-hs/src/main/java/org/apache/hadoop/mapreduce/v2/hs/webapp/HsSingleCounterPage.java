@@ -18,7 +18,6 @@
 
 package org.apache.hadoop.mapreduce.v2.hs.webapp;
 
-import static org.apache.hadoop.mapreduce.v2.app.webapp.AMParams.TASK_ID;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.*;
 
 import org.apache.hadoop.mapreduce.v2.app.webapp.SingleCounterBlock;
@@ -33,14 +32,9 @@ public class HsSingleCounterPage extends HsView {
    * (non-Javadoc)
    * @see org.apache.hadoop.mapreduce.v2.hs.webapp.HsView#preHead(org.apache.hadoop.yarn.webapp.hamlet.Hamlet.HTML)
    */
-  @Override protected void preHead(Page.HTML<_> html) {
+  @Override protected void preHead(Page.HTML<__> html) {
     commonPreHead(html);
-    String tid = $(TASK_ID);
-    String activeNav = "2";
-    if(tid == null || tid.isEmpty()) {
-      activeNav = "1";
-    }
-    set(initID(ACCORDION, "nav"), "{autoHeight:false, active:"+activeNav+"}");
+    setActiveNavColumnForTask();
     set(DATATABLES_ID, "singleCounter");
     set(initID(DATATABLES, "singleCounter"), counterTableInit());
     setTableStyles(html, "singleCounter");

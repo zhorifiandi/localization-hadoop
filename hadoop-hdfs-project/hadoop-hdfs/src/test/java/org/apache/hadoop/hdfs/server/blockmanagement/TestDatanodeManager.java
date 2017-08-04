@@ -20,6 +20,10 @@ package org.apache.hadoop.hdfs.server.blockmanagement;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -33,20 +37,30 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
+import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.StorageType;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
+import org.apache.hadoop.hdfs.server.blockmanagement.DatanodeDescriptor.BlockTargetPair;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfoWithStorage;
 import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.security.token.block.ExportedBlockKeys;
 import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
 import org.apache.hadoop.hdfs.server.common.StorageInfo;
+import org.apache.hadoop.hdfs.server.protocol.BlockCommand;
+import org.apache.hadoop.hdfs.server.protocol.BlockECReconstructionCommand;
+import org.apache.hadoop.hdfs.server.protocol.BlockECReconstructionCommand.BlockECReconstructionInfo;
+import org.apache.hadoop.hdfs.server.protocol.DatanodeCommand;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeRegistration;
+import org.apache.hadoop.hdfs.server.protocol.SlowDiskReports;
+import org.apache.hadoop.hdfs.server.protocol.SlowPeerReports;
+import org.apache.hadoop.hdfs.server.protocol.StorageReport;
 import org.apache.hadoop.net.DNSToSwitchMapping;
+import org.apache.hadoop.util.Shell;
 import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -64,6 +78,8 @@ public class TestDatanodeManager {
   private static DatanodeManager mockDatanodeManager(
       FSNamesystem fsn, Configuration conf) throws IOException {
     BlockManager bm = Mockito.mock(BlockManager.class);
+    BlockReportLeaseManager blm = new BlockReportLeaseManager(conf);
+    Mockito.when(bm.getBlockReportLeaseManager()).thenReturn(blm);
     DatanodeManager dm = new DatanodeManager(bm, fsn, conf);
     return dm;
   }
@@ -78,6 +94,43 @@ public class TestDatanodeManager {
   }
 
   /**
+   * This test checks that if a node is re-registered with a new software
+   * version after the heartbeat expiry interval but before the HeartbeatManager
+   * has a chance to detect this and remove it, the node's version will still
+   * be correctly decremented.
+   */
+  @Test
+  public void testNumVersionsCorrectAfterReregister()
+      throws IOException, InterruptedException {
+    //Create the DatanodeManager which will be tested
+    FSNamesystem fsn = Mockito.mock(FSNamesystem.class);
+    Mockito.when(fsn.hasWriteLock()).thenReturn(true);
+    Configuration conf = new Configuration();
+    conf.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 0);
+    conf.setLong(DFSConfigKeys.DFS_NAMENODE_HEARTBEAT_RECHECK_INTERVAL_KEY, 10);
+    DatanodeManager dm = mockDatanodeManager(fsn, conf);
+
+    String storageID = "someStorageID1";
+    String ip = "someIP" + storageID;
+
+    // Register then reregister the same node but with a different version
+    for (int i = 0; i <= 1; i++) {
+      dm.registerDatanode(new DatanodeRegistration(
+          new DatanodeID(ip, "", storageID, 9000, 0, 0, 0),
+          null, null, "version" + i));
+      if (i == 0) {
+        Thread.sleep(25);
+      }
+    }
+
+    //Verify DatanodeManager has the correct count
+    Map<String, Integer> mapToCheck = dm.getDatanodesSoftwareVersions();
+    assertNull("should be no more version0 nodes", mapToCheck.get("version0"));
+    assertEquals("should be one version1 node",
+        mapToCheck.get("version1").intValue(), 1);
+  }
+
+  /**
    * This test sends a random sequence of node registrations and node removals
    * to the DatanodeManager (of nodes with different IDs and versions), and
    * checks that the DatanodeManager keeps a correct count of different software
@@ -88,8 +141,7 @@ public class TestDatanodeManager {
     //Create the DatanodeManager which will be tested
     FSNamesystem fsn = Mockito.mock(FSNamesystem.class);
     Mockito.when(fsn.hasWriteLock()).thenReturn(true);
-    DatanodeManager dm = new DatanodeManager(Mockito.mock(BlockManager.class),
-      fsn, new Configuration());
+    DatanodeManager dm = mockDatanodeManager(fsn, new Configuration());
 
     //Seed the RNG with a known value so test failures are easier to reproduce
     Random rng = new Random();
@@ -201,9 +253,8 @@ public class TestDatanodeManager {
         TestDatanodeManager.MyResolver.class, DNSToSwitchMapping.class);
     
     //create DatanodeManager
-    DatanodeManager dm = new DatanodeManager(Mockito.mock(BlockManager.class),
-        fsn, conf);
-    
+    DatanodeManager dm = mockDatanodeManager(fsn, conf);
+
     //storageID to register.
     String storageID = "someStorageID-123";
     
@@ -247,26 +298,72 @@ public class TestDatanodeManager {
    * with the storage ids and storage types.
    */
   @Test
-  public void testSortLocatedBlocks() throws IOException {
+  public void testSortLocatedBlocks() throws IOException, URISyntaxException {
+    HelperFunction(null);
+  }
+
+  /**
+   * Execute a functional topology script and make sure that helper
+   * function works correctly
+   *
+   * @throws IOException
+   * @throws URISyntaxException
+   */
+  @Test
+  public void testgoodScript() throws IOException, URISyntaxException {
+    HelperFunction("/" + Shell.appendScriptExtension("topology-script"));
+  }
+
+
+  /**
+   * Run a broken script and verify that helper function is able to
+   * ignore the broken script and work correctly
+   *
+   * @throws IOException
+   * @throws URISyntaxException
+   */
+  @Test
+  public void testBadScript() throws IOException, URISyntaxException {
+    HelperFunction("/"+ Shell.appendScriptExtension("topology-broken-script"));
+  }
+
+  /**
+   * Helper function that tests the DatanodeManagers SortedBlock function
+   * we invoke this function with and without topology scripts
+   *
+   * @param scriptFileName - Script Name or null
+   *
+   * @throws URISyntaxException
+   * @throws IOException
+   */
+  public void HelperFunction(String scriptFileName)
+    throws URISyntaxException, IOException {
     // create the DatanodeManager which will be tested
+    Configuration conf = new Configuration();
     FSNamesystem fsn = Mockito.mock(FSNamesystem.class);
     Mockito.when(fsn.hasWriteLock()).thenReturn(true);
-    DatanodeManager dm = new DatanodeManager(Mockito.mock(BlockManager.class),
-        fsn, new Configuration());
+    if (scriptFileName != null && !scriptFileName.isEmpty()) {
+      URL shellScript = getClass().getResource(scriptFileName);
+      Path resourcePath = Paths.get(shellScript.toURI());
+      FileUtil.setExecutable(resourcePath.toFile(), true);
+      conf.set(DFSConfigKeys.NET_TOPOLOGY_SCRIPT_FILE_NAME_KEY,
+        resourcePath.toString());
+    }
+    DatanodeManager dm = mockDatanodeManager(fsn, conf);
 
     // register 5 datanodes, each with different storage ID and type
     DatanodeInfo[] locs = new DatanodeInfo[5];
     String[] storageIDs = new String[5];
     StorageType[] storageTypes = new StorageType[]{
-        StorageType.ARCHIVE,
-        StorageType.DEFAULT,
-        StorageType.DISK,
-        StorageType.RAM_DISK,
-        StorageType.SSD
+      StorageType.ARCHIVE,
+      StorageType.DEFAULT,
+      StorageType.DISK,
+      StorageType.RAM_DISK,
+      StorageType.SSD
     };
-    for(int i = 0; i < 5; i++) {
+    for (int i = 0; i < 5; i++) {
       // register new datanode
-      String uuid = "UUID-"+i;
+      String uuid = "UUID-" + i;
       String ip = "IP-" + i;
       DatanodeRegistration dr = Mockito.mock(DatanodeRegistration.class);
       Mockito.when(dr.getDatanodeUuid()).thenReturn(uuid);
@@ -278,7 +375,7 @@ public class TestDatanodeManager {
 
       // get location and storage information
       locs[i] = dm.getDatanode(uuid);
-      storageIDs[i] = "storageID-"+i;
+      storageIDs[i] = "storageID-" + i;
     }
 
     // set first 2 locations as decomissioned
@@ -303,19 +400,19 @@ public class TestDatanodeManager {
     assertThat(sortedLocs.length, is(5));
     assertThat(storageIDs.length, is(5));
     assertThat(storageTypes.length, is(5));
-    for(int i = 0; i < sortedLocs.length; i++) {
-      assertThat(((DatanodeInfoWithStorage)sortedLocs[i]).getStorageID(), is(storageIDs[i]));
-      assertThat(((DatanodeInfoWithStorage)sortedLocs[i]).getStorageType(), is(storageTypes[i]));
+    for (int i = 0; i < sortedLocs.length; i++) {
+      assertThat(((DatanodeInfoWithStorage) sortedLocs[i]).getStorageID(),
+        is(storageIDs[i]));
+      assertThat(((DatanodeInfoWithStorage) sortedLocs[i]).getStorageType(),
+        is(storageTypes[i]));
     }
-
     // Ensure the local node is first.
     assertThat(sortedLocs[0].getIpAddr(), is(targetIp));
-
     // Ensure the two decommissioned DNs were moved to the end.
-    assertThat(sortedLocs[sortedLocs.length-1].getAdminState(),
-        is(DatanodeInfo.AdminStates.DECOMMISSIONED));
-    assertThat(sortedLocs[sortedLocs.length-2].getAdminState(),
-        is(DatanodeInfo.AdminStates.DECOMMISSIONED));
+    assertThat(sortedLocs[sortedLocs.length - 1].getAdminState(),
+      is(DatanodeInfo.AdminStates.DECOMMISSIONED));
+    assertThat(sortedLocs[sortedLocs.length - 2].getAdminState(),
+      is(DatanodeInfo.AdminStates.DECOMMISSIONED));
   }
 
   /**
@@ -331,9 +428,9 @@ public class TestDatanodeManager {
 
     DatanodeManager dm = mockDatanodeManager(fsn, new Configuration());
     HostFileManager hm = new HostFileManager();
-    HostFileManager.HostSet noNodes = new HostFileManager.HostSet();
-    HostFileManager.HostSet oneNode = new HostFileManager.HostSet();
-    HostFileManager.HostSet twoNodes = new HostFileManager.HostSet();
+    HostSet noNodes = new HostSet();
+    HostSet oneNode = new HostSet();
+    HostSet twoNodes = new HostSet();
     DatanodeRegistration dr1 = new DatanodeRegistration(
       new DatanodeID("127.0.0.1", "127.0.0.1", "someStorageID-123",
           12345, 12345, 12345, 12345),
@@ -350,7 +447,7 @@ public class TestDatanodeManager {
     oneNode.add(entry("127.0.0.1:23456"));
 
     hm.refresh(twoNodes, noNodes);
-    Whitebox.setInternalState(dm, "hostFileManager", hm);
+    Whitebox.setInternalState(dm, "hostConfigManager", hm);
 
     // Register two data nodes to simulate them coming up.
     // We need to add two nodes, because if we have only one node, removing it
@@ -401,5 +498,48 @@ public class TestDatanodeManager {
         "127.0.0.1:12345", bothAgain.get(0).getInfoAddr());
     Assert.assertEquals("Unexpected host or host in unexpected position",
         "127.0.0.1:23456", bothAgain.get(1).getInfoAddr());
+  }
+
+  @Test
+  public void testPendingRecoveryTasks() throws IOException {
+    FSNamesystem fsn = Mockito.mock(FSNamesystem.class);
+    Mockito.when(fsn.hasWriteLock()).thenReturn(true);
+    Configuration conf = new Configuration();
+    DatanodeManager dm = Mockito.spy(mockDatanodeManager(fsn, conf));
+
+    int maxTransfers = 20;
+    int numPendingTasks = 7;
+    int numECTasks = maxTransfers - numPendingTasks;
+
+    DatanodeDescriptor nodeInfo = Mockito.mock(DatanodeDescriptor.class);
+    Mockito.when(nodeInfo.isRegistered()).thenReturn(true);
+    Mockito.when(nodeInfo.getStorageInfos())
+        .thenReturn(new DatanodeStorageInfo[0]);
+
+    List<BlockTargetPair> pendingList =
+        Collections.nCopies(numPendingTasks, new BlockTargetPair(null, null));
+    Mockito.when(nodeInfo.getReplicationCommand(maxTransfers))
+        .thenReturn(pendingList);
+    List<BlockECReconstructionInfo> ecPendingList =
+        Collections.nCopies(numECTasks, null);
+
+    Mockito.when(nodeInfo.getErasureCodeCommand(numECTasks))
+        .thenReturn(ecPendingList);
+    DatanodeRegistration dnReg = Mockito.mock(DatanodeRegistration.class);
+    Mockito.when(dm.getDatanode(dnReg)).thenReturn(nodeInfo);
+
+    DatanodeCommand[] cmds = dm.handleHeartbeat(
+        dnReg, new StorageReport[1], "bp-123", 0, 0, 10, maxTransfers, 0, null,
+        SlowPeerReports.EMPTY_REPORT, SlowDiskReports.EMPTY_REPORT);
+
+    assertEquals(2, cmds.length);
+    assertTrue(cmds[0] instanceof BlockCommand);
+    BlockCommand replicaCmd = (BlockCommand) cmds[0];
+    assertEquals(numPendingTasks, replicaCmd.getBlocks().length);
+    assertEquals(numPendingTasks, replicaCmd.getTargets().length);
+    assertTrue(cmds[1] instanceof BlockECReconstructionCommand);
+    BlockECReconstructionCommand ecRecoveryCmd =
+        (BlockECReconstructionCommand) cmds[1];
+    assertEquals(numECTasks, ecRecoveryCmd.getECTasks().size());
   }
 }

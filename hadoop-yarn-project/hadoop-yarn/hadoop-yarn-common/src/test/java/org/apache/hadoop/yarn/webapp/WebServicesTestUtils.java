@@ -18,7 +18,12 @@
 
 package org.apache.hadoop.yarn.webapp;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+
+import java.util.ArrayList;
+import java.util.List;
+import javax.ws.rs.core.Response.StatusType;
 
 import org.w3c.dom.Attr;
 import org.w3c.dom.Element;
@@ -45,6 +50,31 @@ public class WebServicesTestUtils {
   public static float getXmlFloat(Element element, String name) {
     String val = getXmlString(element, name);
     return Float.parseFloat(val);
+  }
+
+  public static List<String> getXmlStrings(Element element, String name) {
+    NodeList id = element.getElementsByTagName(name);
+    List<String> strings = new ArrayList<>();
+    int len = id.getLength();
+    if (id.getLength() == 0) {
+      return strings;
+    }
+    for (int i = 0; i < len; i++) {
+      Element line = (Element) id.item(i);
+      if (line == null) {
+        continue;
+      }
+      Node first = line.getFirstChild();
+      if (first == null) {
+        continue;
+      }
+      String val = first.getNodeValue();
+      if (val == null) {
+        continue;
+      }
+      strings.add(val);
+    }
+    return strings;
   }
 
   public static String getXmlString(Element element, String name) {
@@ -91,4 +121,13 @@ public class WebServicesTestUtils {
         got.equals(expected));
   }
 
+  public static void assertResponseStatusCode(StatusType expected,
+      StatusType actual) {
+    assertResponseStatusCode(null, expected, actual);
+  }
+
+  public static void assertResponseStatusCode(String errmsg,
+      StatusType expected, StatusType actual) {
+    assertEquals(errmsg, expected.getStatusCode(), actual.getStatusCode());
+  }
 }

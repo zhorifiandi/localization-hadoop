@@ -18,8 +18,11 @@
 
 package org.apache.hadoop.examples.terasort;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -40,21 +43,24 @@ import org.apache.hadoop.mapreduce.security.TokenCache;
  * An output format that writes the key and value appended together.
  */
 public class TeraOutputFormat extends FileOutputFormat<Text,Text> {
-  static final String FINAL_SYNC_ATTRIBUTE = "mapreduce.terasort.final.sync";
+  private static final Log LOG = LogFactory.getLog(TeraOutputFormat.class);
   private OutputCommitter committer = null;
 
   /**
    * Set the requirement for a final sync before the stream is closed.
    */
   static void setFinalSync(JobContext job, boolean newValue) {
-    job.getConfiguration().setBoolean(FINAL_SYNC_ATTRIBUTE, newValue);
+    job.getConfiguration().setBoolean(
+        TeraSortConfigKeys.FINAL_SYNC_ATTRIBUTE.key(), newValue);
   }
 
   /**
    * Does the user want a final sync at close?
    */
   public static boolean getFinalSync(JobContext job) {
-    return job.getConfiguration().getBoolean(FINAL_SYNC_ATTRIBUTE, false);
+    return job.getConfiguration().getBoolean(
+        TeraSortConfigKeys.FINAL_SYNC_ATTRIBUTE.key(),
+        TeraSortConfigKeys.DEFAULT_FINAL_SYNC_ATTRIBUTE);
   }
 
   static class TeraRecordWriter extends RecordWriter<Text,Text> {
@@ -72,10 +78,22 @@ public class TeraOutputFormat extends FileOutputFormat<Text,Text> {
       out.write(key.getBytes(), 0, key.getLength());
       out.write(value.getBytes(), 0, value.getLength());
     }
-    
+
     public void close(TaskAttemptContext context) throws IOException {
       if (finalSync) {
-        out.sync();
+        try {
+          out.hsync();
+        } catch (UnsupportedOperationException e) {
+          /*
+           * Currently, hsync operation on striping file with erasure code
+           * policy is not supported yet. So this is a workaround to make
+           * teragen and terasort to support directory with striping files. In
+           * future, if the hsync operation is supported on striping file, this
+           * workaround should be removed.
+           */
+          LOG.info("Operation hsync is not supported so far on path with " +
+                  "erasure code policy set");
+        }
       }
       out.close();
     }
@@ -98,7 +116,7 @@ public class TeraOutputFormat extends FileOutputFormat<Text,Text> {
 
     final FileSystem fs = outDir.getFileSystem(jobConf);
 
-    if (fs.exists(outDir)) {
+    try {
       // existing output dir is considered empty iff its only content is the
       // partition file.
       //
@@ -114,6 +132,7 @@ public class TeraOutputFormat extends FileOutputFormat<Text,Text> {
         throw new FileAlreadyExistsException("Output directory " + outDir
             + " already exists");
       }
+    } catch (FileNotFoundException ignored) {
     }
   }
 
@@ -133,5 +152,4 @@ public class TeraOutputFormat extends FileOutputFormat<Text,Text> {
     }
     return committer;
   }
-
 }

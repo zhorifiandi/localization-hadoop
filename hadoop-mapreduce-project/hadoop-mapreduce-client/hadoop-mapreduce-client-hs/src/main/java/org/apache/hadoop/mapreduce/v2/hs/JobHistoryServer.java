@@ -38,11 +38,11 @@ import org.apache.hadoop.service.AbstractService;
 import org.apache.hadoop.service.CompositeService;
 import org.apache.hadoop.util.ExitUtil;
 import org.apache.hadoop.util.GenericOptionsParser;
+import org.apache.hadoop.util.JvmPauseMonitor;
 import org.apache.hadoop.util.ShutdownHookManager;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.YarnUncaughtExceptionHandler;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
-import org.apache.hadoop.yarn.event.Dispatcher;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.logaggregation.AggregatedLogDeletionService;
 
@@ -70,6 +70,7 @@ public class JobHistoryServer extends CompositeService {
   private AggregatedLogDeletionService aggLogDelService;
   private HSAdminServer hsAdminServer;
   private HistoryServerStateStoreService stateStore;
+  private JvmPauseMonitor pauseMonitor;
 
   // utility class to start and stop secret manager as part of service
   // framework and implement state recovery for secret manager on startup
@@ -118,8 +119,6 @@ public class JobHistoryServer extends CompositeService {
   protected void serviceInit(Configuration conf) throws Exception {
     Configuration config = new YarnConfiguration(conf);
 
-    config.setBoolean(Dispatcher.DISPATCHER_EXIT_ON_ERROR_KEY, true);
-
     // This is required for WebApps to use https if enabled.
     MRWebAppUtil.initialize(getConfig());
     try {
@@ -140,6 +139,13 @@ public class JobHistoryServer extends CompositeService {
     addService(clientService);
     addService(aggLogDelService);
     addService(hsAdminServer);
+
+    DefaultMetricsSystem.initialize("JobHistoryServer");
+    JvmMetrics jm = JvmMetrics.initSingleton("JobHistoryServer", null);
+    pauseMonitor = new JvmPauseMonitor();
+    addService(pauseMonitor);
+    jm.setPauseMonitor(pauseMonitor);
+
     super.serviceInit(config);
   }
 
@@ -190,8 +196,6 @@ public class JobHistoryServer extends CompositeService {
 
   @Override
   protected void serviceStart() throws Exception {
-    DefaultMetricsSystem.initialize("JobHistoryServer");
-    JvmMetrics.initSingleton("JobHistoryServer", null);
     super.serviceStart();
   }
   

@@ -77,6 +77,7 @@ import org.apache.hadoop.mapreduce.v2.app.launcher.ContainerLauncherEvent;
 import org.apache.hadoop.mapreduce.v2.app.rm.ContainerAllocator;
 import org.apache.hadoop.mapreduce.v2.app.rm.ContainerAllocatorEvent;
 import org.apache.hadoop.mapreduce.v2.app.rm.RMHeartbeatHandler;
+import org.apache.hadoop.mapreduce.v2.app.rm.preemption.AMPreemptionPolicy;
 import org.apache.hadoop.mapreduce.v2.util.MRApps;
 import org.apache.hadoop.metrics2.lib.DefaultMetricsSystem;
 import org.apache.hadoop.net.NetUtils;
@@ -110,6 +111,10 @@ import org.junit.Assert;
 public class MRApp extends MRAppMaster {
   private static final Log LOG = LogFactory.getLog(MRApp.class);
 
+  /**
+   * The available resource of each container allocated.
+   */
+  private Resource resource;
   int maps;
   int reduces;
 
@@ -152,7 +157,7 @@ public class MRApp extends MRAppMaster {
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, String assignedQueue) {
     this(maps, reduces, autoComplete, testName, cleanOnStart, 1,
-        new SystemClock(), assignedQueue);
+        SystemClock.getInstance(), assignedQueue);
   }
 
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
@@ -186,13 +191,13 @@ public class MRApp extends MRAppMaster {
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount) {
     this(maps, reduces, autoComplete, testName, cleanOnStart, startCount,
-        new SystemClock(), null);
+        SystemClock.getInstance(), null);
   }
 
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount, boolean unregistered) {
     this(maps, reduces, autoComplete, testName, cleanOnStart, startCount,
-        new SystemClock(), unregistered);
+        SystemClock.getInstance(), unregistered);
   }
 
   public MRApp(int maps, int reduces, boolean autoComplete, String testName,
@@ -213,14 +218,14 @@ public class MRApp extends MRAppMaster {
       int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount, boolean unregistered) {
     this(appAttemptId, amContainerId, maps, reduces, autoComplete, testName,
-        cleanOnStart, startCount, new SystemClock(), unregistered, null);
+        cleanOnStart, startCount, SystemClock.getInstance(), unregistered, null);
   }
 
   public MRApp(ApplicationAttemptId appAttemptId, ContainerId amContainerId,
       int maps, int reduces, boolean autoComplete, String testName,
       boolean cleanOnStart, int startCount) {
     this(appAttemptId, amContainerId, maps, reduces, autoComplete, testName,
-        cleanOnStart, startCount, new SystemClock(), true, null);
+        cleanOnStart, startCount, SystemClock.getInstance(), true, null);
   }
 
   public MRApp(ApplicationAttemptId appAttemptId, ContainerId amContainerId,
@@ -249,6 +254,7 @@ public class MRApp extends MRAppMaster {
     // the job can reaches the final state when MRAppMaster shuts down.
     this.successfullyUnregistered.set(unregistered);
     this.assignedQueue = assignedQueue;
+    this.resource = Resource.newInstance(1234L, 2);
   }
 
   @Override
@@ -481,7 +487,22 @@ public class MRApp extends MRAppMaster {
   }
 
   @Override
-  protected TaskAttemptListener createTaskAttemptListener(AppContext context) {
+  protected TaskAttemptFinishingMonitor
+      createTaskAttemptFinishingMonitor(
+      EventHandler eventHandler) {
+    return new TaskAttemptFinishingMonitor(eventHandler) {
+      @Override
+      public synchronized void register(TaskAttemptId attemptID) {
+        getContext().getEventHandler().handle(
+            new TaskAttemptEvent(attemptID,
+                TaskAttemptEventType.TA_CONTAINER_COMPLETED));
+      }
+    };
+  }
+
+  @Override
+  protected TaskAttemptListener createTaskAttemptListener(
+      AppContext context, AMPreemptionPolicy policy) {
     return new TaskAttemptListener(){
       @Override
       public InetSocketAddress getAddress() {
@@ -536,6 +557,8 @@ public class MRApp extends MRAppMaster {
             new TaskAttemptEvent(event.getTaskAttemptID(),
                 TaskAttemptEventType.TA_CONTAINER_CLEANED));
         break;
+      case CONTAINER_COMPLETED:
+        break;
       }
     }
   }
@@ -571,7 +594,6 @@ public class MRApp extends MRAppMaster {
             ContainerId.newContainerId(getContext().getApplicationAttemptId(),
               containerCount++);
         NodeId nodeId = NodeId.newInstance(NM_HOST, NM_PORT);
-        Resource resource = Resource.newInstance(1234, 2);
         ContainerTokenIdentifier containerTokenIdentifier =
             new ContainerTokenIdentifier(cId, nodeId.toString(), "user",
             resource, System.currentTimeMillis() + 10000, 42, 42,
@@ -694,6 +716,10 @@ public class MRApp extends MRAppMaster {
     }
   }
 
+  public void setAllocatedContainerResource(Resource resource) {
+    this.resource = resource;
+  }
+
   class TestJob extends JobImpl {
     //override the init transition
     private final TestInitTransition initTransition = new TestInitTransition(
@@ -789,5 +815,6 @@ public class MRApp extends MRAppMaster {
             new Text(containerToken.getService()));
     return token.decodeIdentifier();
   }
+
 }
  

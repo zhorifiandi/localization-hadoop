@@ -19,17 +19,65 @@
 package org.apache.hadoop.yarn.server.api.protocolrecords;
 
 import org.apache.hadoop.classification.InterfaceAudience.Private;
-import org.apache.hadoop.classification.InterfaceAudience.Public;
 import org.apache.hadoop.classification.InterfaceStability.Stable;
+import org.apache.hadoop.classification.InterfaceStability.Unstable;
+import org.apache.hadoop.yarn.api.records.DecommissionType;
 import org.apache.hadoop.yarn.util.Records;
 
 @Private
-@Stable
+@Unstable
 public abstract class RefreshNodesRequest {
-  @Public
+  @Private
   @Stable
   public static RefreshNodesRequest newInstance() {
     RefreshNodesRequest request = Records.newRecord(RefreshNodesRequest.class);
     return request;
   }
+
+  @Private
+  @Unstable
+  public static RefreshNodesRequest newInstance(
+      DecommissionType decommissionType) {
+    RefreshNodesRequest request = Records.newRecord(RefreshNodesRequest.class);
+    request.setDecommissionType(decommissionType);
+    return request;
+  }
+
+  @Private
+  @Unstable
+  public static RefreshNodesRequest newInstance(
+      DecommissionType decommissionType, Integer timeout) {
+    RefreshNodesRequest request = Records.newRecord(RefreshNodesRequest.class);
+    request.setDecommissionType(decommissionType);
+    request.setDecommissionTimeout(timeout);
+    return request;
+  }
+
+  /**
+   * Set the DecommissionType
+   * 
+   * @param decommissionType
+   */
+  public abstract void setDecommissionType(DecommissionType decommissionType);
+
+  /**
+   * Get the DecommissionType
+   * 
+   * @return decommissionType
+   */
+  public abstract DecommissionType getDecommissionType();
+
+  /**
+   * Set the DecommissionTimeout.
+   *
+   * @param timeout graceful decommission timeout in seconds
+   */
+  public abstract void setDecommissionTimeout(Integer timeout);
+
+  /**
+   * Get the DecommissionTimeout.
+   *
+   * @return decommissionTimeout
+   */
+  public abstract Integer getDecommissionTimeout();
 }

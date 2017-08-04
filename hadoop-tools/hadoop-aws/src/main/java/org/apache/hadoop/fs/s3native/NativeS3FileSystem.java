@@ -53,7 +53,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalDirAllocator;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.fs.s3.S3Exception;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.retry.RetryPolicies;
 import org.apache.hadoop.io.retry.RetryPolicy;
@@ -62,12 +61,19 @@ import org.apache.hadoop.util.Progressable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.S3_NATIVE_BUFFER_DIR_DEFAULT;
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.S3_NATIVE_BUFFER_DIR_KEY;
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.S3_NATIVE_MAX_RETRIES_DEFAUL;
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.S3_NATIVE_MAX_RETRIES_KEY;
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.S3_NATIVE_SLEEP_TIME_DEFAULT;
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.S3_NATIVE_SLEEP_TIME_KEY;
+import static org.apache.hadoop.fs.s3native.S3NativeFileSystemConfigKeys.addDeprecatedConfigKeys;
+
 /**
  * A {@link FileSystem} for reading and writing files stored on
  * <a href="http://aws.amazon.com/s3">Amazon S3</a>.
- * Unlike {@link org.apache.hadoop.fs.s3.S3FileSystem} this implementation
- * stores files on S3 in their
- * native form so they can be read by other S3 tools.
+ * This implementation stores files on S3 in their native form so they can be
+ * read by other S3 tools.
  * <p>
  * A note about directories. S3 of course has no "native" support for them.
  * The idiom we choose then is: for any directory created by this class,
@@ -85,8 +91,6 @@ import org.slf4j.LoggerFactory;
  *     is never returned.
  *   </li>
  * </ul>
- *
- * @see org.apache.hadoop.fs.s3.S3FileSystem
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable
@@ -98,7 +102,12 @@ public class NativeS3FileSystem extends FileSystem {
   private static final String FOLDER_SUFFIX = "_$folder$";
   static final String PATH_DELIMITER = Path.SEPARATOR;
   private static final int S3_MAX_LISTING_LENGTH = 1000;
-  
+
+  static {
+    // Add the deprecated config keys
+    addDeprecatedConfigKeys();
+  }
+
   static class NativeS3FsInputStream extends FSInputStream {
     
     private NativeFileSystemStore store;
@@ -257,8 +266,10 @@ public class NativeS3FileSystem extends FileSystem {
     }
 
     private File newBackupFile() throws IOException {
-      if (lDirAlloc == null) {
-        lDirAlloc = new LocalDirAllocator("fs.s3.buffer.dir");
+      if (conf.get(S3_NATIVE_BUFFER_DIR_KEY, null) != null) {
+        lDirAlloc = new LocalDirAllocator(S3_NATIVE_BUFFER_DIR_KEY);
+      } else {
+        lDirAlloc = new LocalDirAllocator(S3_NATIVE_BUFFER_DIR_DEFAULT);
       }
       File result = lDirAlloc.createTmpFileForWrite("output-", LocalDirAllocator.SIZE_UNKNOWN, conf);
       result.deleteOnExit();
@@ -333,7 +344,7 @@ public class NativeS3FileSystem extends FileSystem {
     }
     store.initialize(uri, conf);
     setConf(conf);
-    this.uri = URI.create(uri.getScheme() + "://" + uri.getAuthority());
+    this.uri = S3xLoginHelper.buildFSURI(uri);
     this.workingDir =
       new Path("/user", System.getProperty("user.name")).makeQualified(this.uri, this.getWorkingDirectory());
   }
@@ -342,8 +353,9 @@ public class NativeS3FileSystem extends FileSystem {
     NativeFileSystemStore store = new Jets3tNativeFileSystemStore();
     
     RetryPolicy basePolicy = RetryPolicies.retryUpToMaximumCountWithFixedSleep(
-        conf.getInt("fs.s3.maxRetries", 4),
-        conf.getLong("fs.s3.sleepTimeSeconds", 10), TimeUnit.SECONDS);
+        conf.getInt(S3_NATIVE_MAX_RETRIES_KEY, S3_NATIVE_MAX_RETRIES_DEFAUL),
+        conf.getLong(S3_NATIVE_SLEEP_TIME_KEY, S3_NATIVE_SLEEP_TIME_DEFAULT),
+        TimeUnit.SECONDS);
     Map<Class<? extends Exception>, RetryPolicy> exceptionToPolicyMap =
       new HashMap<Class<? extends Exception>, RetryPolicy>();
     exceptionToPolicyMap.put(IOException.class, basePolicy);
@@ -388,11 +400,29 @@ public class NativeS3FileSystem extends FileSystem {
     return new Path(workingDir, path);
   }
 
+  /**
+   * Check that a Path belongs to this FileSystem.
+   * Unlike the superclass, this version does not look at authority,
+   * only hostnames.
+   * @param path to check
+   * @throws IllegalArgumentException if there is an FS mismatch
+   */
+  @Override
+  protected void checkPath(Path path) {
+    S3xLoginHelper.checkPath(getConf(), getUri(), path, getDefaultPort());
+  }
+
+  @Override
+  protected URI canonicalizeUri(URI rawUri) {
+    return S3xLoginHelper.canonicalizeUri(rawUri, getDefaultPort());
+  }
+
   /** This optional operation is not yet supported. */
   @Override
   public FSDataOutputStream append(Path f, int bufferSize,
       Progressable progress) throws IOException {
-    throw new IOException("Not supported");
+    throw new UnsupportedOperationException("Append is not supported "
+        + "by NativeS3FileSystem");
   }
   
   @Override
@@ -557,7 +587,12 @@ public class NativeS3FileSystem extends FileSystem {
       for (String commonPrefix : listing.getCommonPrefixes()) {
         Path subpath = keyToPath(commonPrefix);
         String relativePath = pathUri.relativize(subpath.toUri()).getPath();
-        status.add(newDirectory(new Path(absolutePath, relativePath)));
+        // sometimes the common prefix includes the base dir (HADOOP-13830).
+        // avoid that problem by detecting it and keeping it out
+        // of the list
+        if (!relativePath.isEmpty()) {
+          status.add(newDirectory(new Path(absolutePath, relativePath)));
+        }
       }
       priorLastKey = listing.getPriorLastKey();
     } while (priorLastKey != null);
@@ -644,35 +679,58 @@ public class NativeS3FileSystem extends FileSystem {
   public boolean rename(Path src, Path dst) throws IOException {
 
     String srcKey = pathToKey(makeAbsolute(src));
+    final String debugPreamble = "Renaming '" + src + "' to '" + dst + "' - ";
 
     if (srcKey.length() == 0) {
       // Cannot rename root of file system
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(debugPreamble +
+                  "returning false as cannot rename the root of a filesystem");
+      }
       return false;
     }
 
-    final String debugPreamble = "Renaming '" + src + "' to '" + dst + "' - ";
-
+    //get status of source
+    boolean srcIsFile;
+    try {
+      srcIsFile = getFileStatus(src).isFile();
+    } catch (FileNotFoundException e) {
+      //bail out fast if the source does not exist
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(debugPreamble + "returning false as src does not exist");
+      }
+      return false;
+    }
     // Figure out the final destination
-    String dstKey;
+    String dstKey = pathToKey(makeAbsolute(dst));
+
     try {
       boolean dstIsFile = getFileStatus(dst).isFile();
       if (dstIsFile) {
+        //destination is a file.
+        //you can't copy a file or a directory onto an existing file
+        //except for the special case of dest==src, which is a no-op
         if(LOG.isDebugEnabled()) {
           LOG.debug(debugPreamble +
-              "returning false as dst is an already existing file");
+              "returning without rename as dst is an already existing file");
         }
-        return false;
+        //exit, returning true iff the rename is onto self
+        return srcKey.equals(dstKey);
       } else {
+        //destination exists and is a directory
         if(LOG.isDebugEnabled()) {
           LOG.debug(debugPreamble + "using dst as output directory");
         }
+        //destination goes under the dst path, with the name of the
+        //source entry
         dstKey = pathToKey(makeAbsolute(new Path(dst, src.getName())));
       }
     } catch (FileNotFoundException e) {
+      //destination does not exist => the source file or directory
+      //is copied over with the name of the destination
       if(LOG.isDebugEnabled()) {
         LOG.debug(debugPreamble + "using dst as output destination");
       }
-      dstKey = pathToKey(makeAbsolute(dst));
       try {
         if (getFileStatus(dst.getParent()).isFile()) {
           if(LOG.isDebugEnabled()) {
@@ -690,16 +748,17 @@ public class NativeS3FileSystem extends FileSystem {
       }
     }
 
-    boolean srcIsFile;
-    try {
-      srcIsFile = getFileStatus(src).isFile();
-    } catch (FileNotFoundException e) {
-      if(LOG.isDebugEnabled()) {
-        LOG.debug(debugPreamble + "returning false as src does not exist");
+    //rename to self behavior follows Posix rules and is different
+    //for directories and files -the return code is driven by src type
+    if (srcKey.equals(dstKey)) {
+      //fully resolved destination key matches source: fail
+      if (LOG.isDebugEnabled()) {
+        LOG.debug(debugPreamble + "renamingToSelf; returning true");
       }
-      return false;
+      return true;
     }
     if (srcIsFile) {
+      //source is a file; COPY then DELETE
       if(LOG.isDebugEnabled()) {
         LOG.debug(debugPreamble +
             "src is file, so doing copy then delete in S3");
@@ -707,9 +766,19 @@ public class NativeS3FileSystem extends FileSystem {
       store.copy(srcKey, dstKey);
       store.delete(srcKey);
     } else {
+      //src is a directory
       if(LOG.isDebugEnabled()) {
         LOG.debug(debugPreamble + "src is directory, so copying contents");
       }
+      //Verify dest is not a child of the parent
+      if (dstKey.startsWith(srcKey + "/")) {
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+            debugPreamble + "cannot rename a directory to a subdirectory of self");
+        }
+        return false;
+      }
+      //create the subdir under the destination
       store.storeEmptyFile(dstKey + FOLDER_SUFFIX);
 
       List<String> keysToDelete = new ArrayList<String>();

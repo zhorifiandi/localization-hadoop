@@ -22,6 +22,8 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.azure.StorageInterface.CloudBlobWrapper;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import com.microsoft.azure.storage.AccessCondition;
 import com.microsoft.azure.storage.StorageException;
 import com.microsoft.azure.storage.blob.CloudBlob;
@@ -61,7 +63,8 @@ public class SelfRenewingLease {
 
 
   // Time to wait to retry getting the lease in milliseconds
-  private static final int LEASE_ACQUIRE_RETRY_INTERVAL = 2000;
+  @VisibleForTesting
+  static final int LEASE_ACQUIRE_RETRY_INTERVAL = 2000;
 
   public SelfRenewingLease(CloudBlobWrapper blobWrapper)
       throws StorageException {
@@ -79,7 +82,7 @@ public class SelfRenewingLease {
         // Throw again if we don't want to keep waiting.
         // We expect it to be that the lease is already present,
         // or in some cases that the blob does not exist.
-        if (!e.getErrorCode().equals("LeaseAlreadyPresent")) {
+        if (!"LeaseAlreadyPresent".equals(e.getErrorCode())) {
           LOG.info(
             "Caught exception when trying to get lease on blob "
             + blobWrapper.getUri().toString() + ". " + e.getMessage());
@@ -108,7 +111,7 @@ public class SelfRenewingLease {
 
   /**
    * Free the lease and stop the keep-alive thread.
-   * @throws StorageException
+   * @throws StorageException Thrown when fail to free the lease.
    */
   public void free() throws StorageException {
     AccessCondition accessCondition = AccessCondition.generateEmptyCondition();
@@ -116,7 +119,7 @@ public class SelfRenewingLease {
     try {
       blobWrapper.getBlob().releaseLease(accessCondition);
     } catch (StorageException e) {
-      if (e.getErrorCode().equals("BlobNotFound")) {
+      if ("BlobNotFound".equals(e.getErrorCode())) {
 
         // Don't do anything -- it's okay to free a lease
         // on a deleted file. The delete freed the lease

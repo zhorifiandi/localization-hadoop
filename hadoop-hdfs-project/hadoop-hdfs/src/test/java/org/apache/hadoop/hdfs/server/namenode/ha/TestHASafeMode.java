@@ -32,7 +32,6 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
@@ -56,12 +55,12 @@ import org.apache.hadoop.hdfs.protocol.HdfsConstants.SafeModeAction;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockManagerTestUtil;
 import org.apache.hadoop.hdfs.server.namenode.FSImage;
 import org.apache.hadoop.hdfs.server.namenode.FSNamesystem;
-import org.apache.hadoop.hdfs.server.namenode.FSNamesystem.SafeModeInfo;
 import org.apache.hadoop.hdfs.server.namenode.NameNode;
 import org.apache.hadoop.hdfs.server.namenode.NameNodeAdapter;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.ipc.RemoteException;
 import org.apache.hadoop.ipc.StandbyException;
+import org.apache.hadoop.ipc.protobuf.RpcHeaderProtos.RpcResponseHeaderProto.RpcErrorCodeProto;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
 import org.junit.After;
@@ -113,6 +112,7 @@ public class TestHASafeMode {
   public void shutdownCluster() {
     if (cluster != null) {
       cluster.shutdown();
+      cluster = null;
     }
   }
   
@@ -125,10 +125,13 @@ public class TestHASafeMode {
         .synchronizedMap(new HashMap<Path, Boolean>());
     final Path test = new Path("/test");
     // let nn0 enter safemode
+    cluster.getConfiguration(0).setInt(
+        DFSConfigKeys.DFS_NAMENODE_SAFEMODE_MIN_DATANODES_KEY, 3);
     NameNodeAdapter.enterSafeMode(nn0, false);
-    SafeModeInfo safeMode = (SafeModeInfo) Whitebox.getInternalState(
-        nn0.getNamesystem(), "safeMode");
-    Whitebox.setInternalState(safeMode, "extension", Integer.valueOf(30000));
+    Whitebox.setInternalState(nn0.getNamesystem(), "manualSafeMode", false);
+    BlockManagerTestUtil.setStartupSafeModeForTest(nn0.getNamesystem()
+        .getBlockManager());
+    assertTrue(nn0.getNamesystem().isInStartupSafeMode());
     LOG.info("enter safemode");
     new Thread() {
       @Override
@@ -498,7 +501,7 @@ public class TestHASafeMode {
             + nodeThresh + ". In safe mode extension. "
             + "Safe mode will be turned off automatically"));
     } else {
-      int additional = total - safe;
+      int additional = (int) (total * 0.9990) - safe;
       assertTrue("Bad safemode status: '" + status + "'",
           status.startsWith(
               "Safe mode is ON. " +
@@ -774,6 +777,8 @@ public class TestHASafeMode {
       fail("StandBy should throw exception for isInSafeMode");
     } catch (IOException e) {
       if (e instanceof RemoteException) {
+        assertEquals("RPC Error code should indicate app failure.", RpcErrorCodeProto.ERROR_APPLICATION,
+            ((RemoteException) e).getErrorCode());
         IOException sbExcpetion = ((RemoteException) e).unwrapRemoteException();
         assertTrue("StandBy nn should not support isInSafeMode",
             sbExcpetion instanceof StandbyException);
@@ -832,7 +837,7 @@ public class TestHASafeMode {
           new ExtendedBlock(previousBlock),
           new DatanodeInfo[0],
           DFSClientAdapter.getFileId((DFSOutputStream) create
-              .getWrappedStream()), null);
+              .getWrappedStream()), null, null);
       cluster.restartNameNode(0, true);
       cluster.restartDataNode(0);
       cluster.transitionToActive(0);
@@ -845,5 +850,40 @@ public class TestHASafeMode {
     } finally {
       cluster.shutdown();
     }
+  }
+
+  @Test(timeout = 60000)
+  public void testSafeModeExitAfterTransition() throws Exception {
+    DFSTestUtil.createFile(fs, new Path("/test"), 5 * BLOCK_SIZE, (short) 3,
+        1L);
+    banner("Stopping standby");
+    cluster.shutdownNameNode(1);
+    DFSTestUtil.createFile(fs, new Path("/test2"), 3 * BLOCK_SIZE, (short) 3,
+        1L);
+    // Roll edit logs to be read by standby
+    nn0.getRpcServer().rollEditLog();
+    fs.delete(new Path("/test"), true);
+    // Wait till the blocks are deleted from all DNs
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        return cluster.getNamesystem(0).getBlockManager()
+            .getPendingDeletionBlocksCount() == 0;
+      }
+    }, 1000, 10000);
+    restartStandby();
+    // Wait till all the datanodes are registered.
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        return cluster.getNamesystem(1).getNumLiveDataNodes() == 3;
+      }
+    }, 1000, 10000);
+    cluster.triggerBlockReports();
+    NameNodeAdapter.abortEditLogs(nn0);
+    cluster.shutdownNameNode(0);
+    banner(nn1.getNamesystem().getSafemode());
+    cluster.transitionToActive(1);
+    assertSafeMode(nn1, 3, 3, 3, 0);
   }
 }

@@ -18,14 +18,13 @@
   <parent>
     <groupId>org.apache.hadoop</groupId>
     <artifactId>hadoop-project</artifactId>
-    <version>2.7.2</version>
+    <version>3.0.0-beta1-SNAPSHOT</version>
     <relativePath>../hadoop-project</relativePath>
   </parent>
-  <groupId>org.apache.hadoop</groupId>
   <artifactId>hadoop-yarn-project</artifactId>
-  <version>2.7.2</version>
+  <version>3.0.0-beta1-SNAPSHOT</version>
   <packaging>pom</packaging>
-  <name>hadoop-yarn-project</name>
+  <name>Apache Hadoop YARN Project</name>
   <url>http://hadoop.apache.org/yarn/</url>
 
   <properties>
@@ -75,6 +74,14 @@
       <groupId>org.apache.hadoop</groupId>
       <artifactId>hadoop-yarn-server-web-proxy</artifactId>
     </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-yarn-server-timelineservice-hbase</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.apache.hadoop</groupId>
+      <artifactId>hadoop-yarn-server-router</artifactId>
+    </dependency>
   </dependencies>
 
   <build>
@@ -96,22 +103,13 @@
                   cd "${project.build.directory}"
                   tar cf - ${project.artifactId}-${project.version} | gzip > ${project.artifactId}-${project.version}.tar.gz
                 </echo>
-                <exec executable="sh" dir="${project.build.directory}" failonerror="true">
+                <exec executable="${shell-executable}" dir="${project.build.directory}" failonerror="true">
                   <arg line="./dist-maketar.sh"/>
                 </exec>
               </target>
             </configuration>
           </execution>
         </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.rat</groupId>
-        <artifactId>apache-rat-plugin</artifactId>
-        <configuration>
-          <excludes>
-            <exclude>CHANGES.txt</exclude>
-          </excludes>
-        </configuration>
       </plugin>
     </plugins>
   </build>

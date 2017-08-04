@@ -29,10 +29,12 @@ import org.apache.hadoop.classification.InterfaceAudience.Private;
 import org.apache.hadoop.classification.InterfaceStability.Unstable;
 import org.apache.hadoop.yarn.api.records.ApplicationAccessType;
 import org.apache.hadoop.yarn.api.records.ContainerLaunchContext;
+import org.apache.hadoop.yarn.api.records.ContainerRetryContext;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.proto.YarnProtos.ApplicationACLMapProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ContainerLaunchContextProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ContainerLaunchContextProtoOrBuilder;
+import org.apache.hadoop.yarn.proto.YarnProtos.ContainerRetryContextProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.LocalResourceProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.StringBytesMapProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.StringLocalResourceMapProto;
@@ -52,11 +54,13 @@ extends ContainerLaunchContext {
   
   private Map<String, LocalResource> localResources = null;
   private ByteBuffer tokens = null;
+  private ByteBuffer tokensConf = null;
   private Map<String, ByteBuffer> serviceData = null;
   private Map<String, String> environment = null;
   private List<String> commands = null;
   private Map<ApplicationAccessType, String> applicationACLS = null;
-  
+  private ContainerRetryContext containerRetryContext = null;
+
   public ContainerLaunchContextPBImpl() {
     builder = ContainerLaunchContextProto.newBuilder();
   }
@@ -108,6 +112,9 @@ extends ContainerLaunchContext {
     if (this.tokens != null) {
       builder.setTokens(convertToProtoFormat(this.tokens));
     }
+    if (this.tokensConf != null) {
+      builder.setTokensConf(convertToProtoFormat(this.tokensConf));
+    }
     if (this.serviceData != null) {
       addServiceDataToProto();
     }
@@ -119,6 +126,10 @@ extends ContainerLaunchContext {
     }
     if (this.applicationACLS != null) {
       addApplicationACLs();
+    }
+    if (this.containerRetryContext != null) {
+      builder.setContainerRetryContext(
+          convertToProtoFormat(this.containerRetryContext));
     }
   }
   
@@ -197,11 +208,32 @@ extends ContainerLaunchContext {
       final Map<String, LocalResource> localResources) {
     if (localResources == null)
       return;
+    checkLocalResources(localResources);
     initLocalResources();
     this.localResources.clear();
     this.localResources.putAll(localResources);
   }
   
+  private void checkLocalResources(Map<String, LocalResource> localResources) {
+    for (Map.Entry<String, LocalResource> rsrcEntry : localResources
+        .entrySet()) {
+      if (rsrcEntry.getValue() == null
+          || rsrcEntry.getValue().getResource() == null) {
+        throw new NullPointerException(
+            "Null resource URL for local resource " + rsrcEntry.getKey() + " : "
+                + rsrcEntry.getValue());
+      } else if (rsrcEntry.getValue().getType() == null) {
+        throw new NullPointerException(
+            "Null resource type for local resource " + rsrcEntry.getKey() + " : "
+                + rsrcEntry.getValue());
+      } else if (rsrcEntry.getValue().getVisibility() == null) {
+          throw new NullPointerException(
+            "Null resource visibility for local resource " + rsrcEntry.getKey() + " : "
+                + rsrcEntry.getValue());
+      }
+    }
+  }
+
   private void addLocalResourcesToProto() {
     maybeInitBuilder();
     builder.clearLocalResources();
@@ -258,6 +290,28 @@ extends ContainerLaunchContext {
       builder.clearTokens();
     }
     this.tokens = tokens;
+  }
+
+  @Override
+  public ByteBuffer getTokensConf() {
+    ContainerLaunchContextProtoOrBuilder p = viaProto ? proto : builder;
+    if (this.tokensConf != null) {
+      return this.tokensConf;
+    }
+    if (!p.hasTokensConf()) {
+      return null;
+    }
+    this.tokensConf = convertFromProtoFormat(p.getTokensConf());
+    return this.tokensConf;
+  }
+
+  @Override
+  public void setTokensConf(ByteBuffer tokensConf) {
+    maybeInitBuilder();
+    if (tokensConf == null) {
+      builder.clearTokensConf();
+    }
+    this.tokensConf = tokensConf;
   }
 
   @Override
@@ -369,14 +423,20 @@ extends ContainerLaunchContext {
           public void remove() {
             throw new UnsupportedOperationException();
           }
-          
+
           @Override
           public StringStringMapProto next() {
             String key = keyIter.next();
-            return StringStringMapProto.newBuilder().setKey(key).setValue(
-                (environment.get(key))).build();
+            String value = environment.get(key);
+
+            if (value == null) {
+              value = "";
+            }
+
+            return StringStringMapProto.newBuilder().setKey(key)
+                .setValue((value)).build();
           }
-          
+
           @Override
           public boolean hasNext() {
             return keyIter.hasNext();
@@ -456,6 +516,27 @@ extends ContainerLaunchContext {
     this.applicationACLS.putAll(appACLs);
   }
 
+  public ContainerRetryContext getContainerRetryContext() {
+    ContainerLaunchContextProtoOrBuilder p = viaProto ? proto : builder;
+    if (this.containerRetryContext != null) {
+      return this.containerRetryContext;
+    }
+    if (!p.hasContainerRetryContext()) {
+      return null;
+    }
+    this.containerRetryContext = convertFromProtoFormat(
+        p.getContainerRetryContext());
+    return this.containerRetryContext;
+  }
+
+  public void setContainerRetryContext(ContainerRetryContext retryContext) {
+    maybeInitBuilder();
+    if (retryContext == null) {
+      builder.clearContainerRetryContext();
+    }
+    this.containerRetryContext = retryContext;
+  }
+
   private LocalResourcePBImpl convertFromProtoFormat(LocalResourceProto p) {
     return new LocalResourcePBImpl(p);
   }
@@ -463,4 +544,14 @@ extends ContainerLaunchContext {
   private LocalResourceProto convertToProtoFormat(LocalResource t) {
     return ((LocalResourcePBImpl)t).getProto();
   }
-}  
+
+  private ContainerRetryContextPBImpl convertFromProtoFormat(
+      ContainerRetryContextProto p) {
+    return new ContainerRetryContextPBImpl(p);
+  }
+
+  private ContainerRetryContextProto convertToProtoFormat(
+      ContainerRetryContext t) {
+    return ((ContainerRetryContextPBImpl)t).getProto();
+  }
+}

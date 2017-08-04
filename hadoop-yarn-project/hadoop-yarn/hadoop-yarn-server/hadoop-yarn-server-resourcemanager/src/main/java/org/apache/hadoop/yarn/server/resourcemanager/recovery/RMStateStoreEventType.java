@@ -24,6 +24,7 @@ public enum RMStateStoreEventType {
   UPDATE_APP,
   UPDATE_APP_ATTEMPT,
   REMOVE_APP,
+  REMOVE_APP_ATTEMPT,
   FENCED,
 
   // Below events should be called synchronously
@@ -32,5 +33,7 @@ public enum RMStateStoreEventType {
   STORE_DELEGATION_TOKEN,
   REMOVE_DELEGATION_TOKEN,
   UPDATE_DELEGATION_TOKEN,
-  UPDATE_AMRM_TOKEN
+  UPDATE_AMRM_TOKEN,
+  STORE_RESERVATION,
+  REMOVE_RESERVATION,
 }

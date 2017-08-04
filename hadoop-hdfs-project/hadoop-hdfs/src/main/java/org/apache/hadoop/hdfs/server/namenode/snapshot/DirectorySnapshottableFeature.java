@@ -23,6 +23,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.hadoop.HadoopIllegalArgumentException;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -31,18 +32,19 @@ import org.apache.hadoop.hdfs.protocol.QuotaExceededException;
 import org.apache.hadoop.hdfs.protocol.SnapshotException;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockStoragePolicySuite;
 import org.apache.hadoop.hdfs.server.namenode.Content;
-import org.apache.hadoop.hdfs.server.namenode.ContentSummaryComputationContext;
+import org.apache.hadoop.hdfs.server.namenode.ContentCounts;
 import org.apache.hadoop.hdfs.server.namenode.INode;
-import org.apache.hadoop.hdfs.server.namenode.INode.BlocksMapUpdateInfo;
 import org.apache.hadoop.hdfs.server.namenode.INodeDirectory;
 import org.apache.hadoop.hdfs.server.namenode.INodeDirectory.SnapshotAndINode;
 import org.apache.hadoop.hdfs.server.namenode.INodeFile;
 import org.apache.hadoop.hdfs.server.namenode.INodeReference;
 import org.apache.hadoop.hdfs.server.namenode.INodeReference.WithCount;
 import org.apache.hadoop.hdfs.server.namenode.INodeReference.WithName;
-import org.apache.hadoop.hdfs.server.namenode.QuotaCounts;
+import org.apache.hadoop.hdfs.server.namenode.INodesInPath;
+import org.apache.hadoop.hdfs.server.namenode.LeaseManager;
 import org.apache.hadoop.hdfs.util.Diff.ListType;
 import org.apache.hadoop.hdfs.util.ReadOnlyList;
+import org.apache.hadoop.security.AccessControlException;
 import org.apache.hadoop.util.Time;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -165,7 +167,8 @@ public class DirectorySnapshottableFeature extends DirectoryWithSnapshotFeature 
   }
 
   /** Add a snapshot. */
-  public Snapshot addSnapshot(INodeDirectory snapshotRoot, int id, String name)
+  public Snapshot addSnapshot(INodeDirectory snapshotRoot, int id, String name,
+      final LeaseManager leaseManager, final boolean captureOpenFiles)
       throws SnapshotException, QuotaExceededException {
     //check snapshot quota
     final int n = getNumSnapshots();
@@ -190,6 +193,21 @@ public class DirectorySnapshottableFeature extends DirectoryWithSnapshotFeature 
     final long now = Time.now();
     snapshotRoot.updateModificationTime(now, Snapshot.CURRENT_STATE_ID);
     s.getRoot().setModificationTime(now, Snapshot.CURRENT_STATE_ID);
+
+    if (captureOpenFiles) {
+      try {
+        Set<INodesInPath> openFilesIIP =
+            leaseManager.getINodeWithLeases(snapshotRoot);
+        for (INodesInPath openFileIIP : openFilesIIP) {
+          INodeFile openFile = openFileIIP.getLastINode().asFile();
+          openFile.recordModification(openFileIIP.getLatestSnapshotId());
+        }
+      } catch (Exception e) {
+        throw new SnapshotException("Failed to add snapshot: Unable to " +
+            "capture all open files under the snapshot dir " +
+            snapshotRoot.getFullPathName() + " for snapshot '" + name + "'", e);
+      }
+    }
     return s;
   }
 
@@ -197,15 +215,15 @@ public class DirectorySnapshottableFeature extends DirectoryWithSnapshotFeature 
    * Remove the snapshot with the given name from {@link #snapshotsByNames},
    * and delete all the corresponding DirectoryDiff.
    *
+   * @param reclaimContext records blocks and inodes that need to be reclaimed
    * @param snapshotRoot The directory where we take snapshots
    * @param snapshotName The name of the snapshot to be removed
-   * @param collectedBlocks Used to collect information to update blocksMap
    * @return The removed snapshot. Null if no snapshot with the given name
    *         exists.
    */
-  public Snapshot removeSnapshot(BlockStoragePolicySuite bsps, INodeDirectory snapshotRoot,
-      String snapshotName, BlocksMapUpdateInfo collectedBlocks,
-      final List<INode> removedINodes) throws SnapshotException {
+  public Snapshot removeSnapshot(
+      INode.ReclaimContext reclaimContext, INodeDirectory snapshotRoot,
+      String snapshotName) throws SnapshotException {
     final int i = searchSnapshot(DFSUtil.string2Bytes(snapshotName));
     if (i < 0) {
       throw new SnapshotException("Cannot delete snapshot " + snapshotName
@@ -214,32 +232,19 @@ public class DirectorySnapshottableFeature extends DirectoryWithSnapshotFeature 
     } else {
       final Snapshot snapshot = snapshotsByNames.get(i);
       int prior = Snapshot.findLatestSnapshot(snapshotRoot, snapshot.getId());
-      try {
-        QuotaCounts counts = snapshotRoot.cleanSubtree(bsps, snapshot.getId(),
-            prior, collectedBlocks, removedINodes);
-        INodeDirectory parent = snapshotRoot.getParent();
-        if (parent != null) {
-          // there will not be any WithName node corresponding to the deleted
-          // snapshot, thus only update the quota usage in the current tree
-          parent.addSpaceConsumed(counts.negation(), true);
-        }
-      } catch(QuotaExceededException e) {
-        INode.LOG.error("BUG: removeSnapshot increases namespace usage.", e);
-      }
+      snapshotRoot.cleanSubtree(reclaimContext, snapshot.getId(), prior);
       // remove from snapshotsByNames after successfully cleaning the subtree
       snapshotsByNames.remove(i);
       return snapshot;
     }
   }
 
-  public ContentSummaryComputationContext computeContentSummary(
-      final BlockStoragePolicySuite bsps,
-      final INodeDirectory snapshotRoot,
-      final ContentSummaryComputationContext summary) {
-    snapshotRoot.computeContentSummary(summary);
-    summary.getCounts().addContent(Content.SNAPSHOT, snapshotsByNames.size());
-    summary.getCounts().addContent(Content.SNAPSHOTTABLE_DIRECTORY, 1);
-    return summary;
+  @Override
+  public void computeContentSummary4Snapshot(final BlockStoragePolicySuite bsps,
+      final ContentCounts counts) throws AccessControlException {
+    counts.addContent(Content.SNAPSHOT, snapshotsByNames.size());
+    counts.addContent(Content.SNAPSHOTTABLE_DIRECTORY, 1);
+    super.computeContentSummary4Snapshot(bsps, counts);
   }
 
   /**

@@ -19,6 +19,7 @@
 package org.apache.hadoop.yarn.api.records;
 
 import org.apache.hadoop.classification.InterfaceAudience.Public;
+import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.classification.InterfaceStability.Stable;
 
 /**
@@ -34,5 +35,9 @@ public enum ContainerState {
   RUNNING, 
   
   /** Completed container */
-  COMPLETE
+  COMPLETE,
+
+  /** Scheduled (awaiting resources) at the NM. */
+  @InterfaceStability.Unstable
+  SCHEDULED
 }

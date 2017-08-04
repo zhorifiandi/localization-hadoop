@@ -38,10 +38,10 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.hdfs.qjournal.MiniJournalCluster;
@@ -66,7 +66,6 @@ import org.mockito.Mockito;
 import org.mockito.stubbing.Stubber;
 
 import com.google.common.collect.Lists;
-import com.google.common.util.concurrent.MoreExecutors;
 
 /**
  * Functional tests for QuorumJournalManager.
@@ -84,7 +83,7 @@ public class TestQuorumJournalManager {
   private final List<QuorumJournalManager> toClose = Lists.newLinkedList();
   
   static {
-    ((Log4JLogger)ProtobufRpcEngine.LOG).getLogger().setLevel(Level.ALL);
+    GenericTestUtils.setLogLevel(ProtobufRpcEngine.LOG, Level.ALL);
   }
 
   @Before
@@ -95,6 +94,7 @@ public class TestQuorumJournalManager {
     
     cluster = new MiniJournalCluster.Builder(conf)
       .build();
+    cluster.waitActive();
     
     qjm = createSpyingQJM();
     spies = qjm.getLoggerSetForTests().getLoggersForTests();
@@ -103,20 +103,23 @@ public class TestQuorumJournalManager {
     qjm.recoverUnfinalizedSegments();
     assertEquals(1, qjm.getLoggerSetForTests().getEpoch());
   }
-  
+
   @After
-  public void shutdown() throws IOException {
+  public void shutdown() throws IOException, InterruptedException,
+      TimeoutException {
     IOUtils.cleanup(LOG, toClose.toArray(new Closeable[0]));
-    
+
     // Should not leak clients between tests -- this can cause flaky tests.
     // (See HDFS-4643)
-    GenericTestUtils.assertNoThreadsMatching(".*IPC Client.*");
+    // Wait for IPC clients to terminate to avoid flaky tests
+    GenericTestUtils.waitForThreadTermination(".*IPC Client.*", 100, 1000);
     
     if (cluster != null) {
       cluster.shutdown();
+      cluster = null;
     }
   }
-  
+
   /**
    * Enqueue a QJM for closing during shutdown. This makes the code a little
    * easier to follow, with fewer try..finally clauses necessary.
@@ -942,7 +945,7 @@ public class TestQuorumJournalManager {
           protected ExecutorService createSingleThreadExecutor() {
             // Don't parallelize calls to the quorum in the tests.
             // This makes the tests more deterministic.
-            return MoreExecutors.sameThreadExecutor();
+            return new DirectExecutorService();
           }
         };
         

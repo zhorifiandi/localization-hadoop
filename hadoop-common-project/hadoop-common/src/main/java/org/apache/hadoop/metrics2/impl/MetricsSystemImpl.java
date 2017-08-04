@@ -33,12 +33,9 @@ import javax.management.ObjectName;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.annotations.VisibleForTesting;
-import java.util.Locale;
 import static com.google.common.base.Preconditions.*;
 
-import org.apache.commons.configuration.PropertiesConfiguration;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import org.apache.commons.configuration2.PropertiesConfiguration;
 import org.apache.commons.math3.util.ArithmeticUtils;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.metrics2.MetricsInfo;
@@ -63,6 +60,8 @@ import org.apache.hadoop.metrics2.lib.MutableStat;
 import org.apache.hadoop.metrics2.util.MBeans;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A base class for metrics system singletons
@@ -71,7 +70,7 @@ import org.apache.hadoop.util.Time;
 @Metrics(context="metricssystem")
 public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
 
-  static final Log LOG = LogFactory.getLog(MetricsSystemImpl.class);
+  static final Logger LOG = LoggerFactory.getLogger(MetricsSystemImpl.class);
   static final String MS_NAME = "MetricsSystem";
   static final String MS_STATS_NAME = MS_NAME +",sub=Stats";
   static final String MS_STATS_DESC = "Metrics system metrics";
@@ -105,7 +104,7 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
   private Map<String, MetricsConfig> sourceConfigs, sinkConfigs;
   private boolean monitoring = false;
   private Timer timer;
-  private int period; // seconds
+  private long period; // milliseconds
   private long logicalTime; // number of timer invocations * period
   private ObjectName mbeanName;
   private boolean publishSelfMetrics = true;
@@ -255,17 +254,16 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
     if (namedCallbacks.containsKey(name)) {
       namedCallbacks.remove(name);
     }
+    DefaultMetricsSystem.removeSourceName(name);
   }
 
   synchronized
   void registerSource(String name, String desc, MetricsSource source) {
     checkNotNull(config, "config");
     MetricsConfig conf = sourceConfigs.get(name);
-    MetricsSourceAdapter sa = conf != null
-        ? new MetricsSourceAdapter(prefix, name, desc, source,
-                                   injectedTags, period, conf)
-        : new MetricsSourceAdapter(prefix, name, desc, source,
-          injectedTags, period, config.subset(SOURCE_KEY));
+    MetricsSourceAdapter sa = new MetricsSourceAdapter(prefix, name, desc,
+        source, injectedTags, period, conf != null ? conf
+            : config.subset(SOURCE_KEY));
     sources.put(name, sa);
     sa.start();
     LOG.debug("Registered source "+ name);
@@ -320,8 +318,7 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
               throws Throwable {
             try {
               return method.invoke(callback, args);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
               // These are not considered fatal.
               LOG.warn("Caught exception in callback " + method.getName(), e);
             }
@@ -349,7 +346,7 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
     PropertiesConfiguration saver = new PropertiesConfiguration();
     StringWriter writer = new StringWriter();
     saver.copy(config);
-    try { saver.save(writer); }
+    try { saver.write(writer); }
     catch (Exception e) {
       throw new MetricsConfigException("Error stringify config", e);
     }
@@ -362,19 +359,20 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
       return;
     }
     logicalTime = 0;
-    long millis = period * 1000;
+    long millis = period;
     timer = new Timer("Timer for '"+ prefix +"' metrics system", true);
     timer.scheduleAtFixedRate(new TimerTask() {
+          @Override
           public void run() {
             try {
               onTimerEvent();
-            }
-            catch (Exception e) {
-              LOG.warn(e);
+            } catch (Exception e) {
+              LOG.warn("Error invoking metrics timer", e);
             }
           }
         }, millis, millis);
-    LOG.info("Scheduled snapshot period at "+ period +" second(s).");
+    LOG.info("Scheduled Metric snapshot period at " + (period / 1000)
+        + " second(s).");
   }
 
   synchronized void onTimerEvent() {
@@ -489,12 +487,15 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
 
   private synchronized void configureSinks() {
     sinkConfigs = config.getInstanceConfigs(SINK_KEY);
-    int confPeriod = 0;
+    long confPeriodMillis = 0;
     for (Entry<String, MetricsConfig> entry : sinkConfigs.entrySet()) {
       MetricsConfig conf = entry.getValue();
       int sinkPeriod = conf.getInt(PERIOD_KEY, PERIOD_DEFAULT);
-      confPeriod = confPeriod == 0 ? sinkPeriod
-                                   : ArithmeticUtils.gcd(confPeriod, sinkPeriod);
+      // Support configuring periodMillis for testing.
+      long sinkPeriodMillis =
+          conf.getLong(PERIOD_MILLIS_KEY, sinkPeriod * 1000);
+      confPeriodMillis = confPeriodMillis == 0 ? sinkPeriodMillis
+          : ArithmeticUtils.gcd(confPeriodMillis, sinkPeriodMillis);
       String clsName = conf.getClassName("");
       if (clsName == null) continue;  // sink can be registered later on
       String sinkName = entry.getKey();
@@ -503,13 +504,13 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
             conf.getString(DESC_KEY, sinkName), conf);
         sa.start();
         sinks.put(sinkName, sa);
-      }
-      catch (Exception e) {
+      } catch (Exception e) {
         LOG.warn("Error creating sink '"+ sinkName +"'", e);
       }
     }
-    period = confPeriod > 0 ? confPeriod
-                            : config.getInt(PERIOD_KEY, PERIOD_DEFAULT);
+    long periodSec = config.getInt(PERIOD_KEY, PERIOD_DEFAULT);
+    period = confPeriodMillis > 0 ? confPeriodMillis
+        : config.getLong(PERIOD_MILLIS_KEY, periodSec * 1000);
   }
 
   static MetricsSinkAdapter newSink(String name, String desc, MetricsSink sink,
@@ -546,8 +547,7 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
   static String getHostname() {
     try {
       return InetAddress.getLocalHost().getHostName();
-    }
-    catch (Exception e) {
+    } catch (Exception e) {
       LOG.error("Error getting localhost name. Using 'localhost'...", e);
     }
     return "localhost";
@@ -608,6 +608,7 @@ public class MetricsSystemImpl extends MetricsSystem implements MetricsSource {
     return true;
   }
 
+  @Override
   public MetricsSource getSource(String name) {
     return allSources.get(name);
   }

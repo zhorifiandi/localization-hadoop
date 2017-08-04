@@ -18,6 +18,7 @@ package org.apache.hadoop.security;
 
 import static org.apache.hadoop.fs.CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION;
 import static org.apache.hadoop.security.UserGroupInformation.AuthenticationMethod.*;
+
 import static org.junit.Assert.*;
 
 import java.io.IOException;
@@ -28,6 +29,7 @@ import java.net.URI;
 import javax.security.auth.kerberos.KerberosPrincipal;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.security.token.Token;
@@ -110,7 +112,7 @@ public class TestSecurityUtil {
 
   @Test
   public void testLocalHostNameForNullOrWild() throws Exception {
-    String local = StringUtils.toLowerCase(SecurityUtil.getLocalHostName());
+    String local = StringUtils.toLowerCase(SecurityUtil.getLocalHostName(null));
     assertEquals("hdfs/" + local + "@REALM",
                  SecurityUtil.getServerPrincipal("hdfs/_HOST@REALM", (String)null));
     assertEquals("hdfs/" + local + "@REALM",
@@ -144,7 +146,10 @@ public class TestSecurityUtil {
 
   @Test
   public void testBuildDTServiceName() {
-    SecurityUtil.setTokenServiceUseIp(true);
+    Configuration conf = new Configuration(false);
+    conf.setBoolean(
+        CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP, true);
+    SecurityUtil.setConfiguration(conf);
     assertEquals("127.0.0.1:123",
         SecurityUtil.buildDTServiceName(URI.create("test://LocalHost"), 123)
     );
@@ -161,7 +166,10 @@ public class TestSecurityUtil {
   
   @Test
   public void testBuildTokenServiceSockAddr() {
-    SecurityUtil.setTokenServiceUseIp(true);
+    Configuration conf = new Configuration(false);
+    conf.setBoolean(
+        CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP, true);
+    SecurityUtil.setConfiguration(conf);
     assertEquals("127.0.0.1:123",
         SecurityUtil.buildTokenService(new InetSocketAddress("LocalHost", 123)).toString()
     );
@@ -260,7 +268,10 @@ public class TestSecurityUtil {
   verifyTokenService(InetSocketAddress addr, String host, String ip, int port, boolean useIp) {
     //LOG.info("address:"+addr+" host:"+host+" ip:"+ip+" port:"+port);
 
-    SecurityUtil.setTokenServiceUseIp(useIp);
+    Configuration conf = new Configuration(false);
+    conf.setBoolean(
+        CommonConfigurationKeys.HADOOP_SECURITY_TOKEN_SERVICE_USE_IP, useIp);
+    SecurityUtil.setConfiguration(conf);
     String serviceHost = useIp ? ip : StringUtils.toLowerCase(host);
     
     Token<?> token = new Token<TokenIdentifier>();

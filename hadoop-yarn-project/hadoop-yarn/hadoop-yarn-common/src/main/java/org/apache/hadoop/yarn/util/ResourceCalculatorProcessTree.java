@@ -78,18 +78,6 @@ public abstract class ResourceCalculatorProcessTree extends Configured {
   public long getVirtualMemorySize() {
     return getVirtualMemorySize(0);
   }
-  
-  /**
-   * Get the virtual memory used by all the processes in the
-   * process-tree.
-   *
-   * @return virtual memory used by the process-tree in bytes,
-   * {@link #UNAVAILABLE} if it cannot be calculated.
-   */
-  @Deprecated
-  public long getCumulativeVmem() {
-    return getCumulativeVmem(0);
-  }
 
   /**
    * Get the resident set size (rss) memory used by all the processes
@@ -100,18 +88,6 @@ public abstract class ResourceCalculatorProcessTree extends Configured {
    */
   public long getRssMemorySize() {
     return getRssMemorySize(0);
-  }
-  
-  /**
-   * Get the resident set size (rss) memory used by all the processes
-   * in the process-tree.
-   *
-   * @return rss memory used by the process-tree in bytes,
-   * {@link #UNAVAILABLE} if it cannot be calculated.
-   */
-  @Deprecated
-  public long getCumulativeRssmem() {
-    return getCumulativeRssmem(0);
   }
 
   /**
@@ -127,21 +103,6 @@ public abstract class ResourceCalculatorProcessTree extends Configured {
   public long getVirtualMemorySize(int olderThanAge) {
     return UNAVAILABLE;
   }
-  
-  /**
-   * Get the virtual memory used by all the processes in the
-   * process-tree that are older than the passed in age.
-   *
-   * @param olderThanAge processes above this age are included in the
-   *                     memory addition
-   * @return virtual memory used by the process-tree in bytes for
-   * processes older than the specified age, {@link #UNAVAILABLE} if it
-   * cannot be calculated.
-   */
-  @Deprecated
-  public long getCumulativeVmem(int olderThanAge) {
-    return UNAVAILABLE;
-  }
 
   /**
    * Get the resident set size (rss) memory used by all the processes
@@ -154,21 +115,6 @@ public abstract class ResourceCalculatorProcessTree extends Configured {
    * calculated.
    */
   public long getRssMemorySize(int olderThanAge) {
-    return UNAVAILABLE;
-  }
-  
-  /**
-   * Get the resident set size (rss) memory used by all the processes
-   * in the process-tree that are older than the passed in age.
-   *
-   * @param olderThanAge processes above this age are included in the
-   *                     memory addition
-   * @return rss memory used by the process-tree in bytes for
-   * processes older than specified age, {@link #UNAVAILABLE} if it cannot be
-   * calculated.
-   */
-  @Deprecated
-  public long getCumulativeRssmem(int olderThanAge) {
     return UNAVAILABLE;
   }
 
@@ -187,9 +133,11 @@ public abstract class ResourceCalculatorProcessTree extends Configured {
    * Get the CPU usage by all the processes in the process-tree based on
    * average between samples as a ratio of overall CPU cycles similar to top.
    * Thus, if 2 out of 4 cores are used this should return 200.0.
+   * Note: UNAVAILABLE will be returned in case when CPU usage is not
+   * available. It is NOT advised to return any other error code.
    *
    * @return percentage CPU usage since the process-tree was created,
-   * {@link #UNAVAILABLE} if it cannot be calculated.
+   * {@link #UNAVAILABLE} if CPU usage cannot be calculated or not available.
    */
   public float getCpuUsagePercent() {
     return UNAVAILABLE;

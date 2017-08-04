@@ -67,12 +67,9 @@ public abstract class AbstractContractMkdirTest extends AbstractFSContractTestBa
       boolean made = fs.mkdirs(path);
       fail("mkdirs did not fail over a file but returned " + made
             + "; " + ls(path));
-    } catch (ParentNotDirectoryException e) {
+    } catch (ParentNotDirectoryException | FileAlreadyExistsException e) {
       //parent is a directory
       handleExpectedException(e);
-    } catch (FileAlreadyExistsException e) {
-      //also allowed as an exception (HDFS)
-      handleExpectedException(e);;
     } catch (IOException e) {
       //here the FS says "no create"
       handleRelaxedException("mkdirs", "FileAlreadyExistsException", e);
@@ -97,10 +94,8 @@ public abstract class AbstractContractMkdirTest extends AbstractFSContractTestBa
       boolean made = fs.mkdirs(child);
       fail("mkdirs did not fail over a file but returned " + made
            + "; " + ls(path));
-    } catch (ParentNotDirectoryException e) {
+    } catch (ParentNotDirectoryException | FileAlreadyExistsException e) {
       //parent is a directory
-      handleExpectedException(e);
-    } catch (FileAlreadyExistsException e) {
       handleExpectedException(e);
     } catch (IOException e) {
       handleRelaxedException("mkdirs", "ParentNotDirectoryException", e);
@@ -118,17 +113,66 @@ public abstract class AbstractContractMkdirTest extends AbstractFSContractTestBa
     describe("verify mkdir slash handling");
     FileSystem fs = getFileSystem();
 
-    // No trailing slash
-    assertTrue(fs.mkdirs(path("testmkdir/a")));
-    assertPathExists("mkdir without trailing slash failed",
-        path("testmkdir/a"));
-
-    // With trailing slash
-    assertTrue(fs.mkdirs(path("testmkdir/b/")));
-    assertPathExists("mkdir with trailing slash failed", path("testmkdir/b/"));
-
-    // Mismatched slashes
-    assertPathExists("check path existence without trailing slash failed",
-        path("testmkdir/b"));
+    final Path[] paths = new Path[] {
+        path("testMkdirSlashHandling/a"), // w/o trailing slash
+        path("testMkdirSlashHandling/b/"), // w/ trailing slash
+        // unqualified w/o trailing slash
+        new Path(getContract().getTestPath() + "/testMkdirSlashHandling/c"),
+        // unqualified w/ trailing slash
+        new Path(getContract().getTestPath() + "/testMkdirSlashHandling/d/"),
+        // unqualified w/ multiple trailing slashes
+        new Path(getContract().getTestPath() + "/testMkdirSlashHandling/e///")
+    };
+    for (Path path : paths) {
+      assertTrue(fs.mkdirs(path));
+      assertPathExists(path + " does not exist after mkdirs", path);
+      assertIsDirectory(path);
+      if (path.toString().endsWith("/")) {
+        String s = path.toString().substring(0, path.toString().length() - 1);
+        assertIsDirectory(new Path(s));
+      }
+    }
   }
+
+  @Test
+  public void testMkdirsPopulatingAllNonexistentAncestors() throws IOException {
+    describe("Verify mkdir will populate all its non-existent ancestors");
+    final FileSystem fs = getFileSystem();
+
+    final Path parent = path("testMkdirsPopulatingAllNonexistentAncestors");
+    assertTrue(fs.mkdirs(parent));
+    assertPathExists(parent + " should exist before making nested dir", parent);
+
+    Path nested = path(parent + "/a/b/c/d/e/f/g/h/i/j/k/L");
+    assertTrue(fs.mkdirs(nested));
+    while (nested != null && !nested.equals(parent) && !nested.isRoot()) {
+      assertPathExists(nested + " nested dir should exist", nested);
+      nested = nested.getParent();
+    }
+  }
+
+  @Test
+  public void testMkdirsDoesNotRemoveParentDirectories() throws IOException {
+    describe("Verify mkdir will make its parent existent");
+    final FileSystem fs = getFileSystem();
+
+    final Path parent = path("testMkdirsDoesNotRemoveParentDirectories");
+    assertTrue(fs.mkdirs(parent));
+
+    Path p = parent;
+    for (int i = 0; i < 10; i++) {
+      assertTrue(fs.mkdirs(p));
+      assertPathExists(p + " should exist after mkdir(" + p + ")", p);
+      p = path(p + "/dir-" + i);
+    }
+
+    // After mkdirs(sub-directory), its parent directory still exists
+    p = p.getParent();
+    while (p != null && !p.equals(parent) && !p.isRoot()) {
+      assertPathExists("Path " + p + " should exist", p);
+      assertIsDirectory(p);
+      p = p.getParent();
+    }
+  }
+
 }

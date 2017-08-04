@@ -27,20 +27,24 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.util.Random;
+import java.util.concurrent.TimeoutException;
 
+import com.google.common.base.Supplier;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.CommonConfigurationKeys;
-import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.server.blockmanagement.BlockManagerTestUtil;
+import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.protocol.NamenodeProtocols;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.DFSTestUtil;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
-import org.junit.AfterClass;
-import org.junit.BeforeClass;
+import org.apache.hadoop.test.GenericTestUtils;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -54,27 +58,18 @@ public class TestMetaSave {
   private static FileSystem fileSys = null;
   private static NamenodeProtocols nnRpc = null;
 
-  private void createFile(FileSystem fileSys, Path name) throws IOException {
-    FSDataOutputStream stm = fileSys.create(name, true, fileSys.getConf()
-        .getInt(CommonConfigurationKeys.IO_FILE_BUFFER_SIZE_KEY, 4096),
-        (short) 2, blockSize);
-    byte[] buffer = new byte[1024];
-    Random rand = new Random(seed);
-    rand.nextBytes(buffer);
-    stm.write(buffer);
-    stm.close();
-  }
-
-  @BeforeClass
-  public static void setUp() throws IOException {
+  @Before
+  public void setUp() throws IOException {
     // start a cluster
     Configuration conf = new HdfsConfiguration();
 
     // High value of replication interval
-    // so that blocks remain under-replicated
-    conf.setInt(DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_KEY, 1000);
+    // so that blocks remain less redundant
+    conf.setInt(DFSConfigKeys.DFS_NAMENODE_REDUNDANCY_INTERVAL_SECONDS_KEY,
+        1000);
     conf.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1L);
     conf.setLong(DFSConfigKeys.DFS_NAMENODE_HEARTBEAT_RECHECK_INTERVAL_KEY, 1L);
+    conf.setLong(DFSConfigKeys.DFS_NAMENODE_STALE_DATANODE_INTERVAL_KEY, 5L);
     cluster = new MiniDFSCluster.Builder(conf).numDataNodes(NUM_DATA_NODES).build();
     cluster.waitActive();
     fileSys = cluster.getFileSystem();
@@ -85,15 +80,17 @@ public class TestMetaSave {
    * Tests metasave
    */
   @Test
-  public void testMetaSave() throws IOException, InterruptedException {
+  public void testMetaSave()
+      throws IOException, InterruptedException, TimeoutException {
     for (int i = 0; i < 2; i++) {
       Path file = new Path("/filestatus" + i);
-      createFile(fileSys, file);
+      DFSTestUtil.createFile(fileSys, file, 1024, 1024, blockSize, (short) 2,
+          seed);
     }
 
-    cluster.stopDataNode(1);
-    // wait for namenode to discover that a datanode is dead
-    Thread.sleep(15000);
+    // stop datanode and wait for namenode to discover that a datanode is dead
+    stopDatanodeAndWait(1);
+
     nnRpc.setReplication("/filestatus0", (short) 4);
 
     nnRpc.metaSave("metasave.out.txt");
@@ -106,8 +103,9 @@ public class TestMetaSave {
     try {
       reader = new BufferedReader(new InputStreamReader(in));
       String line = reader.readLine();
-      assertTrue(line.equals(
-          "3 files and directories, 2 blocks = 5 total"));
+      Assert.assertEquals(
+          "3 files and directories, 2 blocks = 5 total filesystem objects",
+          line);
       line = reader.readLine();
       assertTrue(line.equals("Live Datanodes: 1"));
       line = reader.readLine();
@@ -126,15 +124,16 @@ public class TestMetaSave {
    */
   @Test
   public void testMetasaveAfterDelete()
-      throws IOException, InterruptedException {
+      throws IOException, InterruptedException, TimeoutException {
     for (int i = 0; i < 2; i++) {
       Path file = new Path("/filestatus" + i);
-      createFile(fileSys, file);
+      DFSTestUtil.createFile(fileSys, file, 1024, 1024, blockSize, (short) 2,
+          seed);
     }
 
-    cluster.stopDataNode(1);
-    // wait for namenode to discover that a datanode is dead
-    Thread.sleep(15000);
+    // stop datanode and wait for namenode to discover that a datanode is dead
+    stopDatanodeAndWait(1);
+
     nnRpc.setReplication("/filestatus0", (short) 4);
     nnRpc.delete("/filestatus0", true);
     nnRpc.delete("/filestatus1", true);
@@ -154,15 +153,18 @@ public class TestMetaSave {
       line = reader.readLine();
       assertTrue(line.equals("Dead Datanodes: 1"));
       line = reader.readLine();
-      assertTrue(line.equals("Metasave: Blocks waiting for replication: 0"));
+      assertTrue(line.equals("Metasave: Blocks waiting for reconstruction: 0"));
       line = reader.readLine();
       assertTrue(line.equals("Mis-replicated blocks that have been postponed:"));
       line = reader.readLine();
-      assertTrue(line.equals("Metasave: Blocks being replicated: 0"));
+      assertTrue(line.equals("Metasave: Blocks being reconstructed: 0"));
       line = reader.readLine();
       assertTrue(line.equals("Metasave: Blocks 2 waiting deletion from 1 datanodes."));
-     //skip 2 lines to reach HDFS-9033 scenario.
+      //skip 2 lines to reach HDFS-9033 scenario.
       line = reader.readLine();
+      line = reader.readLine();
+      assertTrue(line.contains("blk"));
+      // skip 1 line for Corrupt Blocks section.
       line = reader.readLine();
       line = reader.readLine();
       assertTrue(line.equals("Metasave: Number of datanodes: 2"));
@@ -211,8 +213,8 @@ public class TestMetaSave {
     }
   }
 
-  @AfterClass
-  public static void tearDown() throws IOException {
+  @After
+  public void tearDown() throws IOException {
     if (fileSys != null)
       fileSys.close();
     if (cluster != null)
@@ -227,5 +229,28 @@ public class TestMetaSave {
    */
   private static File getLogFile(String name) {
     return new File(System.getProperty("hadoop.log.dir"), name);
+  }
+
+  /**
+   * Stop a DN, notify NN the death of DN and wait for NN to remove the DN.
+   *
+   * @param dnIdx Index of the Datanode in MiniDFSCluster
+   * @throws TimeoutException
+   * @throws InterruptedException
+   */
+  private void stopDatanodeAndWait(final int dnIdx)
+      throws TimeoutException, InterruptedException {
+    final DataNode dnToStop = cluster.getDataNodes().get(dnIdx);
+    cluster.stopDataNode(dnIdx);
+    BlockManagerTestUtil.noticeDeadDatanode(
+        cluster.getNameNode(), dnToStop.getDatanodeId().getXferAddr());
+    // wait for namenode to discover that a datanode is dead
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        return BlockManagerTestUtil.isDatanodeRemoved(
+            cluster.getNameNode(), dnToStop.getDatanodeUuid());
+      }
+    }, 1000, 30000);
   }
 }

@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.SecretKey;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -42,6 +43,7 @@ import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.LocalDirAllocator;
+import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.FileSystem.Statistics;
 import org.apache.hadoop.io.BytesWritable;
@@ -61,8 +63,10 @@ import org.apache.hadoop.mapreduce.MRConfig;
 import org.apache.hadoop.mapreduce.MRJobConfig;
 import org.apache.hadoop.mapreduce.lib.reduce.WrappedReducer;
 import org.apache.hadoop.mapreduce.task.ReduceContextImpl;
+import org.apache.hadoop.mapreduce.util.MRJobConfUtil;
 import org.apache.hadoop.yarn.util.ResourceCalculatorProcessTree;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.util.ExitUtil;
 import org.apache.hadoop.util.Progress;
 import org.apache.hadoop.util.Progressable;
 import org.apache.hadoop.util.ReflectionUtils;
@@ -86,7 +90,7 @@ abstract public class Task implements Writable, Configurable {
    * @deprecated Provided for compatibility. Use {@link TaskCounter} instead.
    */
   @Deprecated
-  public static enum Counter { 
+  public enum Counter {
     MAP_INPUT_RECORDS, 
     MAP_OUTPUT_RECORDS,
     MAP_SKIPPED_RECORDS,
@@ -106,7 +110,11 @@ abstract public class Task implements Writable, Configurable {
     CPU_MILLISECONDS,
     PHYSICAL_MEMORY_BYTES,
     VIRTUAL_MEMORY_BYTES,
-    COMMITTED_HEAP_BYTES
+    COMMITTED_HEAP_BYTES,
+    MAP_PHYSICAL_MEMORY_BYTES_MAX,
+    MAP_VIRTUAL_MEMORY_BYTES_MAX,
+    REDUCE_PHYSICAL_MEMORY_BYTES_MAX,
+    REDUCE_VIRTUAL_MEMORY_BYTES_MAX
   }
 
   /**
@@ -190,6 +198,7 @@ abstract public class Task implements Writable, Configurable {
   protected SecretKey tokenSecret;
   protected SecretKey shuffleSecret;
   protected GcTimeUpdater gcUpdater;
+  final AtomicBoolean mustPreempt = new AtomicBoolean(false);
 
   ////////////////////////////////////////////
   // Constructors
@@ -227,6 +236,11 @@ abstract public class Task implements Writable, Configurable {
     mergedMapOutputsCounter = 
       counters.findCounter(TaskCounter.MERGED_MAP_OUTPUTS);
     gcUpdater = new GcTimeUpdater();
+  }
+
+  @VisibleForTesting
+  void setTaskDone() {
+    taskDone.set(true);
   }
 
   ////////////////////////////////////////////
@@ -559,9 +573,6 @@ abstract public class Task implements Writable, Configurable {
   public abstract void run(JobConf job, TaskUmbilicalProtocol umbilical)
     throws IOException, ClassNotFoundException, InterruptedException;
 
-  /** The number of milliseconds between progress reports. */
-  public static final int PROGRESS_INTERVAL = 3000;
-
   private transient Progress taskProgress = new Progress();
 
   // Current counters
@@ -648,8 +659,9 @@ abstract public class Task implements Writable, Configurable {
      * Using AtomicBoolean since we need an atomic read & reset method. 
      */  
     private AtomicBoolean progressFlag = new AtomicBoolean(false);
-    
-    TaskReporter(Progress taskProgress,
+
+    @VisibleForTesting
+    public TaskReporter(Progress taskProgress,
                  TaskUmbilicalProtocol umbilical) {
       this.umbilical = umbilical;
       this.taskProgress = taskProgress;
@@ -725,29 +737,72 @@ abstract public class Task implements Writable, Configurable {
       } else {
         return split;
       }
-    }  
-    /** 
-     * The communication thread handles communication with the parent (Task Tracker). 
-     * It sends progress updates if progress has been made or if the task needs to 
-     * let the parent know that it's alive. It also pings the parent to see if it's alive. 
+    }
+
+    /**
+     * exception thrown when the task exceeds some configured limits.
+     */
+    public class TaskLimitException extends IOException {
+      public TaskLimitException(String str) {
+        super(str);
+      }
+    }
+
+    /**
+     * check the counters to see whether the task has exceeded any configured
+     * limits.
+     * @throws TaskLimitException
+     */
+    protected void checkTaskLimits() throws TaskLimitException {
+      // check the limit for writing to local file system
+      long limit = conf.getLong(MRJobConfig.TASK_LOCAL_WRITE_LIMIT_BYTES,
+              MRJobConfig.DEFAULT_TASK_LOCAL_WRITE_LIMIT_BYTES);
+      if (limit >= 0) {
+        Counters.Counter localWritesCounter = null;
+        try {
+          LocalFileSystem localFS = FileSystem.getLocal(conf);
+          localWritesCounter = counters.findCounter(localFS.getScheme(),
+                  FileSystemCounter.BYTES_WRITTEN);
+        } catch (IOException e) {
+          LOG.warn("Could not get LocalFileSystem BYTES_WRITTEN counter");
+        }
+        if (localWritesCounter != null
+                && localWritesCounter.getCounter() > limit) {
+          throw new TaskLimitException("too much write to local file system." +
+                  " current value is " + localWritesCounter.getCounter() +
+                  " the limit is " + limit);
+        }
+      }
+    }
+
+    /**
+     * The communication thread handles communication with the parent (Task
+     * Tracker). It sends progress updates if progress has been made or if
+     * the task needs to let the parent know that it's alive. It also pings
+     * the parent to see if it's alive.
      */
     public void run() {
       final int MAX_RETRIES = 3;
       int remainingRetries = MAX_RETRIES;
       // get current flag value and reset it as well
       boolean sendProgress = resetProgressFlag();
+
+      long taskProgressInterval = MRJobConfUtil.
+          getTaskProgressReportInterval(conf);
+
       while (!taskDone.get()) {
         synchronized (lock) {
           done = false;
         }
         try {
           boolean taskFound = true; // whether TT knows about this task
+          AMFeedback amFeedback = null;
           // sleep for a bit
           synchronized(lock) {
             if (taskDone.get()) {
               break;
             }
-            lock.wait(PROGRESS_INTERVAL);
+            lock.wait(taskProgressInterval);
           }
           if (taskDone.get()) {
             break;
@@ -756,15 +811,18 @@ abstract public class Task implements Writable, Configurable {
           if (sendProgress) {
             // we need to send progress update
             updateCounters();
+            checkTaskLimits();
             taskStatus.statusUpdate(taskProgress.get(),
-                                    taskProgress.toString(), 
+                                    taskProgress.toString(),
                                     counters);
-            taskFound = umbilical.statusUpdate(taskId, taskStatus);
+            amFeedback = umbilical.statusUpdate(taskId, taskStatus);
+            taskFound = amFeedback.getTaskFound();
             taskStatus.clearStatus();
           }
           else {
             // send ping 
-            taskFound = umbilical.ping(taskId);
+            amFeedback = umbilical.statusUpdate(taskId, null);
+            taskFound = amFeedback.getTaskFound();
           }
 
           // if Task Tracker is not aware of our task ID (probably because it died and 
@@ -775,10 +833,32 @@ abstract public class Task implements Writable, Configurable {
             System.exit(66);
           }
 
-          sendProgress = resetProgressFlag(); 
+          // Set a flag that says we should preempt this is read by
+          // ReduceTasks in places of the execution where it is
+          // safe/easy to preempt
+          boolean lastPreempt = mustPreempt.get();
+          mustPreempt.set(mustPreempt.get() || amFeedback.getPreemption());
+
+          if (lastPreempt ^ mustPreempt.get()) {
+            LOG.info("PREEMPTION TASK: setting mustPreempt to " +
+                mustPreempt.get() + " given " + amFeedback.getPreemption() +
+                " for "+ taskId + " task status: " +taskStatus.getPhase());
+          }
+          sendProgress = resetProgressFlag();
           remainingRetries = MAX_RETRIES;
-        } 
-        catch (Throwable t) {
+        } catch (TaskLimitException e) {
+          String errMsg = "Task exceeded the limits: " +
+                  StringUtils.stringifyException(e);
+          LOG.fatal(errMsg);
+          try {
+            umbilical.fatalError(taskId, errMsg);
+          } catch (IOException ioe) {
+            LOG.fatal("Failed to update failure diagnosis", ioe);
+          }
+          LOG.fatal("Killing " + taskId);
+          resetDoneFlag();
+          ExitUtil.terminate(69);
+        } catch (Throwable t) {
           LOG.info("Communication exception: " + StringUtils.stringifyException(t));
           remainingRetries -=1;
           if (remainingRetries == 0) {
@@ -887,6 +967,24 @@ abstract public class Task implements Writable, Configurable {
 
     if (vMem != ResourceCalculatorProcessTree.UNAVAILABLE) {
       counters.findCounter(TaskCounter.VIRTUAL_MEMORY_BYTES).setValue(vMem);
+    }
+
+    if (pMem != ResourceCalculatorProcessTree.UNAVAILABLE) {
+      TaskCounter counter = isMapTask() ?
+          TaskCounter.MAP_PHYSICAL_MEMORY_BYTES_MAX :
+          TaskCounter.REDUCE_PHYSICAL_MEMORY_BYTES_MAX;
+      Counters.Counter pMemCounter =
+          counters.findCounter(counter);
+      pMemCounter.setValue(Math.max(pMemCounter.getValue(), pMem));
+    }
+
+    if (vMem != ResourceCalculatorProcessTree.UNAVAILABLE) {
+      TaskCounter counter = isMapTask() ?
+          TaskCounter.MAP_VIRTUAL_MEMORY_BYTES_MAX :
+          TaskCounter.REDUCE_VIRTUAL_MEMORY_BYTES_MAX;
+      Counters.Counter vMemCounter =
+          counters.findCounter(counter);
+      vMemCounter.setValue(Math.max(vMemCounter.getValue(), vMem));
     }
   }
 
@@ -1035,10 +1133,17 @@ abstract public class Task implements Writable, Configurable {
   public void done(TaskUmbilicalProtocol umbilical,
                    TaskReporter reporter
                    ) throws IOException, InterruptedException {
-    LOG.info("Task:" + taskId + " is done."
-             + " And is in the process of committing");
     updateCounters();
-
+    if (taskStatus.getRunState() == TaskStatus.State.PREEMPTED ) {
+      // If we are preempted, do no output promotion; signal done and exit
+      committer.commitTask(taskContext);
+      umbilical.preempted(taskId, taskStatus);
+      taskDone.set(true);
+      reporter.stopCommunicationThread();
+      return;
+    }
+    LOG.info("Task:" + taskId + " is done."
+        + " And is in the process of committing");
     boolean commitRequired = isCommitRequired();
     if (commitRequired) {
       int retries = MAX_RETRIES;
@@ -1097,7 +1202,7 @@ abstract public class Task implements Writable, Configurable {
     int retries = MAX_RETRIES;
     while (true) {
       try {
-        if (!umbilical.statusUpdate(getTaskID(), taskStatus)) {
+        if (!umbilical.statusUpdate(getTaskID(), taskStatus).getTaskFound()) {
           LOG.warn("Parent died.  Exiting "+taskId);
           System.exit(66);
         }
@@ -1231,7 +1336,7 @@ abstract public class Task implements Writable, Configurable {
     setPhase(TaskStatus.Phase.CLEANUP);
     getProgress().setStatus("cleanup");
     statusUpdate(umbilical);
-    LOG.info("Runnning cleanup for the task");
+    LOG.info("Running cleanup for the task");
     // do the cleanup
     committer.abortTask(taskContext);
   }

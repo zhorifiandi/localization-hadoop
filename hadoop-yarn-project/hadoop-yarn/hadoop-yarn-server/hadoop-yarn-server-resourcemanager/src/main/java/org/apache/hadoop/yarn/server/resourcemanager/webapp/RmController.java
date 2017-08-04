@@ -62,6 +62,10 @@ public class RmController extends Controller {
     render(ContainerPage.class);
   }
 
+  public void failure() {
+    render(RedirectionErrorPage.class);
+  }
+
   public void nodes() {
     render(NodesPage.class);
   }
@@ -104,5 +108,13 @@ public class RmController extends Controller {
   public void nodelabels() {
     setTitle("Node Labels");
     render(NodeLabelsPage.class);
+  }
+
+  public void errorsAndWarnings() {
+    render(RMErrorsAndWarningsPage.class);
+  }
+
+  public void logaggregationstatus() {
+    render(AppLogAggregationStatusPage.class);
   }
 }

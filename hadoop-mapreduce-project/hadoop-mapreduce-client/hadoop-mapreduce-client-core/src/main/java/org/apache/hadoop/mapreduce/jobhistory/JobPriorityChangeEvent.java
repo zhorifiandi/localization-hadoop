@@ -18,14 +18,16 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
-import java.io.IOException;
+import java.util.Set;
 
+import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.mapred.JobPriority;
 import org.apache.hadoop.mapreduce.JobID;
-
-import org.apache.avro.util.Utf8;
+import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 
 /**
  * Event to record the change of priority of a job
@@ -41,8 +43,8 @@ public class JobPriorityChangeEvent implements HistoryEvent {
    * @param priority The new priority of the job
    */
   public JobPriorityChangeEvent(JobID id, JobPriority priority) {
-    datum.jobid = new Utf8(id.toString());
-    datum.priority = new Utf8(priority.name());
+    datum.setJobid(new Utf8(id.toString()));
+    datum.setPriority(new Utf8(priority.name()));
   }
 
   JobPriorityChangeEvent() { }
@@ -53,14 +55,29 @@ public class JobPriorityChangeEvent implements HistoryEvent {
   }
 
   /** Get the Job ID */
-  public JobID getJobId() { return JobID.forName(datum.jobid.toString()); }
+  public JobID getJobId() {
+    return JobID.forName(datum.getJobid().toString());
+  }
   /** Get the job priority */
   public JobPriority getPriority() {
-    return JobPriority.valueOf(datum.priority.toString());
+    return JobPriority.valueOf(datum.getPriority().toString());
   }
   /** Get the event type */
   public EventType getEventType() {
     return EventType.JOB_PRIORITY_CHANGED;
+  }
+
+  @Override
+  public TimelineEvent toTimelineEvent() {
+    TimelineEvent tEvent = new TimelineEvent();
+    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
+    tEvent.addInfo("PRIORITY", getPriority().toString());
+    return tEvent;
+  }
+
+  @Override
+  public Set<TimelineMetric> getTimelineMetrics() {
+    return null;
   }
 
 }

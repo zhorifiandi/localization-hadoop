@@ -19,15 +19,23 @@
 package org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity;
 
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.service.ServiceOperations;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.nodelabels.CommonNodeLabelsManager;
+import org.apache.hadoop.yarn.server.resourcemanager.MockRM;
 import org.apache.hadoop.yarn.server.resourcemanager.RMContextImpl;
 import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.NullRMNodeLabelsManager;
 import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMNodeLabelsManager;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.ResourceScheduler;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.policy.PriorityUtilizationQueueOrderingPolicy;
+import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.policy.QueueOrderingPolicy;
 import org.apache.hadoop.yarn.server.resourcemanager.security.ClientToAMTokenSecretManagerInRM;
 import org.apache.hadoop.yarn.server.resourcemanager.security.NMTokenSecretManagerInRM;
 import org.apache.hadoop.yarn.server.resourcemanager.security.RMContainerTokenSecretManager;
@@ -417,7 +425,7 @@ public class TestQueueParsing {
   
   @Test
   public void testQueueParsingReinitializeWithLabels() throws IOException {
-    nodeLabelManager.addToCluserNodeLabels(ImmutableSet.of("red", "blue"));
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(ImmutableSet.of("red", "blue"));
     CapacitySchedulerConfiguration csConf =
         new CapacitySchedulerConfiguration();
     setupQueueConfigurationWithoutLabels(csConf);
@@ -505,7 +513,7 @@ public class TestQueueParsing {
   
   @Test
   public void testQueueParsingWithLabels() throws IOException {
-    nodeLabelManager.addToCluserNodeLabels(ImmutableSet.of("red", "blue"));
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(ImmutableSet.of("red", "blue"));
     
     YarnConfiguration conf = new YarnConfiguration();
     CapacitySchedulerConfiguration csConf =
@@ -529,7 +537,7 @@ public class TestQueueParsing {
   
   @Test
   public void testQueueParsingWithLabelsInherit() throws IOException {
-    nodeLabelManager.addToCluserNodeLabels(ImmutableSet.of("red", "blue"));
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(ImmutableSet.of("red", "blue"));
 
     YarnConfiguration conf = new YarnConfiguration();
     CapacitySchedulerConfiguration csConf =
@@ -668,7 +676,7 @@ public class TestQueueParsing {
     
     // Initialize a cluster with labels, but doesn't use them, reinitialize
     // shouldn't fail
-    nodeLabelManager.addToCluserNodeLabels(labels);
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(labels);
 
     CapacitySchedulerConfiguration csConf =
         new CapacitySchedulerConfiguration();
@@ -777,7 +785,7 @@ public class TestQueueParsing {
   @Test(expected = IllegalArgumentException.class)
   public void testQueueParsingFailWhenSumOfChildrenNonLabeledCapacityNot100Percent()
       throws IOException {
-    nodeLabelManager.addToCluserNodeLabels(ImmutableSet
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(ImmutableSet
         .of("red", "blue"));
     
     YarnConfiguration conf = new YarnConfiguration();
@@ -807,7 +815,7 @@ public class TestQueueParsing {
   @Test(expected = IllegalArgumentException.class)
   public void testQueueParsingFailWhenSumOfChildrenLabeledCapacityNot100Percent()
       throws IOException {
-    nodeLabelManager.addToCluserNodeLabels(ImmutableSet
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(ImmutableSet
         .of("red", "blue"));
     
     YarnConfiguration conf = new YarnConfiguration();
@@ -838,7 +846,7 @@ public class TestQueueParsing {
   @Test(expected = IllegalArgumentException.class)
   public void testQueueParsingWithSumOfChildLabelCapacityNot100PercentWithWildCard()
       throws IOException {
-    nodeLabelManager.addToCluserNodeLabels(ImmutableSet
+    nodeLabelManager.addToCluserNodeLabelsWithDefaultExclusivity(ImmutableSet
         .of("red", "blue"));
     
     YarnConfiguration conf = new YarnConfiguration();
@@ -897,5 +905,93 @@ public class TestQueueParsing {
     csConf.setCapacity("root.a.y", 100);
     
     capacityScheduler.reinitialize(csConf, rmContext);
+  }
+
+  @Test(timeout = 60000, expected = java.lang.IllegalArgumentException.class)
+  public void testRMStartWrongNodeCapacity() throws Exception {
+    YarnConfiguration config = new YarnConfiguration();
+    nodeLabelManager = new NullRMNodeLabelsManager();
+    nodeLabelManager.init(config);
+    config.setClass(YarnConfiguration.RM_SCHEDULER, CapacityScheduler.class,
+        ResourceScheduler.class);
+    CapacitySchedulerConfiguration conf =
+        new CapacitySchedulerConfiguration(config);
+
+    // Define top-level queues
+    conf.setQueues(CapacitySchedulerConfiguration.ROOT, new String[] { "a" });
+    conf.setCapacityByLabel(CapacitySchedulerConfiguration.ROOT, "x", 100);
+    conf.setCapacityByLabel(CapacitySchedulerConfiguration.ROOT, "y", 100);
+    conf.setCapacityByLabel(CapacitySchedulerConfiguration.ROOT, "z", 100);
+
+    final String A = CapacitySchedulerConfiguration.ROOT + ".a";
+    conf.setCapacity(A, 100);
+    conf.setAccessibleNodeLabels(A, ImmutableSet.of("x", "y", "z"));
+    conf.setCapacityByLabel(A, "x", 100);
+    conf.setCapacityByLabel(A, "y", 100);
+    conf.setCapacityByLabel(A, "z", 70);
+    MockRM rm = null;
+    try {
+      rm = new MockRM(conf) {
+        @Override
+        public RMNodeLabelsManager createNodeLabelManager() {
+          return nodeLabelManager;
+        }
+      };
+    } finally {
+      IOUtils.closeStream(rm);
+    }
+  }
+
+
+  @Test
+  public void testQueueOrderingPolicyUpdatedAfterReinitialize()
+      throws IOException {
+    CapacitySchedulerConfiguration csConf =
+        new CapacitySchedulerConfiguration();
+    setupQueueConfigurationWithoutLabels(csConf);
+    YarnConfiguration conf = new YarnConfiguration(csConf);
+
+    CapacityScheduler capacityScheduler = new CapacityScheduler();
+    RMContextImpl rmContext =
+        new RMContextImpl(null, null, null, null, null, null,
+            new RMContainerTokenSecretManager(conf),
+            new NMTokenSecretManagerInRM(conf),
+            new ClientToAMTokenSecretManagerInRM(), null);
+    rmContext.setNodeLabelManager(nodeLabelManager);
+    capacityScheduler.setConf(conf);
+    capacityScheduler.setRMContext(rmContext);
+    capacityScheduler.init(conf);
+    capacityScheduler.start();
+
+    // Add a new b4 queue
+    csConf.setQueues(CapacitySchedulerConfiguration.ROOT + ".b",
+        new String[] { "b1", "b2", "b3", "b4" });
+    csConf.setCapacity(CapacitySchedulerConfiguration.ROOT + ".b.b4", 0f);
+    ParentQueue bQ = (ParentQueue) capacityScheduler.getQueue("b");
+    checkEqualsToQueueSet(bQ.getChildQueues(),
+        new String[] { "b1", "b2", "b3" });
+    capacityScheduler.reinitialize(new YarnConfiguration(csConf), rmContext);
+
+    // Check child queue of b
+    checkEqualsToQueueSet(bQ.getChildQueues(),
+        new String[] { "b1", "b2", "b3", "b4" });
+
+    PriorityUtilizationQueueOrderingPolicy queueOrderingPolicy =
+        (PriorityUtilizationQueueOrderingPolicy) bQ.getQueueOrderingPolicy();
+    checkEqualsToQueueSet(queueOrderingPolicy.getQueues(),
+        new String[] { "b1", "b2", "b3", "b4" });
+
+    ServiceOperations.stopQuietly(capacityScheduler);
+  }
+
+  private void checkEqualsToQueueSet(List<CSQueue> queues, String[] queueNames) {
+    Set<String> existedQueues = new HashSet<>();
+    for (CSQueue q : queues) {
+      existedQueues.add(q.getQueueName());
+    }
+    for (String q : queueNames) {
+      Assert.assertTrue(existedQueues.remove(q));
+    }
+    Assert.assertTrue(existedQueues.isEmpty());
   }
 }

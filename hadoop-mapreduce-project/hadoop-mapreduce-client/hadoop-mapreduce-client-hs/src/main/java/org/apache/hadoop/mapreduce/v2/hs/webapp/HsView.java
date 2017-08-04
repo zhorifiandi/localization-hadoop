@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.mapreduce.v2.hs.webapp;
 
+import static org.apache.hadoop.mapreduce.v2.app.webapp.AMParams.TASK_ID;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.ACCORDION;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.ACCORDION_ID;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.DATATABLES;
@@ -38,7 +39,7 @@ public class HsView extends TwoColumnLayout {
    * (non-Javadoc)
    * @see org.apache.hadoop.yarn.webapp.view.TwoColumnLayout#preHead(org.apache.hadoop.yarn.webapp.hamlet.Hamlet.HTML)
    */
-  @Override protected void preHead(Page.HTML<_> html) {
+  @Override protected void preHead(Page.HTML<__> html) {
     commonPreHead(html);
     set(DATATABLES_ID, "jobs");
     set(initID(DATATABLES, "jobs"), jobsTableInit());
@@ -50,9 +51,21 @@ public class HsView extends TwoColumnLayout {
    * The prehead that should be common to all subclasses.
    * @param html used to render.
    */
-  protected void commonPreHead(Page.HTML<_> html) {
+  protected void commonPreHead(Page.HTML<__> html) {
     set(ACCORDION_ID, "nav");
     set(initID(ACCORDION, "nav"), "{autoHeight:false, active:0}");
+  }
+
+  /**
+   * Determine which navigation column is active.
+   */
+  protected void setActiveNavColumnForTask() {
+    String tid = $(TASK_ID);
+    String activeNav = "2";
+    if((tid == null || tid.isEmpty())) {
+      activeNav = "1";
+    }
+    set(initID(ACCORDION, "nav"), "{autoHeight:false, active:"+activeNav+"}");
   }
 
   /*

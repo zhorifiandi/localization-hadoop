@@ -230,10 +230,8 @@ public class InputSampler<K,V> extends Configured implements Tool  {
               // to reflect the possibility of existing elements being
               // pushed out
               int ind = r.nextInt(numSamples);
-              if (ind != numSamples) {
-                samples.set(ind, ReflectionUtils.copy(job.getConfiguration(),
-                                 reader.getCurrentKey(), null));
-              }
+              samples.set(ind, ReflectionUtils.copy(job.getConfiguration(),
+                               reader.getCurrentKey(), null));
               freq *= (numSamples - 1) / (double) numSamples;
             }
           }
@@ -324,10 +322,8 @@ public class InputSampler<K,V> extends Configured implements Tool  {
     Arrays.sort(samples, comparator);
     Path dst = new Path(TotalOrderPartitioner.getPartitionFile(conf));
     FileSystem fs = dst.getFileSystem(conf);
-    if (fs.exists(dst)) {
-      fs.delete(dst, false);
-    }
-    SequenceFile.Writer writer = SequenceFile.createWriter(fs, 
+    fs.delete(dst, false);
+    SequenceFile.Writer writer = SequenceFile.createWriter(fs,
       conf, dst, job.getMapOutputKeyClass(), NullWritable.class);
     NullWritable nullValue = NullWritable.get();
     float stepSize = samples.length / (float) numPartitions;

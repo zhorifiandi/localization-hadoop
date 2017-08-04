@@ -42,13 +42,15 @@ public class TestMetricsRegistry {
     r.newCounter("c2", "c2 desc", 2L);
     r.newGauge("g1", "g1 desc", 3);
     r.newGauge("g2", "g2 desc", 4L);
+    r.newGauge("g3", "g3 desc", 5f);
     r.newStat("s1", "s1 desc", "ops", "time");
 
-    assertEquals("num metrics in registry", 5, r.metrics().size());
+    assertEquals("num metrics in registry", 6, r.metrics().size());
     assertTrue("c1 found", r.get("c1") instanceof MutableCounterInt);
     assertTrue("c2 found", r.get("c2") instanceof MutableCounterLong);
     assertTrue("g1 found", r.get("g1") instanceof MutableGaugeInt);
     assertTrue("g2 found", r.get("g2") instanceof MutableGaugeLong);
+    assertTrue("g3 found", r.get("g3") instanceof MutableGaugeFloat);
     assertTrue("s1 found", r.get("s1") instanceof MutableStat);
 
     expectMetricsException("Metric name c1 already exists", new Runnable() {
@@ -119,6 +121,22 @@ public class TestMetricsRegistry {
     expectMetricsException("Unsupported add", new Runnable() {
       @Override
       public void run() { r.add("g1", 42); }
+    });
+  }
+
+  /**
+   * Test adding illegal parameters
+   */
+  @Test
+  public void testAddIllegalParameters() {
+    final MetricsRegistry r = new MetricsRegistry("IllegalParamTest");
+
+    expectMetricsException("Interval should be positive.  Value passed is: -20",
+        new Runnable() {
+      @Override
+      public void run() {
+          r.newQuantiles("q1", "New Quantile 1", "qq1", "qv1", (int)-20);
+      }
     });
   }
 

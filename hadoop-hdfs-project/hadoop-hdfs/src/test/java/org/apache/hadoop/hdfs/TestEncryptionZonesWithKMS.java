@@ -19,17 +19,21 @@ package org.apache.hadoop.hdfs;
 
 import static org.junit.Assert.assertTrue;
 
+import com.google.common.base.Supplier;
 import org.apache.hadoop.crypto.key.kms.KMSClientProvider;
+import org.apache.hadoop.crypto.key.kms.LoadBalancingKMSClientProvider;
 import org.apache.hadoop.crypto.key.kms.server.MiniKMS;
 import org.apache.hadoop.security.Credentials;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.permission.FsPermission;
+import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.internal.util.reflection.Whitebox;
 
 import java.io.File;
 import java.util.Arrays;
@@ -66,13 +70,22 @@ public class TestEncryptionZonesWithKMS extends TestEncryptionZones {
   protected void setProvider() {
   }
 
+  private KMSClientProvider getKMSClientProvider() {
+    LoadBalancingKMSClientProvider lbkmscp =
+        (LoadBalancingKMSClientProvider) Whitebox
+        .getInternalState(cluster.getNamesystem().getProvider(), "extension");
+    assert lbkmscp.getProviders().length == 1;
+    return lbkmscp.getProviders()[0];
+  }
+
   @Test(timeout = 120000)
   public void testCreateEZPopulatesEDEKCache() throws Exception {
     final Path zonePath = new Path("/TestEncryptionZone");
     fsWrapper.mkdir(zonePath, FsPermission.getDirDefault(), false);
-    dfsAdmin.createEncryptionZone(zonePath, TEST_KEY);
-    assertTrue(((KMSClientProvider)fs.getClient().getKeyProvider()).
-        getEncKeyQueueSize(TEST_KEY) > 0);
+    dfsAdmin.createEncryptionZone(zonePath, TEST_KEY, NO_TRASH);
+    @SuppressWarnings("unchecked")
+    KMSClientProvider kcp = getKMSClientProvider();
+    assertTrue(kcp.getEncKeyQueueSize(TEST_KEY) > 0);
   }
 
   @Test(timeout = 120000)
@@ -91,5 +104,34 @@ public class TestEncryptionZonesWithKMS extends TestEncryptionZones {
     tokens = fs.addDelegationTokens(renewer, creds);
     Assert.assertEquals(0, tokens.length);
     Assert.assertEquals(2, creds.numberOfTokens());
+  }
+
+  @Test(timeout = 120000)
+  public void testWarmupEDEKCacheOnStartup() throws Exception {
+    Path zonePath = new Path("/TestEncryptionZone");
+    fsWrapper.mkdir(zonePath, FsPermission.getDirDefault(), false);
+    dfsAdmin.createEncryptionZone(zonePath, TEST_KEY, NO_TRASH);
+    final String anotherKey = "k2";
+    zonePath = new Path("/TestEncryptionZone2");
+    DFSTestUtil.createKey(anotherKey, cluster, conf);
+    fsWrapper.mkdir(zonePath, FsPermission.getDirDefault(), false);
+    dfsAdmin.createEncryptionZone(zonePath, anotherKey, NO_TRASH);
+
+    @SuppressWarnings("unchecked")
+    KMSClientProvider spy = getKMSClientProvider();
+    assertTrue("key queue is empty after creating encryption zone",
+        spy.getEncKeyQueueSize(TEST_KEY) > 0);
+
+    conf.setInt(
+        DFSConfigKeys.DFS_NAMENODE_EDEKCACHELOADER_INITIAL_DELAY_MS_KEY, 0);
+    cluster.restartNameNode(true);
+
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        final KMSClientProvider kspy = getKMSClientProvider();
+        return kspy.getEncKeyQueueSize(TEST_KEY) > 0;
+      }
+    }, 1000, 60000);
   }
 }

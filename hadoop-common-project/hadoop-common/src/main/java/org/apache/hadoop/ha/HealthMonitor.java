@@ -23,8 +23,6 @@ import java.util.LinkedList;
 import java.util.List;
 
 import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import static org.apache.hadoop.fs.CommonConfigurationKeys.*;
 import org.apache.hadoop.ha.HAServiceProtocol;
@@ -35,6 +33,8 @@ import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.util.Daemon;
 
 import com.google.common.base.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class is a daemon which runs in a loop, periodically heartbeating
@@ -47,7 +47,7 @@ import com.google.common.base.Preconditions;
  */
 @InterfaceAudience.Private
 public class HealthMonitor {
-  private static final Log LOG = LogFactory.getLog(
+  private static final Logger LOG = LoggerFactory.getLogger(
       HealthMonitor.class);
 
   private Daemon daemon;
@@ -191,7 +191,7 @@ public class HealthMonitor {
    * Connect to the service to be monitored. Stubbed out for easier testing.
    */
   protected HAServiceProtocol createProxy() throws IOException {
-    return targetToMonitor.getProxy(conf, rpcTimeout);
+    return targetToMonitor.getHealthMonitorProxy(conf, rpcTimeout);
   }
 
   private void doHealthChecks() throws InterruptedException {
@@ -283,7 +283,7 @@ public class HealthMonitor {
       setUncaughtExceptionHandler(new UncaughtExceptionHandler() {
         @Override
         public void uncaughtException(Thread t, Throwable e) {
-          LOG.fatal("Health monitor failed", e);
+          LOG.error("Health monitor failed", e);
           enterState(HealthMonitor.State.HEALTH_MONITOR_FAILED);
         }
       });

@@ -18,15 +18,19 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
+import java.util.Set;
+
+import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskID;
 import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.records.ContainerId;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 import org.apache.hadoop.yarn.util.ConverterUtils;
-
-import org.apache.avro.util.Utf8;
 
 /**
  * Event to record start of a task attempt
@@ -53,19 +57,19 @@ public class TaskAttemptStartedEvent implements HistoryEvent {
       TaskType taskType, long startTime, String trackerName,
       int httpPort, int shufflePort, ContainerId containerId,
       String locality, String avataar) {
-    datum.attemptId = new Utf8(attemptId.toString());
-    datum.taskid = new Utf8(attemptId.getTaskID().toString());
-    datum.startTime = startTime;
-    datum.taskType = new Utf8(taskType.name());
-    datum.trackerName = new Utf8(trackerName);
-    datum.httpPort = httpPort;
-    datum.shufflePort = shufflePort;
-    datum.containerId = new Utf8(containerId.toString());
+    datum.setAttemptId(new Utf8(attemptId.toString()));
+    datum.setTaskid(new Utf8(attemptId.getTaskID().toString()));
+    datum.setStartTime(startTime);
+    datum.setTaskType(new Utf8(taskType.name()));
+    datum.setTrackerName(new Utf8(trackerName));
+    datum.setHttpPort(httpPort);
+    datum.setShufflePort(shufflePort);
+    datum.setContainerId(new Utf8(containerId.toString()));
     if (locality != null) {
-      datum.locality = new Utf8(locality);
+      datum.setLocality(new Utf8(locality));
     }
     if (avataar != null) {
-      datum.avataar = new Utf8(avataar);
+      datum.setAvataar(new Utf8(avataar));
     }
   }
 
@@ -75,7 +79,8 @@ public class TaskAttemptStartedEvent implements HistoryEvent {
       long startTime, String trackerName, int httpPort, int shufflePort,
       String locality, String avataar) {
     this(attemptId, taskType, startTime, trackerName, httpPort, shufflePort,
-        ConverterUtils.toContainerId("container_-1_-1_-1_-1"), locality, avataar);
+        ContainerId.fromString("container_-1_-1_-1_-1"), locality,
+            avataar);
   }
 
   TaskAttemptStartedEvent() {}
@@ -86,22 +91,24 @@ public class TaskAttemptStartedEvent implements HistoryEvent {
   }
 
   /** Get the task id */
-  public TaskID getTaskId() { return TaskID.forName(datum.taskid.toString()); }
+  public TaskID getTaskId() {
+    return TaskID.forName(datum.getTaskid().toString());
+  }
   /** Get the tracker name */
-  public String getTrackerName() { return datum.trackerName.toString(); }
+  public String getTrackerName() { return datum.getTrackerName().toString(); }
   /** Get the start time */
-  public long getStartTime() { return datum.startTime; }
+  public long getStartTime() { return datum.getStartTime(); }
   /** Get the task type */
   public TaskType getTaskType() {
-    return TaskType.valueOf(datum.taskType.toString());
+    return TaskType.valueOf(datum.getTaskType().toString());
   }
   /** Get the HTTP port */
-  public int getHttpPort() { return datum.httpPort; }
+  public int getHttpPort() { return datum.getHttpPort(); }
   /** Get the shuffle port */
-  public int getShufflePort() { return datum.shufflePort; }
+  public int getShufflePort() { return datum.getShufflePort(); }
   /** Get the attempt id */
   public TaskAttemptID getTaskAttemptId() {
-    return TaskAttemptID.forName(datum.attemptId.toString());
+    return TaskAttemptID.forName(datum.getAttemptId().toString());
   }
   /** Get the event type */
   public EventType getEventType() {
@@ -113,20 +120,41 @@ public class TaskAttemptStartedEvent implements HistoryEvent {
   }
   /** Get the ContainerId */
   public ContainerId getContainerId() {
-    return ConverterUtils.toContainerId(datum.containerId.toString());
+    return ContainerId.fromString(datum.getContainerId().toString());
   }
   /** Get the locality */
   public String getLocality() {
-    if (datum.locality != null) {
-      return datum.locality.toString();
+    if (datum.getLocality() != null) {
+      return datum.getLocality().toString();
     }
     return null;
   }
   /** Get the avataar */
   public String getAvataar() {
-    if (datum.avataar != null) {
-      return datum.avataar.toString();
+    if (datum.getAvataar() != null) {
+      return datum.getAvataar().toString();
     }
+    return null;
+  }
+
+  @Override
+  public TimelineEvent toTimelineEvent() {
+    TimelineEvent tEvent = new TimelineEvent();
+    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
+    tEvent.addInfo("TASK_TYPE", getTaskType().toString());
+    tEvent.addInfo("TASK_ATTEMPT_ID",
+        getTaskAttemptId().toString());
+    tEvent.addInfo("START_TIME", getStartTime());
+    tEvent.addInfo("HTTP_PORT", getHttpPort());
+    tEvent.addInfo("TRACKER_NAME", getTrackerName());
+    tEvent.addInfo("SHUFFLE_PORT", getShufflePort());
+    tEvent.addInfo("CONTAINER_ID", getContainerId() == null ?
+        "" : getContainerId().toString());
+    return tEvent;
+  }
+
+  @Override
+  public Set<TimelineMetric> getTimelineMetrics() {
     return null;
   }
 

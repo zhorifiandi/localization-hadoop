@@ -28,7 +28,6 @@ import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 
-import com.google.common.base.Objects;
 import com.google.common.collect.ComparisonChain;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -271,10 +270,6 @@ final class AclTransformation {
    */
   private static List<AclEntry> buildAndValidateAcl(
       ArrayList<AclEntry> aclBuilder) throws AclException {
-    if (aclBuilder.size() > MAX_ENTRIES) {
-      throw new AclException("Invalid ACL: ACL has " + aclBuilder.size() +
-        " entries, which exceeds maximum of " + MAX_ENTRIES + ".");
-    }
     aclBuilder.trimToSize();
     Collections.sort(aclBuilder, ACL_ENTRY_COMPARATOR);
     // Full iteration to check for duplicates and invalid named entries.
@@ -292,9 +287,12 @@ final class AclTransformation {
       }
       prevEntry = entry;
     }
+
+    ScopedAclEntries scopedEntries = new ScopedAclEntries(aclBuilder);
+    checkMaxEntries(scopedEntries);
+
     // Search for the required base access entries.  If there is a default ACL,
     // then do the same check on the default entries.
-    ScopedAclEntries scopedEntries = new ScopedAclEntries(aclBuilder);
     for (AclEntryType type: EnumSet.of(USER, GROUP, OTHER)) {
       AclEntry accessEntryKey = new AclEntry.Builder().setScope(ACCESS)
         .setType(type).build();
@@ -314,6 +312,22 @@ final class AclTransformation {
       }
     }
     return Collections.unmodifiableList(aclBuilder);
+  }
+
+  // Check the max entries separately on access and default entries
+  // HDFS-7582
+  private static void checkMaxEntries(ScopedAclEntries scopedEntries)
+      throws AclException {
+    List<AclEntry> accessEntries = scopedEntries.getAccessEntries();
+    List<AclEntry> defaultEntries = scopedEntries.getDefaultEntries();
+    if (accessEntries.size() > MAX_ENTRIES) {
+      throw new AclException("Invalid ACL: ACL has " + accessEntries.size()
+          + " access entries, which exceeds maximum of " + MAX_ENTRIES + ".");
+    }
+    if (defaultEntries.size() > MAX_ENTRIES) {
+      throw new AclException("Invalid ACL: ACL has " + defaultEntries.size()
+          + " default entries, which exceeds maximum of " + MAX_ENTRIES + ".");
+    }
   }
 
   /**
@@ -351,8 +365,10 @@ final class AclTransformation {
     for (AclEntry entry: aclBuilder) {
       scopeFound.add(entry.getScope());
       if (entry.getType() == GROUP || entry.getName() != null) {
-        FsAction scopeUnionPerms = Objects.firstNonNull(
-          unionPerms.get(entry.getScope()), FsAction.NONE);
+        FsAction scopeUnionPerms = unionPerms.get(entry.getScope());
+        if (scopeUnionPerms == null) {
+          scopeUnionPerms = FsAction.NONE;
+        }
         unionPerms.put(entry.getScope(),
           scopeUnionPerms.or(entry.getPermission()));
       }
@@ -444,11 +460,8 @@ final class AclTransformation {
      * @throws AclException if validation fails
      */
     public ValidatedAclSpec(List<AclEntry> aclSpec) throws AclException {
-      if (aclSpec.size() > MAX_ENTRIES) {
-        throw new AclException("Invalid ACL: ACL spec has " + aclSpec.size() +
-          " entries, which exceeds maximum of " + MAX_ENTRIES + ".");
-      }
       Collections.sort(aclSpec, ACL_ENTRY_COMPARATOR);
+      checkMaxEntries(new ScopedAclEntries(aclSpec));
       this.aclSpec = aclSpec;
     }
 

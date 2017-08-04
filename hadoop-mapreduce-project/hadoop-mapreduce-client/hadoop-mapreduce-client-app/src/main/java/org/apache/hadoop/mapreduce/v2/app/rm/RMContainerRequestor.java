@@ -41,6 +41,8 @@ import org.apache.hadoop.mapreduce.v2.app.client.ClientService;
 import org.apache.hadoop.yarn.api.protocolrecords.AllocateRequest;
 import org.apache.hadoop.yarn.api.protocolrecords.AllocateResponse;
 import org.apache.hadoop.yarn.api.records.ContainerId;
+import org.apache.hadoop.yarn.api.records.ExecutionTypeRequest;
+import org.apache.hadoop.yarn.api.records.ExecutionType;
 import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.ResourceBlacklistRequest;
@@ -52,6 +54,7 @@ import org.apache.hadoop.yarn.factories.RecordFactory;
 import org.apache.hadoop.yarn.factory.providers.RecordFactoryProvider;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.apache.hadoop.yarn.util.resource.Resources;
 
 
 /**
@@ -121,39 +124,43 @@ public abstract class RMContainerRequestor extends RMCommunicator {
     final String[] racks;
     //final boolean earlierAttemptFailed;
     final Priority priority;
+    final String nodeLabelExpression;
+
     /**
      * the time when this request object was formed; can be used to avoid
      * aggressive preemption for recently placed requests
      */
     final long requestTimeMs;
 
-    public ContainerRequest(ContainerRequestEvent event, Priority priority) {
+    public ContainerRequest(ContainerRequestEvent event, Priority priority,
+        String nodeLabelExpression) {
       this(event.getAttemptID(), event.getCapability(), event.getHosts(),
-          event.getRacks(), priority);
+          event.getRacks(), priority, nodeLabelExpression);
     }
 
     public ContainerRequest(ContainerRequestEvent event, Priority priority,
                             long requestTimeMs) {
       this(event.getAttemptID(), event.getCapability(), event.getHosts(),
-          event.getRacks(), priority, requestTimeMs);
+          event.getRacks(), priority, requestTimeMs,null);
     }
 
     public ContainerRequest(TaskAttemptId attemptID,
                             Resource capability, String[] hosts, String[] racks,
-                            Priority priority) {
+                            Priority priority, String nodeLabelExpression) {
       this(attemptID, capability, hosts, racks, priority,
-          System.currentTimeMillis());
+          System.currentTimeMillis(), nodeLabelExpression);
     }
 
     public ContainerRequest(TaskAttemptId attemptID,
         Resource capability, String[] hosts, String[] racks,
-        Priority priority, long requestTimeMs) {
+        Priority priority, long requestTimeMs,String nodeLabelExpression) {
       this.attemptID = attemptID;
       this.capability = capability;
       this.hosts = hosts;
       this.racks = racks;
       this.priority = priority;
       this.requestTimeMs = requestTimeMs;
+      this.nodeLabelExpression = nodeLabelExpression;
     }
     
     public String toString() {
@@ -382,25 +389,28 @@ public abstract class RMContainerRequestor extends RMCommunicator {
   }
 
   protected Resource getAvailableResources() {
-    return availableResources;
+    return availableResources == null ? Resources.none() : availableResources;
   }
-  
+
   protected void addContainerReq(ContainerRequest req) {
     // Create resource requests
     for (String host : req.hosts) {
       // Data-local
       if (!isNodeBlacklisted(host)) {
-        addResourceRequest(req.priority, host, req.capability);
-      }      
+        addResourceRequest(req.priority, host, req.capability,
+            null);
+      }
     }
 
     // Nothing Rack-local for now
     for (String rack : req.racks) {
-      addResourceRequest(req.priority, rack, req.capability);
+      addResourceRequest(req.priority, rack, req.capability,
+          null);
     }
 
     // Off-switch
-    addResourceRequest(req.priority, ResourceRequest.ANY, req.capability);
+    addResourceRequest(req.priority, ResourceRequest.ANY, req.capability,
+        req.nodeLabelExpression);
   }
 
   protected void decContainerReq(ContainerRequest req) {
@@ -416,8 +426,21 @@ public abstract class RMContainerRequestor extends RMCommunicator {
     decResourceRequest(req.priority, ResourceRequest.ANY, req.capability);
   }
 
-  private void addResourceRequest(Priority priority, String resourceName,
+  protected void addOpportunisticResourceRequest(Priority priority,
       Resource capability) {
+    addResourceRequest(priority, ResourceRequest.ANY, capability, null,
+        ExecutionType.OPPORTUNISTIC);
+  }
+
+  private void addResourceRequest(Priority priority, String resourceName,
+      Resource capability, String nodeLabelExpression) {
+    addResourceRequest(priority, resourceName, capability, nodeLabelExpression,
+        ExecutionType.GUARANTEED);
+  }
+
+  private void addResourceRequest(Priority priority, String resourceName,
+      Resource capability, String nodeLabelExpression,
+      ExecutionType executionType) {
     Map<String, Map<Resource, ResourceRequest>> remoteRequests =
       this.remoteRequestsTable.get(priority);
     if (remoteRequests == null) {
@@ -439,6 +462,9 @@ public abstract class RMContainerRequestor extends RMCommunicator {
       remoteRequest.setResourceName(resourceName);
       remoteRequest.setCapability(capability);
       remoteRequest.setNumContainers(0);
+      remoteRequest.setNodeLabelExpression(nodeLabelExpression);
+      remoteRequest.setExecutionTypeRequest(
+          ExecutionTypeRequest.newInstance(executionType, true));
       reqMap.put(capability, remoteRequest);
     }
     remoteRequest.setNumContainers(remoteRequest.getNumContainers() + 1);
@@ -498,7 +524,7 @@ public abstract class RMContainerRequestor extends RMCommunicator {
     addResourceRequestToAsk(remoteRequest);
 
     if (LOG.isDebugEnabled()) {
-      LOG.info("AFTER decResourceRequest:" + " applicationId="
+      LOG.debug("AFTER decResourceRequest:" + " applicationId="
           + applicationId.getId() + " priority=" + priority.getPriority()
           + " resourceName=" + resourceName + " numContainers="
           + remoteRequest.getNumContainers() + " #asks=" + ask.size());
@@ -533,7 +559,7 @@ public abstract class RMContainerRequestor extends RMCommunicator {
     }
     String[] hosts = newHosts.toArray(new String[newHosts.size()]);
     ContainerRequest newReq = new ContainerRequest(orig.attemptID, orig.capability,
-        hosts, orig.racks, orig.priority); 
+        hosts, orig.racks, orig.priority, orig.nodeLabelExpression);
     return newReq;
   }
   
@@ -552,5 +578,11 @@ public abstract class RMContainerRequestor extends RMCommunicator {
 
   public Set<String> getBlacklistedNodes() {
     return blacklistedNodes;
+  }
+
+  @Private
+  @VisibleForTesting
+  Set<ResourceRequest> getAsk() {
+    return ask;
   }
 }

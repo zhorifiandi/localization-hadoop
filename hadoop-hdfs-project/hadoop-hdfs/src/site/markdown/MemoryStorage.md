@@ -15,18 +15,7 @@
 Memory Storage Support in HDFS
 ==============================
 
-* [Introduction](#Introduction)
-* [Administrator Configuration](#Administrator_Configuration)
-    * [Setup RAM Disks on Data Nodes](#Setup_RAM_Disks_on_Data_Nodes)
-        * [Choosing `tmpfs` \(vs `ramfs`\)](#Choosing_`tmpfs`_\(vs_`ramfs`\))
-        * [Mount RAM Disks](#Mount_RAM_Disks)
-        * [Tag `tmpfs` volume with the RAM\_DISK Storage Type](#Tag_`tmpfs`_volume_with_the_RAM\_DISK_Storage_Type)
-        * [Ensure Storage Policies are enabled](#Ensure_Storage_Policies_are_enabled)
-* [Application Usage](#Application_Usage)
-    * [Use the LAZY\_PERSIST Storage Policy](#Use_the_LAZY\_PERSIST_Storage_Policy)
-        * [Invoke `hdfs storagepolicies` command for directories](#Invoke_hdfs_storagepolicies_command_for_directories)
-        * [Call `setStoragePolicy` method for directories](#Call_`setStoragePolicy`_method_for_directories)
-        * [Pass `LAZY_PERSIST` `CreateFlag` for new files](#Pass_`LAZY_PERSIST`_`CreateFlag`_for_new_files)
+<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
 
 Introduction
 ------------
@@ -45,6 +34,21 @@ Administrator Configuration
 ---------------------------
 
 This section enumerates the administrative steps required before applications can start using the feature in a cluster.
+
+## Limit RAM used for replicas in Memory
+
+First decide the amount of memory to be dedicated for replicas stored in memory. Set `dfs.datanode.max.locked.memory` accordingly in `hdfs-site.xml`. This is the same setting used by the [Centralized Cache Management](./CentralizedCacheManagement.html) feature. The Data Node will ensure that the combined memory used by Lazy Persist Writes and Centralized Cache Management does not exceed the amount configured in `dfs.datanode.max.locked.memory`.
+
+E.g. To reserve 32 GB for in-memory replicas
+
+        <property>
+          <name>dfs.datanode.max.locked.memory</name>
+          <value>34359738368</value>
+        </property>
+
+This memory is not allocated by the Data Node on startup.
+
+On Unix-like systems, the "locked-in-memory size" ulimit (`ulimit -l`) of the Data Node user also needs to be increased to match this parameter (see the related section on [OS Limits](./CentralizedCacheManagement.html#OS_Limits)). When setting this value, please remember that you will need space in memory for other things as well, such as the Data Node and application JVM heaps and the operating system page cache. You will also need memory for YARN containers if there is a YARN Node Manager process running on the same node as the Data Node.
 
 ## Setup RAM Disks on Data Nodes
 

@@ -18,22 +18,26 @@
 package org.apache.hadoop.hdfs.server.datanode.web.webhdfs;
 
 import io.netty.handler.codec.http.QueryStringDecoder;
-import org.apache.commons.io.Charsets;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CreateFlag;
 import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.hdfs.HAUtil;
+import org.apache.hadoop.hdfs.HAUtilClient;
 import org.apache.hadoop.hdfs.security.token.delegation.DelegationTokenIdentifier;
 import org.apache.hadoop.hdfs.web.resources.BlockSizeParam;
 import org.apache.hadoop.hdfs.web.resources.BufferSizeParam;
+import org.apache.hadoop.hdfs.web.resources.CreateFlagParam;
+import org.apache.hadoop.hdfs.web.resources.CreateParentParam;
 import org.apache.hadoop.hdfs.web.resources.DelegationParam;
 import org.apache.hadoop.hdfs.web.resources.DoAsParam;
 import org.apache.hadoop.hdfs.web.resources.HttpOpParam;
 import org.apache.hadoop.hdfs.web.resources.LengthParam;
 import org.apache.hadoop.hdfs.web.resources.NamenodeAddressParam;
+import org.apache.hadoop.hdfs.web.resources.NoRedirectParam;
 import org.apache.hadoop.hdfs.web.resources.OffsetParam;
 import org.apache.hadoop.hdfs.web.resources.OverwriteParam;
 import org.apache.hadoop.hdfs.web.resources.PermissionParam;
 import org.apache.hadoop.hdfs.web.resources.ReplicationParam;
+import org.apache.hadoop.hdfs.web.resources.UnmaskedPermissionParam;
 import org.apache.hadoop.hdfs.web.resources.UserParam;
 import org.apache.hadoop.security.SecurityUtil;
 import org.apache.hadoop.security.token.Token;
@@ -41,6 +45,8 @@ import org.apache.hadoop.security.token.Token;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 
@@ -53,8 +59,8 @@ class ParameterParser {
   private final Map<String, List<String>> params;
 
   ParameterParser(QueryStringDecoder decoder, Configuration conf) {
-    this.path = decodeComponent(decoder.path().substring
-        (WEBHDFS_PREFIX_LENGTH), Charsets.UTF_8);
+    this.path = decodeComponent(decoder.path().substring(WEBHDFS_PREFIX_LENGTH),
+        StandardCharsets.UTF_8);
     this.params = decoder.parameters();
     this.conf = conf;
   }
@@ -99,11 +105,22 @@ class ParameterParser {
   }
 
   FsPermission permission() {
-    return new PermissionParam(param(PermissionParam.NAME)).getFsPermission();
+    return new PermissionParam(param(PermissionParam.NAME)).
+        getFileFsPermission();
+  }
+
+  FsPermission unmaskedPermission() {
+    String value = param(UnmaskedPermissionParam.NAME);
+    return value == null ? null :
+        new UnmaskedPermissionParam(value).getFileFsPermission();
   }
 
   boolean overwrite() {
     return new OverwriteParam(param(OverwriteParam.NAME)).getValue();
+  }
+
+  boolean noredirect() {
+    return new NoRedirectParam(param(NoRedirectParam.NAME)).getValue();
   }
 
   Token<DelegationTokenIdentifier> delegationToken() throws IOException {
@@ -112,14 +129,25 @@ class ParameterParser {
       Token<DelegationTokenIdentifier>();
     token.decodeFromUrlString(delegation);
     URI nnUri = URI.create(HDFS_URI_SCHEME + "://" + namenodeId());
-    boolean isLogical = HAUtil.isLogicalUri(conf, nnUri);
+    boolean isLogical = HAUtilClient.isLogicalUri(conf, nnUri);
     if (isLogical) {
-      token.setService(HAUtil.buildTokenServiceForLogicalUri(nnUri,
-        HDFS_URI_SCHEME));
+      token.setService(
+          HAUtilClient.buildTokenServiceForLogicalUri(nnUri, HDFS_URI_SCHEME));
     } else {
       token.setService(SecurityUtil.buildTokenService(nnUri));
     }
     return token;
+  }
+
+  public boolean createParent() {
+    return new CreateParentParam(param(CreateParentParam.NAME)).getValue();
+  }
+
+  public EnumSet<CreateFlag> createFlag() {
+    String cf =
+        decodeComponent(param(CreateFlagParam.NAME), StandardCharsets.UTF_8);
+
+    return new CreateFlagParam(cf).getValue();
   }
 
   Configuration conf() {

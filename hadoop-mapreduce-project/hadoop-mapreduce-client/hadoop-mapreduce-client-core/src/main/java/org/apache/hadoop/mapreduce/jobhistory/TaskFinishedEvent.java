@@ -18,13 +18,20 @@
 
 package org.apache.hadoop.mapreduce.jobhistory;
 
+import java.util.Set;
+
 import org.apache.avro.util.Utf8;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
+import org.apache.hadoop.mapred.TaskStatus;
 import org.apache.hadoop.mapreduce.Counters;
 import org.apache.hadoop.mapreduce.TaskAttemptID;
 import org.apache.hadoop.mapreduce.TaskID;
 import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.mapreduce.util.JobHistoryEventUtils;
+import org.apache.hadoop.util.StringUtils;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEvent;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineMetric;
 
 /**
  * Event to record the successful completion of a task
@@ -68,30 +75,30 @@ public class TaskFinishedEvent implements HistoryEvent {
   public Object getDatum() {
     if (datum == null) {
       datum = new TaskFinished();
-      datum.taskid = new Utf8(taskid.toString());
+      datum.setTaskid(new Utf8(taskid.toString()));
       if(successfulAttemptId != null)
       {
-        datum.successfulAttemptId = new Utf8(successfulAttemptId.toString());
+        datum.setSuccessfulAttemptId(new Utf8(successfulAttemptId.toString()));
       }
-      datum.finishTime = finishTime;
-      datum.counters = EventWriter.toAvro(counters);
-      datum.taskType = new Utf8(taskType.name());
-      datum.status = new Utf8(status);
+      datum.setFinishTime(finishTime);
+      datum.setCounters(EventWriter.toAvro(counters));
+      datum.setTaskType(new Utf8(taskType.name()));
+      datum.setStatus(new Utf8(status));
     }
     return datum;
   }
 
   public void setDatum(Object oDatum) {
     this.datum = (TaskFinished)oDatum;
-    this.taskid = TaskID.forName(datum.taskid.toString());
-    if (datum.successfulAttemptId != null) {
+    this.taskid = TaskID.forName(datum.getTaskid().toString());
+    if (datum.getSuccessfulAttemptId() != null) {
       this.successfulAttemptId = TaskAttemptID
-          .forName(datum.successfulAttemptId.toString());
+          .forName(datum.getSuccessfulAttemptId().toString());
     }
-    this.finishTime = datum.finishTime;
-    this.taskType = TaskType.valueOf(datum.taskType.toString());
-    this.status = datum.status.toString();
-    this.counters = EventReader.fromAvro(datum.counters);
+    this.finishTime = datum.getFinishTime();
+    this.taskType = TaskType.valueOf(datum.getTaskType().toString());
+    this.status = datum.getStatus().toString();
+    this.counters = EventReader.fromAvro(datum.getCounters());
   }
 
   /** Get task id */
@@ -115,5 +122,23 @@ public class TaskFinishedEvent implements HistoryEvent {
     return EventType.TASK_FINISHED;
   }
 
-  
+  @Override
+  public TimelineEvent toTimelineEvent() {
+    TimelineEvent tEvent = new TimelineEvent();
+    tEvent.setId(StringUtils.toUpperCase(getEventType().name()));
+    tEvent.addInfo("TASK_TYPE", getTaskType().toString());
+    tEvent.addInfo("FINISH_TIME", getFinishTime());
+    tEvent.addInfo("STATUS", TaskStatus.State.SUCCEEDED.toString());
+    tEvent.addInfo("SUCCESSFUL_TASK_ATTEMPT_ID",
+        getSuccessfulTaskAttemptId() == null ? "" :
+            getSuccessfulTaskAttemptId().toString());
+    return tEvent;
+  }
+
+  @Override
+  public Set<TimelineMetric> getTimelineMetrics() {
+    Set<TimelineMetric> jobMetrics = JobHistoryEventUtils
+        .countersToTimelineMetric(getCounters(), finishTime);
+    return jobMetrics;
+  }
 }

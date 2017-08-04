@@ -27,7 +27,7 @@ import org.apache.hadoop.util.StringUtils;
 public class ResourceWeights {
   public static final ResourceWeights NEUTRAL = new ResourceWeights(1.0f);
 
-  private float[] weights = new float[ResourceType.values().length];
+  private final float[] weights = new float[ResourceType.values().length];
 
   public ResourceWeights(float memoryWeight, float cpuWeight) {
     weights[ResourceType.MEMORY.ordinal()] = memoryWeight;
@@ -40,7 +40,7 @@ public class ResourceWeights {
 
   public ResourceWeights() { }
 
-  public void setWeight(float weight) {
+  public final void setWeight(float weight) {
     for (int i = 0; i < weights.length; i++) {
       weights[i] = weight;
     }
@@ -63,7 +63,7 @@ public class ResourceWeights {
       }
       ResourceType resourceType = ResourceType.values()[i];
       sb.append(StringUtils.toLowerCase(resourceType.name()));
-      sb.append(String.format(" weight=%.1f", getWeight(resourceType)));
+      sb.append(StringUtils.format(" weight=%.1f", getWeight(resourceType)));
     }
     sb.append(">");
     return sb.toString();

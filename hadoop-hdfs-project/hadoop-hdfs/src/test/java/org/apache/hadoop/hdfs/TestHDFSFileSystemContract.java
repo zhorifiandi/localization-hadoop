@@ -25,14 +25,17 @@ import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.fs.FileSystemContractBaseTest;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.security.UserGroupInformation;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
 
 public class TestHDFSFileSystemContract extends FileSystemContractBaseTest {
   
   private MiniDFSCluster cluster;
   private String defaultWorkingDirectory;
 
-  @Override
-  protected void setUp() throws Exception {
+  @Before
+  public void setUp() throws Exception {
     Configuration conf = new HdfsConfiguration();
     conf.set(CommonConfigurationKeys.FS_PERMISSIONS_UMASK_KEY,
         FileSystemContractBaseTest.TEST_UMASK);
@@ -42,11 +45,13 @@ public class TestHDFSFileSystemContract extends FileSystemContractBaseTest {
            UserGroupInformation.getCurrentUser().getShortUserName();
   }
   
-  @Override
-  protected void tearDown() throws Exception {
+  @After
+  public void tearDown() throws Exception {
     super.tearDown();
-    cluster.shutdown();
-    cluster = null;
+    if (cluster != null) {
+      cluster.shutdown();
+      cluster = null;
+    }
   }
 
   @Override
@@ -54,6 +59,7 @@ public class TestHDFSFileSystemContract extends FileSystemContractBaseTest {
     return defaultWorkingDirectory;
   }
 
+  @Test
   public void testAppend() throws IOException {
     AppendTestUtil.testAppend(fs, new Path("/testAppend/f"));
   }

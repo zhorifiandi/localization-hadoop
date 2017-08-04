@@ -28,11 +28,9 @@ import java.util.Map;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;
-import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.StorageType;
 import org.apache.hadoop.hdfs.protocol.BlockStoragePolicy;
@@ -57,10 +55,12 @@ import org.apache.hadoop.hdfs.server.blockmanagement.BlockPlacementPolicy;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockStoragePolicySuite;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
+import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsDatasetSpi;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsVolumeImpl;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.SnapshotTestHelper;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
 import org.junit.Assert;
 import org.junit.Test;
@@ -68,20 +68,17 @@ import org.junit.Test;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
-import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_LAZY_WRITER_INTERVAL_SEC;
-
 /**
  * Test the data migration tool (for Archival Storage)
  */
 public class TestStorageMover {
   static final Log LOG = LogFactory.getLog(TestStorageMover.class);
   static {
-    ((Log4JLogger)LogFactory.getLog(BlockPlacementPolicy.class)
-        ).getLogger().setLevel(Level.ALL);
-    ((Log4JLogger)LogFactory.getLog(Dispatcher.class)
-        ).getLogger().setLevel(Level.ALL);
-    ((Log4JLogger)LogFactory.getLog(DataTransferProtocol.class)).getLogger()
-        .setLevel(Level.ALL);
+    GenericTestUtils.setLogLevel(LogFactory.getLog(BlockPlacementPolicy.class),
+        Level.ALL);
+    GenericTestUtils.setLogLevel(LogFactory.getLog(Dispatcher.class),
+        Level.ALL);
+    GenericTestUtils.setLogLevel(DataTransferProtocol.LOG, Level.ALL);
   }
 
   private static final int BLOCK_SIZE = 1024;
@@ -96,8 +93,8 @@ public class TestStorageMover {
   static {
     DEFAULT_CONF.setLong(DFSConfigKeys.DFS_BLOCK_SIZE_KEY, BLOCK_SIZE);
     DEFAULT_CONF.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1L);
-    DEFAULT_CONF.setLong(DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_KEY,
-        2L);
+    DEFAULT_CONF.setLong(
+        DFSConfigKeys.DFS_NAMENODE_REDUNDANCY_INTERVAL_SECONDS_KEY, 2L);
     DEFAULT_CONF.setLong(DFSConfigKeys.DFS_MOVER_MOVEDWINWIDTH_KEY, 2000L);
 
     DEFAULT_POLICIES = BlockStoragePolicySuite.createDefaultSuite();
@@ -221,7 +218,7 @@ public class TestStorageMover {
         verify(true);
 
         setStoragePolicy();
-        migrate();
+        migrate(ExitStatus.SUCCESS);
         verify(true);
       } finally {
         if (shutdown) {
@@ -252,8 +249,8 @@ public class TestStorageMover {
     /**
      * Run the migration tool.
      */
-    void migrate() throws Exception {
-      runMover();
+    void migrate(ExitStatus expectedExitCode) throws Exception {
+      runMover(expectedExitCode);
       Thread.sleep(5000); // let the NN finish deletion
     }
 
@@ -269,14 +266,14 @@ public class TestStorageMover {
       }
     }
 
-    private void runMover() throws Exception {
-      Collection<URI> namenodes = DFSUtil.getNsServiceRpcUris(conf);
+    private void runMover(ExitStatus expectedExitCode) throws Exception {
+      Collection<URI> namenodes = DFSUtil.getInternalNsRpcUris(conf);
       Map<URI, List<Path>> nnMap = Maps.newHashMap();
       for (URI nn : namenodes) {
         nnMap.put(nn, null);
       }
       int result = Mover.run(nnMap, conf);
-      Assert.assertEquals(ExitStatus.SUCCESS.getExitCode(), result);
+      Assert.assertEquals(expectedExitCode.getExitCode(), result);
     }
 
     private void verifyNamespace() throws Exception {
@@ -404,11 +401,6 @@ public class TestStorageMover {
   }
 
   private static StorageType[][] genStorageTypes(int numDataNodes,
-      int numAllDisk, int numAllArchive) {
-    return genStorageTypes(numDataNodes, numAllDisk, numAllArchive, 0);
-  }
-
-  private static StorageType[][] genStorageTypes(int numDataNodes,
       int numAllDisk, int numAllArchive, int numRamDisk) {
     Preconditions.checkArgument(
       (numAllDisk + numAllArchive + numRamDisk) <= numDataNodes);
@@ -429,26 +421,6 @@ public class TestStorageMover {
       types[i] = new StorageType[]{StorageType.DISK, StorageType.ARCHIVE};
     }
     return types;
-  }
-
-  private static long[][] genCapacities(int nDatanodes, int numAllDisk,
-      int numAllArchive, int numRamDisk, long diskCapacity,
-      long archiveCapacity, long ramDiskCapacity) {
-    final long[][] capacities = new long[nDatanodes][];
-    int i = 0;
-    for (; i < numRamDisk; i++) {
-      capacities[i] = new long[]{ramDiskCapacity, diskCapacity};
-    }
-    for (; i < numRamDisk + numAllDisk; i++) {
-      capacities[i] = new long[]{diskCapacity, diskCapacity};
-    }
-    for (; i < numRamDisk + numAllDisk + numAllArchive; i++) {
-      capacities[i] = new long[]{archiveCapacity, archiveCapacity};
-    }
-    for(; i < capacities.length; i++) {
-      capacities[i] = new long[]{diskCapacity, archiveCapacity};
-    }
-    return capacities;
   }
 
   private static class PathPolicyMap {
@@ -582,7 +554,7 @@ public class TestStorageMover {
     try {
       banner("start data migration");
       test.setStoragePolicy(); // set /foo to COLD
-      test.migrate();
+      test.migrate(ExitStatus.SUCCESS);
 
       // make sure the under construction block has not been migrated
       LocatedBlocks lbs = test.dfs.getClient().getLocatedBlocks(
@@ -632,7 +604,7 @@ public class TestStorageMover {
     try {
       test.runBasicTest(false);
       pathPolicyMap.moveAround(test.dfs);
-      test.migrate();
+      test.migrate(ExitStatus.SUCCESS);
 
       test.verify(true);
     } finally {
@@ -641,8 +613,10 @@ public class TestStorageMover {
   }
 
   private void waitForAllReplicas(int expectedReplicaNum, Path file,
-      DistributedFileSystem dfs) throws Exception {
-    for (int i = 0; i < 5; i++) {
+      DistributedFileSystem dfs, int retryCount) throws Exception {
+    LOG.info("Waiting for replicas count " + expectedReplicaNum
+        + ", file name: " + file);
+    for (int i = 0; i < retryCount; i++) {
       LocatedBlocks lbs = dfs.getClient().getLocatedBlocks(file.toString(), 0,
           BLOCK_SIZE);
       LocatedBlock lb = lbs.get(0);
@@ -655,14 +629,18 @@ public class TestStorageMover {
   }
 
   private void setVolumeFull(DataNode dn, StorageType type) {
-    List<? extends FsVolumeSpi> volumes = dn.getFSDataset().getVolumes();
-    for (FsVolumeSpi v : volumes) {
-      FsVolumeImpl volume = (FsVolumeImpl) v;
-      if (volume.getStorageType() == type) {
-        LOG.info("setCapacity to 0 for [" + volume.getStorageType() + "]"
-            + volume.getStorageID());
-        volume.setCapacityForTesting(0);
+    try (FsDatasetSpi.FsVolumeReferences refs = dn.getFSDataset()
+        .getFsVolumeReferences()) {
+      for (FsVolumeSpi fvs : refs) {
+        FsVolumeImpl volume = (FsVolumeImpl) fvs;
+        if (volume.getStorageType() == type) {
+          LOG.info("setCapacity to 0 for [" + volume.getStorageType() + "]"
+              + volume.getStorageID());
+          volume.setCapacityForTesting(0);
+        }
       }
+    } catch (IOException e) {
+      LOG.error("Unexpected exception by closing FsVolumeReference", e);
     }
   }
 
@@ -688,7 +666,7 @@ public class TestStorageMover {
       for (int i = 0; i < 2; i++) {
         final Path p = new Path(pathPolicyMap.hot, "file" + i);
         DFSTestUtil.createFile(test.dfs, p, BLOCK_SIZE, replication, 0L);
-        waitForAllReplicas(replication, p, test.dfs);
+        waitForAllReplicas(replication, p, test.dfs, 10);
       }
 
       // set all the DISK volume to full
@@ -703,22 +681,23 @@ public class TestStorageMover {
       final Replication r = test.getReplication(file0);
       final short newReplication = (short) 5;
       test.dfs.setReplication(file0, newReplication);
-      Thread.sleep(10000);
+      waitForAllReplicas(newReplication, file0, test.dfs, 10);
       test.verifyReplication(file0, r.disk, newReplication - r.disk);
 
       // test creating a cold file and then increase replication
       final Path p = new Path(pathPolicyMap.cold, "foo");
       DFSTestUtil.createFile(test.dfs, p, BLOCK_SIZE, replication, 0L);
+      waitForAllReplicas(replication, p, test.dfs, 10);
       test.verifyReplication(p, 0, replication);
 
       test.dfs.setReplication(p, newReplication);
-      Thread.sleep(10000);
+      waitForAllReplicas(newReplication, p, test.dfs, 10);
       test.verifyReplication(p, 0, newReplication);
 
       //test move a hot file to warm
       final Path file1 = new Path(pathPolicyMap.hot, "file1");
       test.dfs.rename(file1, pathPolicyMap.warm);
-      test.migrate();
+      test.migrate(ExitStatus.NO_MOVE_BLOCK);
       test.verifyFile(new Path(pathPolicyMap.warm, "file1"), WARM.getId());
     } finally {
       test.shutdownCluster();
@@ -746,7 +725,7 @@ public class TestStorageMover {
       for (int i = 0; i < 2; i++) {
         final Path p = new Path(pathPolicyMap.cold, "file" + i);
         DFSTestUtil.createFile(test.dfs, p, BLOCK_SIZE, replication, 0L);
-        waitForAllReplicas(replication, p, test.dfs);
+        waitForAllReplicas(replication, p, test.dfs, 10);
       }
 
       // set all the ARCHIVE volume to full
@@ -763,7 +742,7 @@ public class TestStorageMover {
 
         final short newReplication = (short) 5;
         test.dfs.setReplication(file0, newReplication);
-        Thread.sleep(10000);
+        waitForAllReplicas(r.archive, file0, test.dfs, 10);
 
         test.verifyReplication(file0, 0, r.archive);
       }
@@ -776,7 +755,7 @@ public class TestStorageMover {
       { //test move a cold file to warm
         final Path file1 = new Path(pathPolicyMap.cold, "file1");
         test.dfs.rename(file1, pathPolicyMap.warm);
-        test.migrate();
+        test.migrate(ExitStatus.SUCCESS);
         test.verify(true);
       }
     } finally {

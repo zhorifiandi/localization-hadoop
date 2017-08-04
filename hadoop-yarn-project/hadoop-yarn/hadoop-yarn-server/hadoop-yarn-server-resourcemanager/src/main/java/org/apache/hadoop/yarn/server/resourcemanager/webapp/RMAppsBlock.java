@@ -25,17 +25,20 @@ import static org.apache.hadoop.yarn.webapp.view.JQueryUI.C_PROGRESSBAR_VALUE;
 import java.util.Set;
 
 import org.apache.commons.lang.StringEscapeUtils;
+import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.yarn.api.ApplicationBaseProtocol;
+import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
+import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
+import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttempt;
 import org.apache.hadoop.yarn.server.webapp.AppsBlock;
 import org.apache.hadoop.yarn.server.webapp.dao.AppInfo;
-import org.apache.hadoop.yarn.util.ConverterUtils;
 import org.apache.hadoop.yarn.webapp.View;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
 
 import com.google.inject.Inject;
 
@@ -55,11 +58,21 @@ public class RMAppsBlock extends AppsBlock {
     TBODY<TABLE<Hamlet>> tbody =
         html.table("#apps").thead().tr().th(".id", "ID").th(".user", "User")
           .th(".name", "Name").th(".type", "Application Type")
-          .th(".queue", "Queue").th(".starttime", "StartTime")
+          .th(".queue", "Queue").th(".priority", "Application Priority")
+          .th(".starttime", "StartTime")
           .th(".finishtime", "FinishTime").th(".state", "State")
-          .th(".finalstatus", "FinalStatus").th(".progress", "Progress")
-          .th(".ui", "Tracking UI").th(".blacklisted", "Blacklisted Nodes")._()
-          ._().tbody();
+          .th(".finalstatus", "FinalStatus")
+          .th(".runningcontainer", "Running Containers")
+          .th(".allocatedCpu", "Allocated CPU VCores")
+          .th(".allocatedMemory", "Allocated Memory MB")
+          .th(".reservedCpu", "Reserved CPU VCores")
+          .th(".reservedMemory", "Reserved Memory MB")
+          .th(".queuePercentage", "% of Queue")
+          .th(".clusterPercentage", "% of Cluster")
+          .th(".progress", "Progress")
+          .th(".ui", "Tracking UI")
+          .th(".blacklisted", "Blacklisted Nodes").__()
+          .__().tbody();
 
     StringBuilder appsTableData = new StringBuilder("[\n");
     for (ApplicationReport appReport : appReports) {
@@ -72,16 +85,30 @@ public class RMAppsBlock extends AppsBlock {
       }
 
       AppInfo app = new AppInfo(appReport);
-      String blacklistedNodesCount = "N/A";
-      Set<String> nodes =
-          RMAppAttemptBlock
-            .getBlacklistedNodes(rm, ConverterUtils.toApplicationAttemptId(app
-              .getCurrentAppAttemptId()));
-      if (nodes != null) {
-        blacklistedNodesCount = String.valueOf(nodes.size());
+      ApplicationAttemptId appAttemptId = ApplicationAttemptId.fromString(
+          app.getCurrentAppAttemptId());
+      String queuePercent = "N/A";
+      String clusterPercent = "N/A";
+      if(appReport.getApplicationResourceUsageReport() != null) {
+        queuePercent = String.format("%.1f",
+            appReport.getApplicationResourceUsageReport()
+                .getQueueUsagePercentage());
+        clusterPercent = String.format("%.1f",
+            appReport.getApplicationResourceUsageReport().getClusterUsagePercentage());
       }
-      String percent = String.format("%.1f", app.getProgress());
-      // AppID numerical value parsed by parseHadoopID in yarn.dt.plugins.js
+
+      String blacklistedNodesCount = "N/A";
+      RMApp rmApp = rm.getRMContext().getRMApps()
+          .get(appAttemptId.getApplicationId());
+      if (rmApp != null) {
+        RMAppAttempt appAttempt = rmApp.getRMAppAttempt(appAttemptId);
+        Set<String> nodes =
+            null == appAttempt ? null : appAttempt.getBlacklistedNodes();
+        if (nodes != null) {
+          blacklistedNodesCount = String.valueOf(nodes.size());
+        }
+      }
+      String percent = StringUtils.format("%.1f", app.getProgress());
       appsTableData
         .append("[\"<a href='")
         .append(url("app", app.getAppId()))
@@ -89,12 +116,12 @@ public class RMAppsBlock extends AppsBlock {
         .append(app.getAppId())
         .append("</a>\",\"")
         .append(
-          StringEscapeUtils.escapeJavaScript(StringEscapeUtils.escapeHtml(app
-            .getUser())))
+          StringEscapeUtils.escapeJavaScript(
+              StringEscapeUtils.escapeHtml(app.getUser())))
         .append("\",\"")
         .append(
-          StringEscapeUtils.escapeJavaScript(StringEscapeUtils.escapeHtml(app
-            .getName())))
+          StringEscapeUtils.escapeJavaScript(
+              StringEscapeUtils.escapeHtml(app.getName())))
         .append("\",\"")
         .append(
           StringEscapeUtils.escapeJavaScript(StringEscapeUtils.escapeHtml(app
@@ -102,15 +129,36 @@ public class RMAppsBlock extends AppsBlock {
         .append("\",\"")
         .append(
           StringEscapeUtils.escapeJavaScript(StringEscapeUtils.escapeHtml(app
-            .getQueue()))).append("\",\"").append(app.getStartedTime())
+             .getQueue()))).append("\",\"").append(String
+             .valueOf(app.getPriority()))
+        .append("\",\"").append(app.getStartedTime())
         .append("\",\"").append(app.getFinishedTime())
         .append("\",\"")
         .append(app.getAppState() == null ? UNAVAILABLE : app.getAppState())
         .append("\",\"")
         .append(app.getFinalAppStatus())
         .append("\",\"")
+        .append(app.getRunningContainers() == -1 ? "N/A" : String
+            .valueOf(app.getRunningContainers()))
+        .append("\",\"")
+        .append(app.getAllocatedCpuVcores() == -1 ? "N/A" : String
+            .valueOf(app.getAllocatedCpuVcores()))
+        .append("\",\"")
+        .append(app.getAllocatedMemoryMB() == -1 ? "N/A" :
+            String.valueOf(app.getAllocatedMemoryMB()))
+        .append("\",\"")
+        .append(app.getReservedCpuVcores() == -1 ? "N/A" : String
+            .valueOf(app.getReservedCpuVcores()))
+        .append("\",\"")
+        .append(app.getReservedMemoryMB() == -1 ? "N/A" :
+            String.valueOf(app.getReservedMemoryMB()))
+        .append("\",\"")
+        .append(queuePercent)
+        .append("\",\"")
+        .append(clusterPercent)
+        .append("\",\"")
         // Progress bar
-        .append("<br title='").append(percent).append("'> <div class='")
+          .append("<br title='").append(percent).append("'> <div class='")
         .append(C_PROGRESSBAR).append("' title='").append(join(percent, '%'))
         .append("'> ").append("<div class='").append(C_PROGRESSBAR_VALUE)
         .append("' style='").append(join("width:", percent, '%'))
@@ -118,13 +166,15 @@ public class RMAppsBlock extends AppsBlock {
 
       String trackingURL =
           app.getTrackingUrl() == null
-              || app.getTrackingUrl().equals(UNAVAILABLE) ? null : app
-            .getTrackingUrl();
+              || app.getTrackingUrl().equals(UNAVAILABLE)
+              || app.getAppState() == YarnApplicationState.NEW ? null : app
+              .getTrackingUrl();
 
       String trackingUI =
           app.getTrackingUrl() == null
-              || app.getTrackingUrl().equals(UNAVAILABLE) ? "Unassigned" : app
-            .getAppState() == YarnApplicationState.FINISHED
+              || app.getTrackingUrl().equals(UNAVAILABLE)
+              || app.getAppState() == YarnApplicationState.NEW ? "Unassigned"
+              : app.getAppState() == YarnApplicationState.FINISHED
               || app.getAppState() == YarnApplicationState.FAILED
               || app.getAppState() == YarnApplicationState.KILLED ? "History"
               : "ApplicationMaster";
@@ -139,8 +189,8 @@ public class RMAppsBlock extends AppsBlock {
     }
     appsTableData.append("]");
     html.script().$type("text/javascript")
-      ._("var appsTableData=" + appsTableData)._();
+      .__("var appsTableData=" + appsTableData).__();
 
-    tbody._()._();
+    tbody.__().__();
   }
 }

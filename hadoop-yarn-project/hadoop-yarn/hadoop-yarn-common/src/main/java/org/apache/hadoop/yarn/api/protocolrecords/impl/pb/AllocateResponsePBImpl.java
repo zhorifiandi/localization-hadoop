@@ -29,31 +29,32 @@ import org.apache.hadoop.security.proto.SecurityProtos.TokenProto;
 import org.apache.hadoop.yarn.api.protocolrecords.AllocateResponse;
 import org.apache.hadoop.yarn.api.records.AMCommand;
 import org.apache.hadoop.yarn.api.records.Container;
-import org.apache.hadoop.yarn.api.records.ContainerResourceDecrease;
-import org.apache.hadoop.yarn.api.records.ContainerResourceIncrease;
 import org.apache.hadoop.yarn.api.records.ContainerStatus;
 import org.apache.hadoop.yarn.api.records.NMToken;
 import org.apache.hadoop.yarn.api.records.NodeReport;
 import org.apache.hadoop.yarn.api.records.PreemptionMessage;
+import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.Token;
+import org.apache.hadoop.yarn.api.records.UpdateContainerError;
+import org.apache.hadoop.yarn.api.records.UpdatedContainer;
 import org.apache.hadoop.yarn.api.records.impl.pb.ContainerPBImpl;
-import org.apache.hadoop.yarn.api.records.impl.pb.ContainerResourceDecreasePBImpl;
-import org.apache.hadoop.yarn.api.records.impl.pb.ContainerResourceIncreasePBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.ContainerStatusPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.NMTokenPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.NodeReportPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.PreemptionMessagePBImpl;
+import org.apache.hadoop.yarn.api.records.impl.pb.PriorityPBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.ProtoUtils;
 import org.apache.hadoop.yarn.api.records.impl.pb.ResourcePBImpl;
 import org.apache.hadoop.yarn.api.records.impl.pb.TokenPBImpl;
+import org.apache.hadoop.yarn.api.records.impl.pb.UpdatedContainerPBImpl;
 import org.apache.hadoop.yarn.proto.YarnProtos.ContainerProto;
-import org.apache.hadoop.yarn.proto.YarnProtos.ContainerResourceDecreaseProto;
-import org.apache.hadoop.yarn.proto.YarnProtos.ContainerResourceIncreaseProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ContainerStatusProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.NodeReportProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.PreemptionMessageProto;
+import org.apache.hadoop.yarn.proto.YarnProtos.PriorityProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.ResourceProto;
+import org.apache.hadoop.yarn.proto.YarnServiceProtos;
 import org.apache.hadoop.yarn.proto.YarnServiceProtos.AllocateResponseProto;
 import org.apache.hadoop.yarn.proto.YarnServiceProtos.AllocateResponseProtoOrBuilder;
 import org.apache.hadoop.yarn.proto.YarnServiceProtos.NMTokenProto;
@@ -72,13 +73,14 @@ public class AllocateResponsePBImpl extends AllocateResponse {
   private List<Container> allocatedContainers = null;
   private List<NMToken> nmTokens = null;
   private List<ContainerStatus> completedContainersStatuses = null;
-  private List<ContainerResourceIncrease> increasedContainers = null;
-  private List<ContainerResourceDecrease> decreasedContainers = null;
+  private List<UpdatedContainer> updatedContainers = null;
 
   private List<NodeReport> updatedNodes = null;
+  private List<UpdateContainerError> updateErrors = null;
   private PreemptionMessage preempt;
   private Token amrmToken = null;
-  
+  private Priority appPriority = null;
+
   public AllocateResponsePBImpl() {
     builder = AllocateResponseProto.newBuilder();
   }
@@ -145,20 +147,23 @@ public class AllocateResponsePBImpl extends AllocateResponse {
     if (this.preempt != null) {
       builder.setPreempt(convertToProtoFormat(this.preempt));
     }
-    if (this.increasedContainers != null) {
-      builder.clearIncreasedContainers();
-      Iterable<ContainerResourceIncreaseProto> iterable =
-          getIncreaseProtoIterable(this.increasedContainers);
-      builder.addAllIncreasedContainers(iterable);
+    if (this.updatedContainers != null) {
+      builder.clearUpdatedContainers();
+      Iterable<YarnServiceProtos.UpdatedContainerProto> iterable =
+          getUpdatedContainerProtoIterable(this.updatedContainers);
+      builder.addAllUpdatedContainers(iterable);
     }
-    if (this.decreasedContainers != null) {
-      builder.clearDecreasedContainers();
-      Iterable<ContainerResourceDecreaseProto> iterable =
-          getChangeProtoIterable(this.decreasedContainers);
-      builder.addAllDecreasedContainers(iterable);
+    if (this.updateErrors != null) {
+      builder.clearUpdateErrors();
+      Iterable<YarnServiceProtos.UpdateContainerErrorProto> iterable =
+          getUpdateErrorsIterable(this.updateErrors);
+      builder.addAllUpdateErrors(iterable);
     }
     if (this.amrmToken != null) {
       builder.setAmRmToken(convertToProtoFormat(this.amrmToken));
+    }
+    if (this.appPriority != null) {
+      builder.setApplicationPriority(convertToProtoFormat(this.appPriority));
     }
   }
 
@@ -247,6 +252,26 @@ public class AllocateResponsePBImpl extends AllocateResponse {
   }
 
   @Override
+  public synchronized List<UpdateContainerError> getUpdateErrors() {
+    initLocalUpdateErrorsList();
+    return this.updateErrors;
+  }
+
+  @Override
+  public synchronized void setUpdateErrors(
+      List<UpdateContainerError> updateErrors) {
+    if (updateErrors == null) {
+      if (this.updateErrors != null) {
+        this.updateErrors.clear();
+      }
+      return;
+    }
+    this.updateErrors = new ArrayList<>(
+        updateErrors.size());
+    this.updateErrors.addAll(updateErrors);
+  }
+
+  @Override
   public synchronized List<Container> getAllocatedContainers() {
     initLocalNewContainerList();
     return this.allocatedContainers;
@@ -257,9 +282,25 @@ public class AllocateResponsePBImpl extends AllocateResponse {
       final List<Container> containers) {
     if (containers == null)
       return;
-    // this looks like a bug because it results in append and not set
     initLocalNewContainerList();
+    allocatedContainers.clear();
     allocatedContainers.addAll(containers);
+  }
+
+  @Override
+  public synchronized List<UpdatedContainer> getUpdatedContainers() {
+    initLocalUpdatedContainerList();
+    return this.updatedContainers;
+  }
+
+  @Override
+  public synchronized void setUpdatedContainers(
+      final List<UpdatedContainer> containers) {
+    if (containers == null)
+      return;
+    initLocalUpdatedContainerList();
+    updatedContainers.clear();
+    updatedContainers.addAll(containers);
   }
 
   //// Finished containers
@@ -275,6 +316,7 @@ public class AllocateResponsePBImpl extends AllocateResponse {
     if (containers == null)
       return;
     initLocalFinishedContainerList();
+    completedContainersStatuses.clear();
     completedContainersStatuses.addAll(containers);
   }
 
@@ -333,37 +375,6 @@ public class AllocateResponsePBImpl extends AllocateResponse {
   }
 
   @Override
-  public synchronized List<ContainerResourceIncrease> getIncreasedContainers() {
-    initLocalIncreasedContainerList();
-    return increasedContainers;
-  }
-
-  @Override
-  public synchronized void setIncreasedContainers(
-      List<ContainerResourceIncrease> increasedContainers) {
-    if (increasedContainers == null)
-      return;
-    initLocalIncreasedContainerList();
-    this.increasedContainers.addAll(increasedContainers);
-  }
-
-  @Override
-  public synchronized List<ContainerResourceDecrease> getDecreasedContainers() {
-    initLocalDecreasedContainerList();
-    return decreasedContainers;
-  }
-
-  @Override
-  public synchronized void setDecreasedContainers(
-      List<ContainerResourceDecrease> decreasedContainers) {
-    if (decreasedContainers == null) {
-      return;
-    }
-    initLocalDecreasedContainerList();
-    this.decreasedContainers.addAll(decreasedContainers);
-  }
-
-  @Override
   public synchronized Token getAMRMToken() {
     AllocateResponseProtoOrBuilder p = viaProto ? proto : builder;
     if (amrmToken != null) {
@@ -385,29 +396,55 @@ public class AllocateResponsePBImpl extends AllocateResponse {
     this.amrmToken = amRMToken;
   }
 
-  private synchronized void initLocalIncreasedContainerList() {
-    if (this.increasedContainers != null) {
-      return;
-    }
-    AllocateResponseProtoOrBuilder p = viaProto ? proto : builder;
-    List<ContainerResourceIncreaseProto> list = p.getIncreasedContainersList();
-    increasedContainers = new ArrayList<ContainerResourceIncrease>();
 
-    for (ContainerResourceIncreaseProto c : list) {
-      increasedContainers.add(convertFromProtoFormat(c));
-    }
+  @Override
+  public synchronized String getCollectorAddr() {
+    AllocateResponseProtoOrBuilder p = viaProto ? proto : builder;
+    return p.getCollectorAddr();
   }
 
-  private synchronized void initLocalDecreasedContainerList() {
-    if (this.decreasedContainers != null) {
+  @Override
+  public synchronized void setCollectorAddr(String collectorAddr) {
+    maybeInitBuilder();
+    if (collectorAddr == null) {
+      builder.clearCollectorAddr();
+      return;
+    }
+    builder.setCollectorAddr(collectorAddr);
+  }
+
+  @Override
+  public synchronized Priority getApplicationPriority() {
+    AllocateResponseProtoOrBuilder p = viaProto ? proto : builder;
+    if (this.appPriority != null) {
+      return this.appPriority;
+    }
+    if (!p.hasApplicationPriority()) {
+      return null;
+    }
+    this.appPriority = convertFromProtoFormat(p.getApplicationPriority());
+    return this.appPriority;
+  }
+
+  @Override
+  public synchronized void setApplicationPriority(Priority priority) {
+    maybeInitBuilder();
+    if (priority == null)
+      builder.clearApplicationPriority();
+    this.appPriority = priority;
+  }
+
+  private synchronized void initLocalUpdatedContainerList() {
+    if (this.updatedContainers != null) {
       return;
     }
     AllocateResponseProtoOrBuilder p = viaProto ? proto : builder;
-    List<ContainerResourceDecreaseProto> list = p.getDecreasedContainersList();
-    decreasedContainers = new ArrayList<ContainerResourceDecrease>();
+    List<YarnServiceProtos.UpdatedContainerProto> list =
+        p.getUpdatedContainersList();
+    updatedContainers = new ArrayList<>();
 
-    for (ContainerResourceDecreaseProto c : list) {
-      decreasedContainers.add(convertFromProtoFormat(c));
+    for (YarnServiceProtos.UpdatedContainerProto c : list) {
+      updatedContainers.add(convertFromProtoFormat(c));
     }
   }
 
@@ -453,17 +490,31 @@ public class AllocateResponsePBImpl extends AllocateResponse {
     }
   }
 
-  private synchronized Iterable<ContainerResourceIncreaseProto>
-      getIncreaseProtoIterable(
-          final List<ContainerResourceIncrease> newContainersList) {
-    maybeInitBuilder();
-    return new Iterable<ContainerResourceIncreaseProto>() {
-      @Override
-      public synchronized Iterator<ContainerResourceIncreaseProto> iterator() {
-        return new Iterator<ContainerResourceIncreaseProto>() {
+  private synchronized void initLocalUpdateErrorsList() {
+    if (updateErrors != null) {
+      return;
+    }
+    AllocateResponseProtoOrBuilder p = viaProto ? proto : builder;
+    List<YarnServiceProtos.UpdateContainerErrorProto> list =
+        p.getUpdateErrorsList();
+    this.updateErrors = new ArrayList<UpdateContainerError>();
+    for (YarnServiceProtos.UpdateContainerErrorProto t : list) {
+      updateErrors.add(ProtoUtils.convertFromProtoFormat(t));
+    }
+  }
 
-          Iterator<ContainerResourceIncrease> iter = newContainersList
-              .iterator();
+  private synchronized Iterable<YarnServiceProtos.UpdateContainerErrorProto>
+      getUpdateErrorsIterable(
+      final List<UpdateContainerError> updateErrorsList) {
+    maybeInitBuilder();
+    return new Iterable<YarnServiceProtos.UpdateContainerErrorProto>() {
+      @Override
+      public synchronized Iterator<YarnServiceProtos
+          .UpdateContainerErrorProto> iterator() {
+        return new Iterator<YarnServiceProtos.UpdateContainerErrorProto>() {
+
+          private Iterator<UpdateContainerError> iter =
+              updateErrorsList.iterator();
 
           @Override
           public synchronized boolean hasNext() {
@@ -471,8 +522,9 @@ public class AllocateResponsePBImpl extends AllocateResponse {
           }
 
           @Override
-          public synchronized ContainerResourceIncreaseProto next() {
-            return convertToProtoFormat(iter.next());
+          public synchronized YarnServiceProtos.UpdateContainerErrorProto
+              next() {
+            return ProtoUtils.convertToProtoFormat(iter.next());
           }
 
           @Override
@@ -485,38 +537,6 @@ public class AllocateResponsePBImpl extends AllocateResponse {
     };
   }
 
-  private synchronized Iterable<ContainerResourceDecreaseProto>
-      getChangeProtoIterable(
-          final List<ContainerResourceDecrease> newContainersList) {
-    maybeInitBuilder();
-    return new Iterable<ContainerResourceDecreaseProto>() {
-      @Override
-      public synchronized Iterator<ContainerResourceDecreaseProto> iterator() {
-        return new Iterator<ContainerResourceDecreaseProto>() {
-
-          Iterator<ContainerResourceDecrease> iter = newContainersList
-              .iterator();
-
-          @Override
-          public synchronized boolean hasNext() {
-            return iter.hasNext();
-          }
-
-          @Override
-          public synchronized ContainerResourceDecreaseProto next() {
-            return convertToProtoFormat(iter.next());
-          }
-
-          @Override
-          public synchronized void remove() {
-            throw new UnsupportedOperationException();
-          }
-        };
-
-      }
-    };
-  }
-  
   private synchronized Iterable<ContainerProto> getContainerProtoIterable(
       final List<Container> newContainersList) {
     maybeInitBuilder();
@@ -534,6 +554,40 @@ public class AllocateResponsePBImpl extends AllocateResponse {
 
           @Override
           public synchronized ContainerProto next() {
+            return convertToProtoFormat(iter.next());
+          }
+
+          @Override
+          public synchronized void remove() {
+            throw new UnsupportedOperationException();
+
+          }
+        };
+
+      }
+    };
+  }
+
+  private synchronized Iterable<YarnServiceProtos.UpdatedContainerProto>
+        getUpdatedContainerProtoIterable(
+      final List<UpdatedContainer> newUpdatedContainersList) {
+    maybeInitBuilder();
+    return new Iterable<YarnServiceProtos.UpdatedContainerProto>() {
+      @Override
+      public synchronized Iterator<YarnServiceProtos.UpdatedContainerProto>
+          iterator() {
+        return new Iterator<YarnServiceProtos.UpdatedContainerProto>() {
+
+          private Iterator<UpdatedContainer> iter =
+              newUpdatedContainersList.iterator();
+
+          @Override
+          public synchronized boolean hasNext() {
+            return iter.hasNext();
+          }
+
+          @Override
+          public synchronized YarnServiceProtos.UpdatedContainerProto next() {
             return convertToProtoFormat(iter.next());
           }
 
@@ -654,26 +708,6 @@ public class AllocateResponsePBImpl extends AllocateResponse {
       completedContainersStatuses.add(convertFromProtoFormat(c));
     }
   }
-  
-  private synchronized ContainerResourceIncrease convertFromProtoFormat(
-      ContainerResourceIncreaseProto p) {
-    return new ContainerResourceIncreasePBImpl(p);
-  }
-
-  private synchronized ContainerResourceIncreaseProto convertToProtoFormat(
-      ContainerResourceIncrease t) {
-    return ((ContainerResourceIncreasePBImpl) t).getProto();
-  }
-
-  private synchronized ContainerResourceDecrease convertFromProtoFormat(
-      ContainerResourceDecreaseProto p) {
-    return new ContainerResourceDecreasePBImpl(p);
-  }
-
-  private synchronized ContainerResourceDecreaseProto convertToProtoFormat(
-      ContainerResourceDecrease t) {
-    return ((ContainerResourceDecreasePBImpl) t).getProto();
-  }
 
   private synchronized NodeReportPBImpl convertFromProtoFormat(
       NodeReportProto p) {
@@ -694,6 +728,16 @@ public class AllocateResponsePBImpl extends AllocateResponse {
     return ((ContainerPBImpl)t).getProto();
   }
 
+  private synchronized UpdatedContainerPBImpl convertFromProtoFormat(
+      YarnServiceProtos.UpdatedContainerProto p) {
+    return new UpdatedContainerPBImpl(p);
+  }
+
+  private synchronized YarnServiceProtos.UpdatedContainerProto
+      convertToProtoFormat(UpdatedContainer t) {
+    return ((UpdatedContainerPBImpl)t).getProto();
+  }
+
   private synchronized ContainerStatusPBImpl convertFromProtoFormat(
       ContainerStatusProto p) {
     return new ContainerStatusPBImpl(p);
@@ -709,7 +753,7 @@ public class AllocateResponsePBImpl extends AllocateResponse {
   }
 
   private synchronized ResourceProto convertToProtoFormat(Resource r) {
-    return ((ResourcePBImpl) r).getProto();
+    return ProtoUtils.convertToProtoFormat(r);
   }
 
   private synchronized PreemptionMessagePBImpl convertFromProtoFormat(PreemptionMessageProto p) {
@@ -735,4 +779,12 @@ public class AllocateResponsePBImpl extends AllocateResponse {
   private TokenProto convertToProtoFormat(Token t) {
     return ((TokenPBImpl)t).getProto();
   }
-}  
+
+  private PriorityPBImpl convertFromProtoFormat(PriorityProto p) {
+    return new PriorityPBImpl(p);
+  }
+
+  private PriorityProto convertToProtoFormat(Priority t) {
+    return ((PriorityPBImpl)t).getProto();
+  }
+}

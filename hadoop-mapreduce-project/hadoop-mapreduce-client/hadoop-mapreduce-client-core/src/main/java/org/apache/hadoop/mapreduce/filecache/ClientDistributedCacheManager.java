@@ -54,10 +54,23 @@ public class ClientDistributedCacheManager {
   public static void determineTimestampsAndCacheVisibilities(Configuration job)
   throws IOException {
     Map<URI, FileStatus> statCache = new HashMap<URI, FileStatus>();
+    determineTimestampsAndCacheVisibilities(job, statCache);
+  }
+
+  /**
+   * See ClientDistributedCacheManager#determineTimestampsAndCacheVisibilities(
+   * Configuration).
+   *
+   * @param job Configuration of a job
+   * @param statCache A map containing cached file status objects
+   * @throws IOException if there is a problem with the underlying filesystem
+   */
+  public static void determineTimestampsAndCacheVisibilities(Configuration job,
+      Map<URI, FileStatus> statCache) throws IOException {
     determineTimestamps(job, statCache);
     determineCacheVisibilities(job, statCache);
   }
-  
+
   /**
    * Determines timestamps of files to be cached, and stores those
    * in the configuration.  This is intended to be used internally by JobClient
@@ -227,20 +240,27 @@ public class ClientDistributedCacheManager {
   /**
    * Returns a boolean to denote whether a cache file is visible to all(public)
    * or not
-   * @param conf
-   * @param uri
+   * @param conf the configuration
+   * @param uri the URI to test
    * @return true if the path in the uri is visible to all, false otherwise
-   * @throws IOException
+   * @throws IOException thrown if a file system operation fails
    */
   static boolean isPublic(Configuration conf, URI uri,
       Map<URI, FileStatus> statCache) throws IOException {
+    boolean isPublic = true;
     FileSystem fs = FileSystem.get(uri, conf);
     Path current = new Path(uri.getPath());
-    //the leaf level file should be readable by others
-    if (!checkPermissionOfOther(fs, current, FsAction.READ, statCache)) {
-      return false;
+    current = fs.makeQualified(current);
+
+    // If we're looking at a wildcarded path, we only need to check that the
+    // ancestors allow execution.  Otherwise, look for read permissions in
+    // addition to the ancestors' permissions.
+    if (!current.getName().equals(DistributedCache.WILDCARD)) {
+      isPublic = checkPermissionOfOther(fs, current, FsAction.READ, statCache);
     }
-    return ancestorsHaveExecutePermissions(fs, current.getParent(), statCache);
+
+    return isPublic &&
+        ancestorsHaveExecutePermissions(fs, current.getParent(), statCache);
   }
 
   /**
@@ -274,20 +294,40 @@ public class ClientDistributedCacheManager {
       FsAction action, Map<URI, FileStatus> statCache) throws IOException {
     FileStatus status = getFileStatus(fs, path.toUri(), statCache);
     FsPermission perms = status.getPermission();
-    FsAction otherAction = perms.getOtherAction();
-    if (otherAction.implies(action)) {
-      return true;
+
+    // Encrypted files are always treated as private. This stance has two
+    // important side effects.  The first is that the encrypted files will be
+    // downloaded as the job owner instead of the YARN user, which is required
+    // for the KMS ACLs to work as expected.  Second, it prevent a file with
+    // world readable permissions that is stored in an encryption zone from
+    // being localized as a publicly shared file with world readable
+    // permissions.
+    if (!perms.getEncryptedBit()) {
+      FsAction otherAction = perms.getOtherAction();
+      if (otherAction.implies(action)) {
+        return true;
+      }
     }
+
     return false;
   }
 
   private static FileStatus getFileStatus(FileSystem fs, URI uri,
       Map<URI, FileStatus> statCache) throws IOException {
+    Path path = new Path(uri);
+
+    if (path.getName().equals(DistributedCache.WILDCARD)) {
+      path = path.getParent();
+      uri = path.toUri();
+    }
+
     FileStatus stat = statCache.get(uri);
+
     if (stat == null) {
-      stat = fs.getFileStatus(new Path(uri));
+      stat = fs.getFileStatus(path);
       statCache.put(uri, stat);
     }
+
     return stat;
   }
 }

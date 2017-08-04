@@ -66,8 +66,8 @@ public class MDCFilter implements Filter {
    * @param response servlet response.
    * @param chain filter chain.
    *
-   * @throws IOException thrown if an IO error occurrs.
-   * @throws ServletException thrown if a servet error occurrs.
+   * @throws IOException thrown if an IO error occurs.
+   * @throws ServletException thrown if a servlet error occurs.
    */
   @Override
   public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
@@ -84,7 +84,9 @@ public class MDCFilter implements Filter {
         MDC.put("user", user);
       }
       MDC.put("method", ((HttpServletRequest) request).getMethod());
-      MDC.put("path", ((HttpServletRequest) request).getPathInfo());
+      if (((HttpServletRequest) request).getPathInfo() != null) {
+        MDC.put("path", ((HttpServletRequest) request).getPathInfo());
+      }
       chain.doFilter(request, response);
     } finally {
       MDC.clear();

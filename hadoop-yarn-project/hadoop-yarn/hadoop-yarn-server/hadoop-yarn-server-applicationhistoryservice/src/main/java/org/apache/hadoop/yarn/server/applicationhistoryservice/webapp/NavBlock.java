@@ -18,34 +18,60 @@
 
 package org.apache.hadoop.yarn.server.applicationhistoryservice.webapp;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
+import org.apache.hadoop.yarn.util.Log4jWarningErrorMetricsAppender;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 public class NavBlock extends HtmlBlock {
 
   @Override
   public void render(Block html) {
-    html.
+    boolean addErrorsAndWarningsLink = false;
+    Log log = LogFactory.getLog(NavBlock.class);
+    if (log instanceof Log4JLogger) {
+      Log4jWarningErrorMetricsAppender appender =
+          Log4jWarningErrorMetricsAppender.findAppender();
+      if (appender != null) {
+        addErrorsAndWarningsLink = true;
+      }
+    }
+    Hamlet.DIV<Hamlet> nav = html.
         div("#nav").
             h3("Application History").
                 ul().
+                    li().a(url("about"), "About").
+        __().
                     li().a(url("apps"), "Applications").
                         ul().
                             li().a(url("apps",
                                 YarnApplicationState.FINISHED.toString()),
                                 YarnApplicationState.FINISHED.toString()).
-                            _().
+        __().
                             li().a(url("apps",
                                 YarnApplicationState.FAILED.toString()),
                                 YarnApplicationState.FAILED.toString()).
-                            _().
+        __().
                             li().a(url("apps",
                                 YarnApplicationState.KILLED.toString()),
                                 YarnApplicationState.KILLED.toString()).
-                            _().
-                        _().
-                    _().
-                _().
-            _();
+        __().
+        __().
+        __().
+        __();
+
+    Hamlet.UL<Hamlet.DIV<Hamlet>> tools = nav.h3("Tools").ul();
+    tools.li().a("/conf", "Configuration").__()
+        .li().a("/logs", "Local logs").__()
+        .li().a("/stacks", "Server stacks").__()
+        .li().a("/jmx?qry=Hadoop:*", "Server metrics").__();
+
+    if (addErrorsAndWarningsLink) {
+      tools.li().a(url("errors-and-warnings"), "Errors/Warnings").__();
+    }
+    tools.__().__();
   }
 }

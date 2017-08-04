@@ -18,6 +18,10 @@
 
 package org.apache.hadoop.yarn.applications.distributedshell;
 
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
+
 import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -27,60 +31,174 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.InetAddress;
+import java.net.URI;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.CommonConfigurationKeysPublic;
 import org.apache.hadoop.fs.FileContext;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.fs.RemoteIterator;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.net.ServerSocketUtil;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.JarFinder;
 import org.apache.hadoop.util.Shell;
+import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
+import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ApplicationReport;
+import org.apache.hadoop.yarn.api.records.ContainerState;
+import org.apache.hadoop.yarn.api.records.ContainerStatus;
+import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.apache.hadoop.yarn.api.records.YarnApplicationState;
 import org.apache.hadoop.yarn.api.records.timeline.TimelineDomain;
 import org.apache.hadoop.yarn.api.records.timeline.TimelineEntities;
+import org.apache.hadoop.yarn.api.records.timelineservice.TimelineEntityType;
 import org.apache.hadoop.yarn.client.api.YarnClient;
+import org.apache.hadoop.yarn.client.api.impl.DirectTimelineWriter;
+import org.apache.hadoop.yarn.client.api.impl.TestTimelineClient;
+import org.apache.hadoop.yarn.client.api.impl.TimelineClientImpl;
+import org.apache.hadoop.yarn.client.api.impl.TimelineWriter;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.server.MiniYARNCluster;
+import org.apache.hadoop.yarn.server.metrics.AppAttemptMetricsConstants;
+import org.apache.hadoop.yarn.server.metrics.ApplicationMetricsConstants;
+import org.apache.hadoop.yarn.server.metrics.ContainerMetricsConstants;
 import org.apache.hadoop.yarn.server.resourcemanager.scheduler.capacity.CapacityScheduler;
+import org.apache.hadoop.yarn.server.timeline.NameValuePair;
+import org.apache.hadoop.yarn.server.timeline.PluginStoreTestUtils;
+import org.apache.hadoop.yarn.server.timeline.TimelineVersion;
+import org.apache.hadoop.yarn.server.timeline.TimelineVersionWatcher;
+import org.apache.hadoop.yarn.server.timelineservice.collector.PerNodeTimelineCollectorsAuxService;
+import org.apache.hadoop.yarn.server.timelineservice.storage.FileSystemTimelineWriterImpl;
+import org.apache.hadoop.yarn.server.utils.BuilderUtils;
+import org.apache.hadoop.yarn.util.LinuxResourceCalculatorPlugin;
+import org.apache.hadoop.yarn.util.ProcfsBasedProcessTree;
+import org.apache.hadoop.yarn.util.timeline.TimelineUtils;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
+import org.junit.rules.Timeout;
 
 public class TestDistributedShell {
 
   private static final Log LOG =
       LogFactory.getLog(TestDistributedShell.class);
 
-  protected MiniYARNCluster yarnCluster = null;  
+  protected MiniYARNCluster yarnCluster = null;
+  protected MiniDFSCluster hdfsCluster = null;
+  private FileSystem fs = null;
+  private TimelineWriter spyTimelineWriter;
   protected YarnConfiguration conf = null;
+  // location of the filesystem timeline writer for timeline service v.2
+  private String timelineV2StorageDir = null;
   private static final int NUM_NMS = 1;
+  private static final float DEFAULT_TIMELINE_VERSION = 1.0f;
+  private static final String TIMELINE_AUX_SERVICE_NAME = "timeline_collector";
 
   protected final static String APPMASTER_JAR =
       JarFinder.getJar(ApplicationMaster.class);
 
+  @Rule
+  public TimelineVersionWatcher timelineVersionWatcher
+      = new TimelineVersionWatcher();
+  @Rule
+  public Timeout globalTimeout = new Timeout(90000);
+  @Rule
+  public TemporaryFolder tmpFolder = new TemporaryFolder();
+
   @Before
   public void setup() throws Exception {
-    setupInternal(NUM_NMS);
+    setupInternal(NUM_NMS, timelineVersionWatcher.getTimelineVersion());
   }
 
   protected void setupInternal(int numNodeManager) throws Exception {
+    setupInternal(numNodeManager, DEFAULT_TIMELINE_VERSION);
+  }
 
+  private void setupInternal(int numNodeManager, float timelineVersion)
+      throws Exception {
     LOG.info("Starting up YARN cluster");
-    
+
     conf = new YarnConfiguration();
     conf.setInt(YarnConfiguration.RM_SCHEDULER_MINIMUM_ALLOCATION_MB, 128);
+    // reduce the teardown waiting time
+    conf.setLong(YarnConfiguration.DISPATCHER_DRAIN_EVENTS_TIMEOUT, 1000);
     conf.set("yarn.log.dir", "target");
     conf.setBoolean(YarnConfiguration.TIMELINE_SERVICE_ENABLED, true);
+    // mark if we need to launch the v1 timeline server
+    // disable aux-service based timeline aggregators
+    conf.set(YarnConfiguration.NM_AUX_SERVICES, "");
+    conf.setBoolean(YarnConfiguration.SYSTEM_METRICS_PUBLISHER_ENABLED, true);
+
+    conf.set(YarnConfiguration.NM_VMEM_PMEM_RATIO, "8");
     conf.set(YarnConfiguration.RM_SCHEDULER, CapacityScheduler.class.getName());
     conf.setBoolean(YarnConfiguration.NODE_LABELS_ENABLED, true);
+    conf.set("mapreduce.jobhistory.address",
+        "0.0.0.0:" + ServerSocketUtil.getPort(10021, 10));
+    // Enable ContainersMonitorImpl
+    conf.set(YarnConfiguration.NM_CONTAINER_MON_RESOURCE_CALCULATOR,
+        LinuxResourceCalculatorPlugin.class.getName());
+    conf.set(YarnConfiguration.NM_CONTAINER_MON_PROCESS_TREE,
+        ProcfsBasedProcessTree.class.getName());
+    conf.setBoolean(YarnConfiguration.NM_PMEM_CHECK_ENABLED, true);
+    conf.setBoolean(YarnConfiguration.NM_VMEM_CHECK_ENABLED, true);
+    conf.setBoolean(
+        YarnConfiguration.YARN_MINICLUSTER_CONTROL_RESOURCE_MONITORING,
+        true);
+    conf.setBoolean(YarnConfiguration.RM_SYSTEM_METRICS_PUBLISHER_ENABLED,
+          true);
+
+    // ATS version specific settings
+    if (timelineVersion == 1.0f) {
+      conf.setFloat(YarnConfiguration.TIMELINE_SERVICE_VERSION, 1.0f);
+      conf.set(CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY,
+          CommonConfigurationKeysPublic.FS_DEFAULT_NAME_DEFAULT);
+    } else if (timelineVersion == 1.5f) {
+      if (hdfsCluster == null) {
+        HdfsConfiguration hdfsConfig = new HdfsConfiguration();
+        hdfsCluster = new MiniDFSCluster.Builder(hdfsConfig)
+            .numDataNodes(1).build();
+      }
+      fs = hdfsCluster.getFileSystem();
+      PluginStoreTestUtils.prepareFileSystemForPluginStore(fs);
+      PluginStoreTestUtils.prepareConfiguration(conf, hdfsCluster);
+      conf.set(YarnConfiguration.TIMELINE_SERVICE_ENTITY_GROUP_PLUGIN_CLASSES,
+          DistributedShellTimelinePlugin.class.getName());
+    } else if (timelineVersion == 2.0f) {
+      // set version to 2
+      conf.setFloat(YarnConfiguration.TIMELINE_SERVICE_VERSION, 2.0f);
+      // disable v1 timeline server since we no longer have a server here
+      // enable aux-service based timeline aggregators
+      conf.set(YarnConfiguration.NM_AUX_SERVICES, TIMELINE_AUX_SERVICE_NAME);
+      conf.set(YarnConfiguration.NM_AUX_SERVICES + "." +
+          TIMELINE_AUX_SERVICE_NAME + ".class",
+          PerNodeTimelineCollectorsAuxService.class.getName());
+      conf.setClass(YarnConfiguration.TIMELINE_SERVICE_WRITER_CLASS,
+          FileSystemTimelineWriterImpl.class,
+          org.apache.hadoop.yarn.server.timelineservice.storage.
+              TimelineWriter.class);
+      timelineV2StorageDir = tmpFolder.newFolder().getAbsolutePath();
+      // set the file system timeline writer storage directory
+      conf.set(FileSystemTimelineWriterImpl.TIMELINE_SERVICE_STORAGE_DIR_ROOT,
+          timelineV2StorageDir);
+    } else {
+      Assert.fail("Wrong timeline version number: " + timelineVersion);
+    }
     
     if (yarnCluster == null) {
       yarnCluster =
@@ -102,7 +220,8 @@ public class TestDistributedShell {
         throw new RuntimeException("Could not find 'yarn-site.xml' dummy file in classpath");
       }
       Configuration yarnClusterConfig = yarnCluster.getConfig();
-      yarnClusterConfig.set("yarn.application.classpath", new File(url.getPath()).getParent());
+      yarnClusterConfig.set(YarnConfiguration.YARN_APPLICATION_CLASSPATH,
+          new File(url.getPath()).getParent());
       //write the document to a buffer (not directly to the file, as that
       //can cause the file being written to get read -which will then fail.
       ByteArrayOutputStream bytesOut = new ByteArrayOutputStream();
@@ -116,8 +235,7 @@ public class TestDistributedShell {
     FileContext fsContext = FileContext.getLocalFSFileContext();
     fsContext
         .delete(
-            new Path(conf
-                .get("yarn.timeline-service.leveldb-timeline-store.path")),
+            new Path(conf.get(YarnConfiguration.TIMELINE_SERVICE_LEVELDB_PATH)),
             true);
     try {
       Thread.sleep(2000);
@@ -135,25 +253,66 @@ public class TestDistributedShell {
         yarnCluster = null;
       }
     }
+    if (hdfsCluster != null) {
+      try {
+        hdfsCluster.shutdown();
+      } finally {
+        hdfsCluster = null;
+      }
+    }
     FileContext fsContext = FileContext.getLocalFSFileContext();
     fsContext
         .delete(
-            new Path(conf
-                .get("yarn.timeline-service.leveldb-timeline-store.path")),
+            new Path(conf.get(YarnConfiguration.TIMELINE_SERVICE_LEVELDB_PATH)),
             true);
   }
-  
-  @Test(timeout=90000)
+
+  @Test
   public void testDSShellWithDomain() throws Exception {
     testDSShell(true);
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testDSShellWithoutDomain() throws Exception {
     testDSShell(false);
   }
 
+  @Test
+  @TimelineVersion(1.5f)
+  public void testDSShellWithoutDomainV1_5() throws Exception {
+    testDSShell(false);
+  }
+
+  @Test
+  @TimelineVersion(1.5f)
+  public void testDSShellWithDomainV1_5() throws Exception {
+    testDSShell(true);
+  }
+
+  @Test
+  @TimelineVersion(2.0f)
+  public void testDSShellWithoutDomainV2() throws Exception {
+    testDSShell(false);
+  }
+
   public void testDSShell(boolean haveDomain) throws Exception {
+    testDSShell(haveDomain, true);
+  }
+
+  @Test
+  @TimelineVersion(2.0f)
+  public void testDSShellWithoutDomainV2DefaultFlow() throws Exception {
+    testDSShell(false, true);
+  }
+
+  @Test
+  @TimelineVersion(2.0f)
+  public void testDSShellWithoutDomainV2CustomizedFlow() throws Exception {
+    testDSShell(false, false);
+  }
+
+  public void testDSShell(boolean haveDomain, boolean defaultFlow)
+      throws Exception {
     String[] args = {
         "--jar",
         APPMASTER_JAR,
@@ -180,9 +339,23 @@ public class TestDistributedShell {
           "writer_user writer_group",
           "--create"
       };
-      List<String> argsList = new ArrayList<String>(Arrays.asList(args));
-      argsList.addAll(Arrays.asList(domainArgs));
-      args = argsList.toArray(new String[argsList.size()]);
+      args = mergeArgs(args, domainArgs);
+    }
+    boolean isTestingTimelineV2 = false;
+    if (timelineVersionWatcher.getTimelineVersion() == 2.0f) {
+      isTestingTimelineV2 = true;
+      if (!defaultFlow) {
+        String[] flowArgs = {
+            "--flow_name",
+            "test_flow_name",
+            "--flow_version",
+            "test_flow_version",
+            "--flow_run_id",
+            "12345678"
+        };
+        args = mergeArgs(args, flowArgs);
+      }
+      LOG.info("Setup: Using timeline v2!");
     }
 
     LOG.info("Initializing DS Client");
@@ -209,13 +382,16 @@ public class TestDistributedShell {
 
     boolean verified = false;
     String errorMessage = "";
+    ApplicationId appId = null;
+    ApplicationReport appReport = null;
     while(!verified) {
       List<ApplicationReport> apps = yarnClient.getApplications();
       if (apps.size() == 0 ) {
         Thread.sleep(10);
         continue;
       }
-      ApplicationReport appReport = apps.get(0);
+      appReport = apps.get(0);
+      appId = appReport.getApplicationId();
       if(appReport.getHost().equals("N/A")) {
         Thread.sleep(10);
         continue;
@@ -227,15 +403,45 @@ public class TestDistributedShell {
       if (checkHostname(appReport.getHost()) && appReport.getRpcPort() == -1) {
         verified = true;
       }
-      if (appReport.getYarnApplicationState() == YarnApplicationState.FINISHED) {
+
+      if (appReport.getYarnApplicationState() == YarnApplicationState.FINISHED
+          && appReport.getFinalApplicationStatus() !=
+              FinalApplicationStatus.UNDEFINED) {
         break;
       }
     }
     Assert.assertTrue(errorMessage, verified);
     t.join();
-    LOG.info("Client run completed. Result=" + result);
+    LOG.info("Client run completed for testDSShell. Result=" + result);
     Assert.assertTrue(result.get());
 
+    if (timelineVersionWatcher.getTimelineVersion() == 1.5f) {
+      long scanInterval = conf.getLong(
+          YarnConfiguration.TIMELINE_SERVICE_ENTITYGROUP_FS_STORE_SCAN_INTERVAL_SECONDS,
+          YarnConfiguration.TIMELINE_SERVICE_ENTITYGROUP_FS_STORE_SCAN_INTERVAL_SECONDS_DEFAULT
+      );
+      Path doneDir = new Path(
+          YarnConfiguration.TIMELINE_SERVICE_ENTITYGROUP_FS_STORE_DONE_DIR_DEFAULT
+      );
+      // Wait till the data is moved to done dir, or timeout and fail
+      while (true) {
+        RemoteIterator<FileStatus> iterApps = fs.listStatusIterator(doneDir);
+        if (iterApps.hasNext()) {
+          break;
+        }
+        Thread.sleep(scanInterval * 2);
+      }
+    }
+
+    TimelineDomain domain = null;
+    if (!isTestingTimelineV2) {
+      checkTimelineV1(haveDomain);
+    } else {
+      checkTimelineV2(haveDomain, appId, defaultFlow, appReport);
+    }
+  }
+
+  private void checkTimelineV1(boolean haveDomain) throws Exception {
     TimelineDomain domain = null;
     if (haveDomain) {
       domain = yarnCluster.getApplicationHistoryServer()
@@ -262,11 +468,18 @@ public class TestDistributedShell {
       Assert.assertEquals("DEFAULT",
           entitiesAttempts.getEntities().get(0).getDomainId());
     }
+    String currAttemptEntityId
+        = entitiesAttempts.getEntities().get(0).getEntityId();
+    ApplicationAttemptId attemptId = ApplicationAttemptId.fromString(
+        currAttemptEntityId);
+    NameValuePair primaryFilter = new NameValuePair(
+        ApplicationMaster.APPID_TIMELINE_FILTER_NAME,
+        attemptId.getApplicationId().toString());
     TimelineEntities entities = yarnCluster
         .getApplicationHistoryServer()
         .getTimelineStore()
         .getEntities(ApplicationMaster.DSEntity.DS_CONTAINER.toString(), null,
-            null, null, null, null, null, null, null, null);
+            null, null, null, null, primaryFilter, null, null, null);
     Assert.assertNotNull(entities);
     Assert.assertEquals(2, entities.getEntities().size());
     Assert.assertEquals(entities.getEntities().get(0).getEntityType()
@@ -278,6 +491,181 @@ public class TestDistributedShell {
       Assert.assertEquals("DEFAULT",
           entities.getEntities().get(0).getDomainId());
     }
+  }
+
+  private void checkTimelineV2(boolean haveDomain, ApplicationId appId,
+      boolean defaultFlow, ApplicationReport appReport) throws Exception {
+    LOG.info("Started checkTimelineV2 ");
+    // For PoC check using the file-based timeline writer (YARN-3264)
+    String tmpRoot = timelineV2StorageDir + File.separator + "entities" +
+        File.separator;
+
+    File tmpRootFolder = new File(tmpRoot);
+    try {
+      Assert.assertTrue(tmpRootFolder.isDirectory());
+      String basePath = tmpRoot +
+          YarnConfiguration.DEFAULT_RM_CLUSTER_ID + File.separator +
+          UserGroupInformation.getCurrentUser().getShortUserName() +
+          (defaultFlow ?
+              File.separator + appReport.getName() + File.separator +
+                  TimelineUtils.DEFAULT_FLOW_VERSION + File.separator +
+                  appReport.getStartTime() + File.separator :
+              File.separator + "test_flow_name" + File.separator +
+                  "test_flow_version" + File.separator + "12345678" +
+                  File.separator) +
+          appId.toString();
+      LOG.info("basePath: " + basePath);
+      // for this test, we expect DS_APP_ATTEMPT AND DS_CONTAINER dirs
+
+      // Verify DS_APP_ATTEMPT entities posted by the client
+      // there will be at least one attempt, look for that file
+      String appTimestampFileName =
+          "appattempt_" + appId.getClusterTimestamp() + "_000" + appId.getId()
+              + "_000001"
+              + FileSystemTimelineWriterImpl.TIMELINE_SERVICE_STORAGE_EXTENSION;
+      verifyEntityTypeFileExists(basePath, "DS_APP_ATTEMPT",
+          appTimestampFileName);
+
+      // Verify DS_CONTAINER entities posted by the client
+      String containerTimestampFileName =
+          "container_" + appId.getClusterTimestamp() + "_000" + appId.getId()
+              + "_01_000002.thist";
+      verifyEntityTypeFileExists(basePath, "DS_CONTAINER",
+          containerTimestampFileName);
+
+      // Verify NM posting container metrics info.
+      String containerMetricsTimestampFileName =
+          "container_" + appId.getClusterTimestamp() + "_000" + appId.getId()
+              + "_01_000001"
+              + FileSystemTimelineWriterImpl.TIMELINE_SERVICE_STORAGE_EXTENSION;
+      File containerEntityFile = verifyEntityTypeFileExists(basePath,
+          TimelineEntityType.YARN_CONTAINER.toString(),
+          containerMetricsTimestampFileName);
+      Assert.assertEquals(
+          "Container created event needs to be published atleast once",
+          1,
+          getNumOfStringOccurrences(containerEntityFile,
+              ContainerMetricsConstants.CREATED_EVENT_TYPE));
+
+      // to avoid race condition of testcase, atleast check 4 times with sleep
+      // of 500ms
+      long numOfContainerFinishedOccurrences = 0;
+      for (int i = 0; i < 4; i++) {
+        numOfContainerFinishedOccurrences =
+            getNumOfStringOccurrences(containerEntityFile,
+                ContainerMetricsConstants.FINISHED_EVENT_TYPE);
+        if (numOfContainerFinishedOccurrences > 0) {
+          break;
+        } else {
+          Thread.sleep(500L);
+        }
+      }
+      Assert.assertEquals(
+          "Container finished event needs to be published atleast once",
+          1,
+          numOfContainerFinishedOccurrences);
+
+      // Verify RM posting Application life cycle Events are getting published
+      String appMetricsTimestampFileName =
+          "application_" + appId.getClusterTimestamp() + "_000" + appId.getId()
+              + FileSystemTimelineWriterImpl.TIMELINE_SERVICE_STORAGE_EXTENSION;
+      File appEntityFile =
+          verifyEntityTypeFileExists(basePath,
+              TimelineEntityType.YARN_APPLICATION.toString(),
+              appMetricsTimestampFileName);
+      Assert.assertEquals(
+          "Application created event should be published atleast once",
+          1,
+          getNumOfStringOccurrences(appEntityFile,
+              ApplicationMetricsConstants.CREATED_EVENT_TYPE));
+
+      // to avoid race condition of testcase, atleast check 4 times with sleep
+      // of 500ms
+      long numOfStringOccurrences = 0;
+      for (int i = 0; i < 4; i++) {
+        numOfStringOccurrences =
+            getNumOfStringOccurrences(appEntityFile,
+                ApplicationMetricsConstants.FINISHED_EVENT_TYPE);
+        if (numOfStringOccurrences > 0) {
+          break;
+        } else {
+          Thread.sleep(500L);
+        }
+      }
+      Assert.assertEquals(
+          "Application finished event should be published atleast once",
+          1,
+          numOfStringOccurrences);
+
+      // Verify RM posting AppAttempt life cycle Events are getting published
+      String appAttemptMetricsTimestampFileName =
+          "appattempt_" + appId.getClusterTimestamp() + "_000" + appId.getId()
+              + "_000001"
+              + FileSystemTimelineWriterImpl.TIMELINE_SERVICE_STORAGE_EXTENSION;
+      File appAttemptEntityFile =
+          verifyEntityTypeFileExists(basePath,
+              TimelineEntityType.YARN_APPLICATION_ATTEMPT.toString(),
+              appAttemptMetricsTimestampFileName);
+      Assert.assertEquals(
+          "AppAttempt register event should be published atleast once",
+          1,
+          getNumOfStringOccurrences(appAttemptEntityFile,
+              AppAttemptMetricsConstants.REGISTERED_EVENT_TYPE));
+
+      Assert.assertEquals(
+          "AppAttempt finished event should be published atleast once",
+          1,
+          getNumOfStringOccurrences(appAttemptEntityFile,
+              AppAttemptMetricsConstants.FINISHED_EVENT_TYPE));
+    } finally {
+      FileUtils.deleteDirectory(tmpRootFolder.getParentFile());
+    }
+  }
+
+  private File verifyEntityTypeFileExists(String basePath, String entityType,
+      String entityfileName) {
+    String outputDirPathForEntity =
+        basePath + File.separator + entityType + File.separator;
+    File outputDirForEntity = new File(outputDirPathForEntity);
+    Assert.assertTrue(outputDirForEntity.isDirectory());
+
+    String entityFilePath = outputDirPathForEntity + entityfileName;
+
+    File entityFile = new File(entityFilePath);
+    Assert.assertTrue(entityFile.exists());
+    return entityFile;
+  }
+
+  private long getNumOfStringOccurrences(File entityFile, String searchString)
+      throws IOException {
+    BufferedReader reader = null;
+    String strLine;
+    long actualCount = 0;
+    try {
+      reader = new BufferedReader(new FileReader(entityFile));
+      while ((strLine = reader.readLine()) != null) {
+        if (strLine.trim().contains(searchString)) {
+          actualCount++;
+        }
+      }
+    } finally {
+      reader.close();
+    }
+    return actualCount;
+  }
+
+  /**
+   * Utility function to merge two String arrays to form a new String array for
+   * our argumemts.
+   *
+   * @param args
+   * @param newArgs
+   * @return a String array consists of {args, newArgs}
+   */
+  private String[] mergeArgs(String[] args, String[] newArgs) {
+    List<String> argsList = new ArrayList<String>(Arrays.asList(args));
+    argsList.addAll(Arrays.asList(newArgs));
+    return argsList.toArray(new String[argsList.size()]);
   }
 
   /*
@@ -338,7 +726,7 @@ public class TestDistributedShell {
 
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testDSRestartWithPreviousRunningContainers() throws Exception {
     String[] args = {
         "--jar",
@@ -373,7 +761,7 @@ public class TestDistributedShell {
    * how many attempt failures for previous 2.5 seconds.
    * The application is expected to be successful.
    */
-  @Test(timeout=90000)
+  @Test
   public void testDSAttemptFailuresValidityIntervalSucess() throws Exception {
     String[] args = {
         "--jar",
@@ -411,7 +799,7 @@ public class TestDistributedShell {
    * how many attempt failure for previous 15 seconds.
    * The application is expected to be fail.
    */
-  @Test(timeout=90000)
+  @Test
   public void testDSAttemptFailuresValidityIntervalFailed() throws Exception {
     String[] args = {
         "--jar",
@@ -443,7 +831,7 @@ public class TestDistributedShell {
       Assert.assertFalse(result);
     }
 
-  @Test(timeout=90000)
+  @Test
   public void testDSShellWithCustomLogPropertyFile() throws Exception {
     final File basedir =
         new File("target", TestDistributedShell.class.getName());
@@ -538,7 +926,7 @@ public class TestDistributedShell {
     verifyContainerLog(2, expectedContent, false, "");
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testDSShellWithMultipleArgs() throws Exception {
     String[] args = {
         "--jar",
@@ -572,7 +960,7 @@ public class TestDistributedShell {
     verifyContainerLog(4, expectedContent, false, "");
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testDSShellWithShellScript() throws Exception {
     final File basedir =
         new File("target", TestDistributedShell.class.getName());
@@ -620,7 +1008,7 @@ public class TestDistributedShell {
     verifyContainerLog(1, expectedContent, false, "");
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testDSShellWithInvalidArgs() throws Exception {
     Client client = new Client(new Configuration(yarnCluster.getConfig()));
 
@@ -770,6 +1158,37 @@ public class TestDistributedShell {
     }
   }
 
+  @Test
+  public void testDSTimelineClientWithConnectionRefuse() throws Exception {
+    ApplicationMaster am = new ApplicationMaster();
+
+    TimelineClientImpl client = new TimelineClientImpl() {
+      @Override
+      protected TimelineWriter createTimelineWriter(Configuration conf,
+          UserGroupInformation authUgi, com.sun.jersey.api.client.Client client,
+          URI resURI) throws IOException {
+        TimelineWriter timelineWriter =
+            new DirectTimelineWriter(authUgi, client, resURI);
+        spyTimelineWriter = spy(timelineWriter);
+        return spyTimelineWriter;
+      }
+    };
+    client.init(conf);
+    client.start();
+    TestTimelineClient.mockEntityClientResponse(spyTimelineWriter, null,
+        false, true);
+    try {
+      UserGroupInformation ugi = mock(UserGroupInformation.class);
+      when(ugi.getShortUserName()).thenReturn("user1");
+      // verify no ClientHandlerException get thrown out.
+      am.publishContainerEndEvent(client, ContainerStatus.newInstance(
+          BuilderUtils.newContainerId(1, 1, 1, 1), ContainerState.COMPLETE, "",
+          1), "domainId", ugi);
+    } finally {
+      client.stop();
+    }
+  }
+
   protected void waitForNMsToRegister() throws Exception {
     int sec = 60;
     while (sec >= 0) {
@@ -782,7 +1201,7 @@ public class TestDistributedShell {
     }
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testContainerLaunchFailureHandling() throws Exception {
     String[] args = {
       "--jar",
@@ -810,7 +1229,7 @@ public class TestDistributedShell {
 
   }
 
-  @Test(timeout=90000)
+  @Test
   public void testDebugFlag() throws Exception {
     String[] args = {
         "--jar",
@@ -908,4 +1327,3 @@ public class TestDistributedShell {
     return numOfWords;
   }
 }
-

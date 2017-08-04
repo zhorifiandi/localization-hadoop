@@ -17,8 +17,6 @@
  */
 package org.apache.hadoop.ipc.metrics;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.fs.CommonConfigurationKeys;
 import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.classification.InterfaceAudience;
@@ -31,6 +29,8 @@ import org.apache.hadoop.metrics2.lib.MutableCounterInt;
 import org.apache.hadoop.metrics2.lib.MutableCounterLong;
 import org.apache.hadoop.metrics2.lib.MutableQuantiles;
 import org.apache.hadoop.metrics2.lib.MutableRate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * This class is for maintaining  the various RPC statistics
@@ -40,7 +40,7 @@ import org.apache.hadoop.metrics2.lib.MutableRate;
 @Metrics(about="Aggregate RPC metrics", context="rpc")
 public class RpcMetrics {
 
-  static final Log LOG = LogFactory.getLog(RpcMetrics.class);
+  static final Logger LOG = LoggerFactory.getLogger(RpcMetrics.class);
   final Server server;
   final MetricsRegistry registry;
   final String name;
@@ -61,6 +61,8 @@ public class RpcMetrics {
           new MutableQuantiles[intervals.length];
       rpcProcessingTimeMillisQuantiles =
           new MutableQuantiles[intervals.length];
+      deferredRpcProcessingTimeMillisQuantiles =
+          new MutableQuantiles[intervals.length];
       for (int i = 0; i < intervals.length; i++) {
         int interval = intervals[i];
         rpcQueueTimeMillisQuantiles[i] = registry.newQuantiles("rpcQueueTime"
@@ -69,6 +71,10 @@ public class RpcMetrics {
         rpcProcessingTimeMillisQuantiles[i] = registry.newQuantiles(
             "rpcProcessingTime" + interval + "s",
             "rpc processing time in milli second", "ops", "latency", interval);
+        deferredRpcProcessingTimeMillisQuantiles[i] = registry
+            .newQuantiles("deferredRpcProcessingTime" + interval + "s",
+                "deferred rpc processing time in milli seconds", "ops",
+                "latency", interval);
       }
     }
     LOG.debug("Initialized " + registry);
@@ -85,28 +91,43 @@ public class RpcMetrics {
   @Metric("Number of sent bytes") MutableCounterLong sentBytes;
   @Metric("Queue time") MutableRate rpcQueueTime;
   MutableQuantiles[] rpcQueueTimeMillisQuantiles;
-  @Metric("Processsing time") MutableRate rpcProcessingTime;
+  @Metric("Processing time") MutableRate rpcProcessingTime;
   MutableQuantiles[] rpcProcessingTimeMillisQuantiles;
+  @Metric("Deferred Processing time") MutableRate deferredRpcProcessingTime;
+  MutableQuantiles[] deferredRpcProcessingTimeMillisQuantiles;
   @Metric("Number of authentication failures")
   MutableCounterLong rpcAuthenticationFailures;
   @Metric("Number of authentication successes")
   MutableCounterLong rpcAuthenticationSuccesses;
   @Metric("Number of authorization failures")
   MutableCounterLong rpcAuthorizationFailures;
-  @Metric("Number of authorization sucesses")
+  @Metric("Number of authorization successes")
   MutableCounterLong rpcAuthorizationSuccesses;
+  @Metric("Number of client backoff requests")
+  MutableCounterLong rpcClientBackoff;
+  @Metric("Number of Slow RPC calls")
+  MutableCounterLong rpcSlowCalls;
 
   @Metric("Number of open connections") public int numOpenConnections() {
     return server.getNumOpenConnections();
+  }
+
+  @Metric("Number of open connections per user")
+  public String numOpenConnectionsPerUser() {
+    return server.getNumOpenConnectionsPerUser();
   }
 
   @Metric("Length of the call queue") public int callQueueLength() {
     return server.getCallQueueLen();
   }
 
+  @Metric("Number of dropped connections") public long numDroppedConnections() {
+    return server.getNumDroppedConnections();
+  }
+
   // Public instrumentation methods that could be extracted to an
   // abstract class if we decide to do custom instrumentation classes a la
-  // JobTrackerInstrumenation. The methods with //@Override comment are
+  // JobTrackerInstrumentation. The methods with //@Override comment are
   // candidates for abstract methods in a abstract instrumentation class.
 
   /**
@@ -191,5 +212,84 @@ public class RpcMetrics {
         q.add(processingTime);
       }
     }
+  }
+
+  public void addDeferredRpcProcessingTime(long processingTime) {
+    deferredRpcProcessingTime.add(processingTime);
+    if (rpcQuantileEnable) {
+      for (MutableQuantiles q : deferredRpcProcessingTimeMillisQuantiles) {
+        q.add(processingTime);
+      }
+    }
+  }
+
+  /**
+   * One client backoff event
+   */
+  //@Override
+  public void incrClientBackoff() {
+    rpcClientBackoff.incr();
+  }
+
+  /**
+   * Increments the Slow RPC counter.
+   */
+  public  void incrSlowRpc() {
+    rpcSlowCalls.incr();
+  }
+  /**
+   * Returns a MutableRate Counter.
+   * @return Mutable Rate
+   */
+  public MutableRate getRpcProcessingTime() {
+    return rpcProcessingTime;
+  }
+
+  /**
+   * Returns the number of samples that we have seen so far.
+   * @return long
+   */
+  public long getProcessingSampleCount() {
+    return rpcProcessingTime.lastStat().numSamples();
+  }
+
+  /**
+   * Returns mean of RPC Processing Times.
+   * @return double
+   */
+  public double getProcessingMean() {
+    return  rpcProcessingTime.lastStat().mean();
+  }
+
+  /**
+   * Return Standard Deviation of the Processing Time.
+   * @return  double
+   */
+  public double getProcessingStdDev() {
+    return rpcProcessingTime.lastStat().stddev();
+  }
+
+  /**
+   * Returns the number of slow calls.
+   * @return long
+   */
+  public long getRpcSlowCalls() {
+    return rpcSlowCalls.value();
+  }
+
+  public MutableRate getDeferredRpcProcessingTime() {
+    return deferredRpcProcessingTime;
+  }
+
+  public long getDeferredRpcProcessingSampleCount() {
+    return deferredRpcProcessingTime.lastStat().numSamples();
+  }
+
+  public double getDeferredRpcProcessingMean() {
+    return deferredRpcProcessingTime.lastStat().mean();
+  }
+
+  public double getDeferredRpcProcessingStdDev() {
+    return deferredRpcProcessingTime.lastStat().stddev();
   }
 }

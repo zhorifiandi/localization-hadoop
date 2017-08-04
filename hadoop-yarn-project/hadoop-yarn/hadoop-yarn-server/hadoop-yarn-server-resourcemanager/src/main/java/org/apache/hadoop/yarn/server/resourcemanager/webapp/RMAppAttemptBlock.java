@@ -23,9 +23,12 @@ import static org.apache.hadoop.yarn.webapp.view.JQueryUI._INFO_WRAP;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI._ODD;
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI._TH;
 
+import java.util.Collection;
+import java.util.List;
+
+import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.yarn.api.records.ApplicationAttemptId;
 import org.apache.hadoop.yarn.api.records.ApplicationAttemptReport;
 import org.apache.hadoop.yarn.api.records.ApplicationId;
 import org.apache.hadoop.yarn.api.records.ContainerReport;
@@ -36,22 +39,20 @@ import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.RMApp;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttempt;
 import org.apache.hadoop.yarn.server.resourcemanager.rmapp.attempt.RMAppAttemptMetrics;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.AbstractYarnScheduler;
-import org.apache.hadoop.yarn.server.resourcemanager.scheduler.SchedulerApplicationAttempt;
 import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.AppInfo;
+import org.apache.hadoop.yarn.server.resourcemanager.webapp.dao.ResourceRequestInfo;
 import org.apache.hadoop.yarn.server.webapp.AppAttemptBlock;
 import org.apache.hadoop.yarn.server.webapp.dao.AppAttemptInfo;
+import org.apache.hadoop.yarn.util.Times;
 import org.apache.hadoop.yarn.util.resource.Resources;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.DIV;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.DIV;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
 import org.apache.hadoop.yarn.webapp.util.WebAppUtils;
 import org.apache.hadoop.yarn.webapp.view.InfoBlock;
-import com.google.inject.Inject;
-import java.util.List;
 
-import java.util.Collection;
-import java.util.Set;
+import com.google.inject.Inject;
 
 public class RMAppAttemptBlock extends AppAttemptBlock{
 
@@ -71,57 +72,66 @@ public class RMAppAttemptBlock extends AppAttemptBlock{
           .get(this.appAttemptId.getApplicationId()), true,
           WebAppUtils.getHttpSchemePrefix(conf));
 
-    List<ResourceRequest> resourceRequests = app.getResourceRequests();
+    List<ResourceRequestInfo> resourceRequests = app.getResourceRequests();
     if (resourceRequests == null || resourceRequests.isEmpty()) {
       return;
     }
 
     DIV<Hamlet> div = html.div(_INFO_WRAP);
-    TABLE<DIV<Hamlet>> table =
-        div.h3("Total Outstanding Resource Requests: "
-          + getTotalResource(resourceRequests)).table(
-              "#ResourceRequests");
+    // Requests Table
+    TBODY<TABLE<DIV<Hamlet>>> tbody = div
+        .h3("Total Outstanding Resource Requests: "
+            + getTotalResource(resourceRequests))
+        .table("#resourceRequests").thead().tr().th(".priority", "Priority")
+        .th(".resource", "ResourceName").th(".capacity", "Capability")
+        .th(".containers", "NumContainers")
+        .th(".relaxlocality", "RelaxLocality")
+        .th(".labelexpression", "NodeLabelExpression").__().__().tbody();
 
-    table.tr().
-      th(_TH, "Priority").
-      th(_TH, "ResourceName").
-      th(_TH, "Capability").
-      th(_TH, "NumContainers").
-      th(_TH, "RelaxLocality").
-      th(_TH, "NodeLabelExpression").
-    _();
-
-    boolean odd = false;
-    for (ResourceRequest request : resourceRequests) {
-      if (request.getNumContainers() == 0) {
+    StringBuilder resourceRequestTableData = new StringBuilder("[\n");
+    for (ResourceRequestInfo resourceRequest  : resourceRequests) {
+      if (resourceRequest.getNumContainers() == 0) {
         continue;
       }
-      table.tr((odd = !odd) ? _ODD : _EVEN)
-        .td(String.valueOf(request.getPriority()))
-        .td(request.getResourceName())
-        .td(String.valueOf(request.getCapability()))
-        .td(String.valueOf(request.getNumContainers()))
-        .td(String.valueOf(request.getRelaxLocality()))
-        .td(request.getNodeLabelExpression() == null ? "N/A" : request
-            .getNodeLabelExpression())._();
+      resourceRequestTableData.append("[\"")
+          .append(String.valueOf(resourceRequest.getPriority())).append("\",\"")
+          .append(resourceRequest.getResourceName()).append("\",\"")
+          .append(StringEscapeUtils.escapeJavaScript(StringEscapeUtils
+              .escapeHtml(String.valueOf(resourceRequest.getCapability()))))
+          .append("\",\"")
+          .append(String.valueOf(resourceRequest.getNumContainers()))
+          .append("\",\"")
+          .append(String.valueOf(resourceRequest.getRelaxLocality()))
+          .append("\",\"")
+          .append(resourceRequest.getNodeLabelExpression() == null ? "N/A"
+              : resourceRequest.getNodeLabelExpression())
+          .append("\"],\n");
     }
-    table._();
-    div._();
+    if (resourceRequestTableData
+        .charAt(resourceRequestTableData.length() - 2) == ',') {
+      resourceRequestTableData.delete(resourceRequestTableData.length() - 2,
+          resourceRequestTableData.length() - 1);
+    }
+    resourceRequestTableData.append("]");
+    html.script().$type("text/javascript")
+        .__("var resourceRequestsTableData=" + resourceRequestTableData).__();
+    tbody.__().__();
+    div.__();
   }
 
-  private Resource getTotalResource(List<ResourceRequest> requests) {
+  private Resource getTotalResource(List<ResourceRequestInfo> requests) {
     Resource totalResource = Resource.newInstance(0, 0);
     if (requests == null) {
       return totalResource;
     }
-    for (ResourceRequest request : requests) {
+    for (ResourceRequestInfo request : requests) {
       if (request.getNumContainers() == 0) {
         continue;
       }
       if (request.getResourceName().equals(ResourceRequest.ANY)) {
         Resources.addTo(
-          totalResource,
-          Resources.multiply(request.getCapability(),
+            totalResource,
+            Resources.multiply(request.getCapability().getResource(),
             request.getNumContainers()));
       }
     }
@@ -153,7 +163,7 @@ public class RMAppAttemptBlock extends AppAttemptBlock{
         th(_TH, "Node Local Request").
         th(_TH, "Rack Local Request").
         th(_TH, "Off Switch Request").
-      _();
+        __();
 
     String[] containersType =
         { "Num Node Local Containers (satisfied by)", "Num Rack Local Containers (satisfied by)",
@@ -163,10 +173,10 @@ public class RMAppAttemptBlock extends AppAttemptBlock{
       table.tr((odd = !odd) ? _ODD : _EVEN).td(containersType[i])
         .td(String.valueOf(attemptMetrics.getLocalityStatistics()[i][0]))
         .td(i == 0 ? "" : String.valueOf(attemptMetrics.getLocalityStatistics()[i][1]))
-        .td(i <= 1 ? "" : String.valueOf(attemptMetrics.getLocalityStatistics()[i][2]))._();
+        .td(i <= 1 ? "" : String.valueOf(attemptMetrics.getLocalityStatistics()[i][2])).__();
     }
-    table._();
-    div._();
+    table.__();
+    div.__();
   }
 
   private boolean isApplicationInFinalState(YarnApplicationAttemptState state) {
@@ -182,12 +192,12 @@ public class RMAppAttemptBlock extends AppAttemptBlock{
       if (!isApplicationInFinalState(YarnApplicationAttemptState
           .valueOf(attempt.getAppAttemptState().toString()))) {
         RMAppAttemptMetrics metrics = attempt.getRMAppAttemptMetrics();
-        DIV<Hamlet> pdiv = html._(InfoBlock.class).div(_INFO_WRAP);
+        DIV<Hamlet> pdiv = html.__(InfoBlock.class).div(_INFO_WRAP);
         info("Application Attempt Overview").clear();
-        info("Application Attempt Metrics")._(
+        info("Application Attempt Metrics").__(
           "Application Attempt Headroom : ", metrics == null ? "N/A" :
             metrics.getApplicationAttemptHeadroom());
-        pdiv._();
+        pdiv.__();
       }
     }
   }
@@ -202,38 +212,37 @@ public class RMAppAttemptBlock extends AppAttemptBlock{
     return attempt;
   }
 
-  @Override
-  protected void createTablesForAttemptMetrics(Block html) {
-    createContainerLocalityTable(html);
-    createResourceRequestsTable(html);
-  }
-
   protected void generateOverview(ApplicationAttemptReport appAttemptReport,
       Collection<ContainerReport> containers, AppAttemptInfo appAttempt,
       String node) {
 
-    String blacklistedNodes = "-";
-    Set<String> nodes =
-        getBlacklistedNodes(rm, getRMAppAttempt().getAppAttemptId());
-    if (nodes != null) {
-      if (!nodes.isEmpty()) {
-        blacklistedNodes = StringUtils.join(nodes, ", ");
-      }
-    }
+    RMAppAttempt rmAppAttempt = getRMAppAttempt();
+    // nodes which are blacklisted by the application
+    String appBlacklistedNodes =
+        getNodeString(rmAppAttempt.getBlacklistedNodes());
+    // nodes which are blacklisted by the RM for AM launches
+    String rmBlackListedNodes =
+        getNodeString(rmAppAttempt.getAMBlacklistManager()
+          .getBlacklistUpdates().getBlacklistAdditions());
 
     info("Application Attempt Overview")
-      ._(
+      .__(
         "Application Attempt State:",
         appAttempt.getAppAttemptState() == null ? UNAVAILABLE : appAttempt
           .getAppAttemptState())
-      ._(
+        .__("Started:", Times.format(appAttempt.getStartedTime()))
+        .__("Elapsed:",
+            org.apache.hadoop.util.StringUtils.formatTime(Times.elapsed(
+                appAttempt.getStartedTime(), appAttempt.getFinishedTime())))
+      .__(
         "AM Container:",
         appAttempt.getAmContainerId() == null || containers == null
             || !hasAMContainer(appAttemptReport.getAMContainerId(), containers)
             ? null : root_url("container", appAttempt.getAmContainerId()),
-        String.valueOf(appAttempt.getAmContainerId()))
-      ._("Node:", node)
-      ._(
+        appAttempt.getAmContainerId() == null ? "N/A" :
+          String.valueOf(appAttempt.getAmContainerId()))
+      .__("Node:", node)
+      .__(
         "Tracking URL:",
         appAttempt.getTrackingUrl() == null
             || appAttempt.getTrackingUrl().equals(UNAVAILABLE) ? null
@@ -245,23 +254,25 @@ public class RMAppAttemptBlock extends AppAttemptBlock{
                 || appAttempt.getAppAttemptState() == YarnApplicationAttemptState.FAILED
                 || appAttempt.getAppAttemptState() == YarnApplicationAttemptState.KILLED
                 ? "History" : "ApplicationMaster")
-      ._(
+      .__(
         "Diagnostics Info:",
         appAttempt.getDiagnosticsInfo() == null ? "" : appAttempt
-          .getDiagnosticsInfo())._("Blacklisted Nodes:", blacklistedNodes);
+          .getDiagnosticsInfo())
+      .__("Nodes blacklisted by the application:", appBlacklistedNodes)
+      .__("Nodes blacklisted by the system:", rmBlackListedNodes);
   }
 
-  public static Set<String> getBlacklistedNodes(ResourceManager rm,
-      ApplicationAttemptId appid) {
-    if (rm.getResourceScheduler() instanceof AbstractYarnScheduler) {
-      AbstractYarnScheduler ayScheduler =
-          (AbstractYarnScheduler) rm.getResourceScheduler();
-      SchedulerApplicationAttempt attempt =
-          ayScheduler.getApplicationAttempt(appid);
-      if (attempt != null) {
-        return attempt.getBlacklistedNodes();
-      }
+  private String getNodeString(Collection<String> nodes) {
+    String concatinatedString = "-";
+    if (null != nodes && !nodes.isEmpty()) {
+      concatinatedString = StringUtils.join(nodes, ", ");
     }
-    return null;
+    return concatinatedString;
+  }
+
+  @Override
+  protected void createTablesForAttemptMetrics(Block html) {
+    createContainerLocalityTable(html);
+    createResourceRequestsTable(html);
   }
 }

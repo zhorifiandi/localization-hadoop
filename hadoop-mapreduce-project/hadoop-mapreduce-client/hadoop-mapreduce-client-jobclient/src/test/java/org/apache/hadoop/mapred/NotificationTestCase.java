@@ -18,9 +18,10 @@
 
 package org.apache.hadoop.mapred;
 
-import org.mortbay.jetty.Server;
-import org.mortbay.jetty.servlet.Context;
-import org.mortbay.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.io.Text;
@@ -33,6 +34,13 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.ServletException;
 import java.io.IOException;
 import java.io.DataOutputStream;
+
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
+import org.junit.Before;
+import org.junit.After;
+import org.junit.Test;
+
 
 /**
  * Base class to test Job end notification in local and cluster mode.
@@ -69,7 +77,8 @@ public abstract class NotificationTestCase extends HadoopTestCase {
     }
     webServer = new Server(0);
 
-    Context context = new Context(webServer, contextPath);
+    ServletContextHandler context =
+        new ServletContextHandler(webServer, contextPath);
 
     // create servlet handler
     context.addServlet(new ServletHolder(new NotificationServlet()),
@@ -77,7 +86,7 @@ public abstract class NotificationTestCase extends HadoopTestCase {
 
     // Start webServer
     webServer.start();
-    port = webServer.getConnectors()[0].getLocalPort();
+    port = ((ServerConnector)webServer.getConnectors()[0]).getLocalPort();
 
   }
 
@@ -140,17 +149,19 @@ public abstract class NotificationTestCase extends HadoopTestCase {
     return conf;
   }
 
-
-  protected void setUp() throws Exception {
+  @Before
+  public void setUp() throws Exception {
     super.setUp();
     startHttpServer();
   }
 
-  protected void tearDown() throws Exception {
+  @After
+  public void tearDown() throws Exception {
     stopHttpServer();
     super.tearDown();
   }
 
+  @Test
   public void testMR() throws Exception {
 
     System.out.println(launchWordCount(this.createJobConf(),

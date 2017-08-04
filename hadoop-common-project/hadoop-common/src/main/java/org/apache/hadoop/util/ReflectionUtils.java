@@ -46,6 +46,7 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.io.serializer.Deserializer;
 import org.apache.hadoop.io.serializer.SerializationFactory;
 import org.apache.hadoop.io.serializer.Serializer;
+import org.slf4j.Logger;
 
 /**
  * General reflection utils
@@ -229,6 +230,35 @@ public class ReflectionUtils {
   }
 
   /**
+   * Log the current thread stacks at INFO level.
+   * @param log the logger that logs the stack trace
+   * @param title a descriptive title for the call stacks
+   * @param minInterval the minimum time from the last
+   */
+  public static void logThreadInfo(Logger log,
+                                   String title,
+                                   long minInterval) {
+    boolean dumpStack = false;
+    if (log.isInfoEnabled()) {
+      synchronized (ReflectionUtils.class) {
+        long now = Time.now();
+        if (now - previousLogTime >= minInterval * 1000) {
+          previousLogTime = now;
+          dumpStack = true;
+        }
+      }
+      if (dumpStack) {
+        try {
+          ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+          printThreadInfo(new PrintStream(buffer, false, "UTF-8"), title);
+          log.info(buffer.toString(Charset.defaultCharset().name()));
+        } catch (UnsupportedEncodingException ignored) {
+        }
+      }
+    }
+  }
+
+  /**
    * Return the correctly-typed {@link Class} of the given object.
    *  
    * @param o object whose correctly-typed <code>Class</code> is to be obtained
@@ -264,7 +294,7 @@ public class ReflectionUtils {
   /**
    * Allocate a buffer for each thread that tries to clone objects.
    */
-  private static ThreadLocal<CopyInCopyOutBuffer> cloneBuffers
+  private static final ThreadLocal<CopyInCopyOutBuffer> CLONE_BUFFERS
       = new ThreadLocal<CopyInCopyOutBuffer>() {
       @Override
       protected synchronized CopyInCopyOutBuffer initialValue() {
@@ -289,7 +319,7 @@ public class ReflectionUtils {
   @SuppressWarnings("unchecked")
   public static <T> T copy(Configuration conf, 
                                 T src, T dst) throws IOException {
-    CopyInCopyOutBuffer buffer = cloneBuffers.get();
+    CopyInCopyOutBuffer buffer = CLONE_BUFFERS.get();
     buffer.outBuffer.reset();
     SerializationFactory factory = getFactory(conf);
     Class<T> cls = (Class<T>) src.getClass();
@@ -306,7 +336,7 @@ public class ReflectionUtils {
   @Deprecated
   public static void cloneWritableInto(Writable dst, 
                                        Writable src) throws IOException {
-    CopyInCopyOutBuffer buffer = cloneBuffers.get();
+    CopyInCopyOutBuffer buffer = CLONE_BUFFERS.get();
     buffer.outBuffer.reset();
     src.write(buffer.outBuffer);
     buffer.moveData();

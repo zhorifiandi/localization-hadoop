@@ -18,11 +18,12 @@
 
 package org.apache.hadoop.yarn.api.records;
 
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.hadoop.classification.InterfaceAudience.Public;
 import org.apache.hadoop.classification.InterfaceStability.Evolving;
 import org.apache.hadoop.classification.InterfaceStability.Stable;
 import org.apache.hadoop.yarn.api.ApplicationMasterProtocol;
-import org.apache.hadoop.yarn.util.Records;
+
 
 /**
  * <p><code>Resource</code> models a set of computer resources in the 
@@ -51,14 +52,61 @@ import org.apache.hadoop.yarn.util.Records;
 @Stable
 public abstract class Resource implements Comparable<Resource> {
 
+  private static class SimpleResource extends Resource {
+    private long memory;
+    private long vcores;
+    SimpleResource(long memory, long vcores) {
+      this.memory = memory;
+      this.vcores = vcores;
+    }
+    @Override
+    public int getMemory() {
+      return (int)memory;
+    }
+    @Override
+    public void setMemory(int memory) {
+      this.memory = memory;
+    }
+    @Override
+    public long getMemorySize() {
+      return memory;
+    }
+    @Override
+    public void setMemorySize(long memory) {
+      this.memory = memory;
+    }
+    @Override
+    public int getVirtualCores() {
+      return (int)vcores;
+    }
+    @Override
+    public void setVirtualCores(int vcores) {
+      this.vcores = vcores;
+    }
+  }
+
   @Public
   @Stable
   public static Resource newInstance(int memory, int vCores) {
-    Resource resource = Records.newRecord(Resource.class);
-    resource.setMemory(memory);
-    resource.setVirtualCores(vCores);
-    return resource;
+    return new SimpleResource(memory, vCores);
   }
+
+  @Public
+  @Stable
+  public static Resource newInstance(long memory, int vCores) {
+    return new SimpleResource(memory, vCores);
+  }
+
+  /**
+   * This method is DEPRECATED:
+   * Use {@link Resource#getMemorySize()} instead
+   *
+   * Get <em>memory</em> of the resource.
+   * @return <em>memory</em> of the resource
+   */
+  @Public
+  @Deprecated
+  public abstract int getMemory();
 
   /**
    * Get <em>memory</em> of the resource.
@@ -66,15 +114,29 @@ public abstract class Resource implements Comparable<Resource> {
    */
   @Public
   @Stable
-  public abstract int getMemory();
-  
+  public long getMemorySize() {
+    throw new NotImplementedException(
+        "This method is implemented by ResourcePBImpl");
+  }
+
+  /**
+   * Set <em>memory</em> of the resource.
+   * @param memory <em>memory</em> of the resource
+   */
+  @Public
+  @Deprecated
+  public abstract void setMemory(int memory);
+
   /**
    * Set <em>memory</em> of the resource.
    * @param memory <em>memory</em> of the resource
    */
   @Public
   @Stable
-  public abstract void setMemory(int memory);
+  public void setMemorySize(long memory) {
+    throw new NotImplementedException(
+        "This method is implemented by ResourcePBImpl");
+  }
 
 
   /**
@@ -108,8 +170,9 @@ public abstract class Resource implements Comparable<Resource> {
   @Override
   public int hashCode() {
     final int prime = 263167;
-    int result = 3571;
-    result = 939769357 + getMemory(); // prime * result = 939769357 initially
+
+    int result = (int) (939769357
+        + getMemorySize()); // prime * result = 939769357 initially
     result = prime * result + getVirtualCores();
     return result;
   }
@@ -123,7 +186,7 @@ public abstract class Resource implements Comparable<Resource> {
     if (!(obj instanceof Resource))
       return false;
     Resource other = (Resource) obj;
-    if (getMemory() != other.getMemory() || 
+    if (getMemorySize() != other.getMemorySize() ||
         getVirtualCores() != other.getVirtualCores()) {
       return false;
     }
@@ -131,7 +194,16 @@ public abstract class Resource implements Comparable<Resource> {
   }
 
   @Override
+  public int compareTo(Resource other) {
+    long diff = this.getMemorySize() - other.getMemorySize();
+    if (diff == 0) {
+      diff = this.getVirtualCores() - other.getVirtualCores();
+    }
+    return diff == 0 ? 0 : (diff > 0 ? 1 : -1);
+  }
+
+  @Override
   public String toString() {
-    return "<memory:" + getMemory() + ", vCores:" + getVirtualCores() + ">";
+    return "<memory:" + getMemorySize() + ", vCores:" + getVirtualCores() + ">";
   }
 }

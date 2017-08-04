@@ -34,14 +34,14 @@ import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.FileUtil;
-import org.apache.hadoop.hdfs.protocol.HdfsConstants;
+import org.apache.hadoop.hdfs.server.common.HdfsServerConstants;
 import org.apache.hadoop.hdfs.server.common.Storage.StorageDirectory;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeDirType;
 import org.apache.hadoop.hdfs.server.namenode.NNStorage.NameNodeFile;
 import org.apache.hadoop.io.IOUtils;
 
 /**
- * Inspects a FSImage storage directory in the "old" (pre-HDFS-1073) format.
+ * Inspects an FSImage storage directory in the "old" (pre-HDFS-1073) format.
  * This format has the following data files:
  *   - fsimage
  *   - fsimage.ckpt (when checkpoint is being uploaded)
@@ -180,7 +180,7 @@ class FSImagePreTransactionalStorageInspector extends FSImageStorageInspector {
     
     FSImageFile file = new FSImageFile(latestNameSD, 
         NNStorage.getStorageFile(latestNameSD, NameNodeFile.IMAGE),
-        HdfsConstants.INVALID_TXID);
+        HdfsServerConstants.INVALID_TXID);
     LinkedList<FSImageFile> ret = new LinkedList<FSImageFile>();
     ret.add(file);
     return ret;

@@ -27,7 +27,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Random;
 
-import org.apache.commons.logging.impl.Log4JLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
@@ -46,7 +45,9 @@ import org.apache.hadoop.hdfs.server.namenode.snapshot.DirectoryWithSnapshotFeat
 import org.apache.hadoop.hdfs.server.namenode.snapshot.Snapshot;
 import org.apache.hadoop.hdfs.server.namenode.snapshot.SnapshotTestHelper;
 import org.apache.hadoop.hdfs.util.Canceler;
+import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.log4j.Level;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -58,18 +59,18 @@ import org.junit.Test;
 public class TestFSImageWithSnapshot {
   {
     SnapshotTestHelper.disableLogs();
-    ((Log4JLogger)INode.LOG).getLogger().setLevel(Level.ALL);
+    GenericTestUtils.setLogLevel(INode.LOG, Level.ALL);
   }
 
   static final long seed = 0;
-  static final short REPLICATION = 3;
+  static final short NUM_DATANODES = 3;
   static final int BLOCKSIZE = 1024;
   static final long txid = 1;
 
   private final Path dir = new Path("/TestSnapshot");
   private static final String testDir =
-      System.getProperty("test.build.data", "build/test/data");
-  
+      GenericTestUtils.getTestDir().getAbsolutePath();
+
   Configuration conf;
   MiniDFSCluster cluster;
   FSNamesystem fsn;
@@ -78,7 +79,7 @@ public class TestFSImageWithSnapshot {
   @Before
   public void setUp() throws Exception {
     conf = new Configuration();
-    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(REPLICATION)
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(NUM_DATANODES)
         .build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
@@ -89,6 +90,7 @@ public class TestFSImageWithSnapshot {
   public void tearDown() throws Exception {
     if (cluster != null) {
       cluster.shutdown();
+      cluster = null;
     }
   }
 
@@ -158,8 +160,7 @@ public class TestFSImageWithSnapshot {
     fsn.getFSDirectory().writeLock();
     try {
       loader.load(imageFile, false);
-      FSImage.updateCountForQuota(fsn.getBlockManager().getStoragePolicySuite(),
-          INodeDirectory.valueOf(fsn.getFSDirectory().getINode("/"), "/"));
+      fsn.getFSDirectory().updateCountForQuota();
     } finally {
       fsn.getFSDirectory().writeUnlock();
       fsn.writeUnlock();
@@ -177,7 +178,7 @@ public class TestFSImageWithSnapshot {
     
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();
@@ -188,7 +189,7 @@ public class TestFSImageWithSnapshot {
     hdfs.setSafeMode(SafeModeAction.SAFEMODE_LEAVE);
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();
@@ -215,7 +216,7 @@ public class TestFSImageWithSnapshot {
     hdfs.setSafeMode(SafeModeAction.SAFEMODE_LEAVE);
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();
@@ -248,20 +249,20 @@ public class TestFSImageWithSnapshot {
     hdfs.createSnapshot(dir, "s" + ++s);
     Path sub1file1 = new Path(sub1, "sub1file1");
     Path sub1file2 = new Path(sub1, "sub1file2");
-    DFSTestUtil.createFile(hdfs, sub1file1, BLOCKSIZE, REPLICATION, seed);
-    DFSTestUtil.createFile(hdfs, sub1file2, BLOCKSIZE, REPLICATION, seed);
+    DFSTestUtil.createFile(hdfs, sub1file1, BLOCKSIZE, (short) 1, seed);
+    DFSTestUtil.createFile(hdfs, sub1file2, BLOCKSIZE, (short) 1, seed);
     checkImage(s);
     
     hdfs.createSnapshot(dir, "s" + ++s);
     Path sub2 = new Path(dir, "sub2");
     Path sub2file1 = new Path(sub2, "sub2file1");
     Path sub2file2 = new Path(sub2, "sub2file2");
-    DFSTestUtil.createFile(hdfs, sub2file1, BLOCKSIZE, REPLICATION, seed);
-    DFSTestUtil.createFile(hdfs, sub2file2, BLOCKSIZE, REPLICATION, seed);
+    DFSTestUtil.createFile(hdfs, sub2file1, BLOCKSIZE, (short) 1, seed);
+    DFSTestUtil.createFile(hdfs, sub2file2, BLOCKSIZE, (short) 1, seed);
     checkImage(s);
 
     hdfs.createSnapshot(dir, "s" + ++s);
-    hdfs.setReplication(sub1file1, (short) (REPLICATION - 1));
+    hdfs.setReplication(sub1file1, (short) 1);
     hdfs.delete(sub1file2, true);
     hdfs.setOwner(sub2, "dr.who", "unknown");
     hdfs.delete(sub2file1, true);
@@ -300,7 +301,7 @@ public class TestFSImageWithSnapshot {
 
     // restart the cluster, and format the cluster
     cluster = new MiniDFSCluster.Builder(conf).format(true)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();
@@ -338,8 +339,8 @@ public class TestFSImageWithSnapshot {
     Path sub1 = new Path(dir, "sub1");
     Path sub1file1 = new Path(sub1, "sub1file1");
     Path sub1file2 = new Path(sub1, "sub1file2");
-    DFSTestUtil.createFile(hdfs, sub1file1, BLOCKSIZE, REPLICATION, seed);
-    DFSTestUtil.createFile(hdfs, sub1file2, BLOCKSIZE, REPLICATION, seed);
+    DFSTestUtil.createFile(hdfs, sub1file1, BLOCKSIZE, (short) 1, seed);
+    DFSTestUtil.createFile(hdfs, sub1file2, BLOCKSIZE, (short) 1, seed);
     
     // 1. create snapshot s0
     hdfs.allowSnapshot(dir);
@@ -372,7 +373,7 @@ public class TestFSImageWithSnapshot {
     out.close();
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(true)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();
@@ -394,8 +395,8 @@ public class TestFSImageWithSnapshot {
     Path sub1 = new Path(dir, "sub1");
     Path sub1file1 = new Path(sub1, "sub1file1");
     Path sub1file2 = new Path(sub1, "sub1file2");
-    DFSTestUtil.createFile(hdfs, sub1file1, BLOCKSIZE, REPLICATION, seed);
-    DFSTestUtil.createFile(hdfs, sub1file2, BLOCKSIZE, REPLICATION, seed);
+    DFSTestUtil.createFile(hdfs, sub1file1, BLOCKSIZE, (short) 1, seed);
+    DFSTestUtil.createFile(hdfs, sub1file2, BLOCKSIZE, (short) 1, seed);
     
     hdfs.allowSnapshot(dir);
     hdfs.createSnapshot(dir, "s0");
@@ -410,7 +411,7 @@ public class TestFSImageWithSnapshot {
     
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();
@@ -440,7 +441,7 @@ public class TestFSImageWithSnapshot {
     // restart cluster
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     hdfs = cluster.getFileSystem();
     
@@ -478,7 +479,7 @@ public class TestFSImageWithSnapshot {
     Path newDir = new Path(subsubDir, "newdir");
     Path newFile = new Path(newDir, "newfile");
     hdfs.mkdirs(newDir);
-    DFSTestUtil.createFile(hdfs, newFile, BLOCKSIZE, REPLICATION, seed);
+    DFSTestUtil.createFile(hdfs, newFile, BLOCKSIZE, (short) 1, seed);
     
     // create another snapshot
     SnapshotTestHelper.createSnapshot(hdfs, dir, "s2");
@@ -491,7 +492,7 @@ public class TestFSImageWithSnapshot {
     
     // restart cluster
     cluster.shutdown();
-    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(REPLICATION)
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(NUM_DATANODES)
         .format(false).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
@@ -504,7 +505,7 @@ public class TestFSImageWithSnapshot {
     
     cluster.shutdown();
     cluster = new MiniDFSCluster.Builder(conf).format(false)
-        .numDataNodes(REPLICATION).build();
+        .numDataNodes(NUM_DATANODES).build();
     cluster.waitActive();
     fsn = cluster.getNamesystem();
     hdfs = cluster.getFileSystem();

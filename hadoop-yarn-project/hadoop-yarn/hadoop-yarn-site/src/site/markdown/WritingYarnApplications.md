@@ -15,19 +15,7 @@
 Hadoop: Writing YARN Applications
 =================================
 
-* [Purpose](#Purpose)
-* [Concepts and Flow](#Concepts_and_Flow)
-* [Interfaces](#Interfaces)
-* [Writing a Simple Yarn Application](#Writing_a_Simple_Yarn_Application)
-    * [Writing a simple Client](#Writing_a_simple_Client)
-    * [Writing an ApplicationMaster (AM)](#Writing_an_ApplicationMaster_AM)
-* [FAQ](#FAQ)
-    * [How can I distribute my application's jars to all of the nodes in the YARN cluster that need it?](#How_can_I_distribute_my_applications_jars_to_all_of_the_nodes_in_the_YARN_cluster_that_need_it)
-    * [How do I get the ApplicationMaster's ApplicationAttemptId?](#How_do_I_get_the_ApplicationMasters_ApplicationAttemptId)
-    * [Why my container is killed by the NodeManager?](#Why_my_container_is_killed_by_the_NodeManager)
-    * [How do I include native libraries?](#How_do_I_include_native_libraries)
-* [Useful Links](#Useful_Links)
-* [Sample Code](#Sample_Code)
+<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
 
 Purpose
 -------
@@ -208,7 +196,7 @@ if (debugFlag) {
 vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/AppMaster.stdout");
 vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/AppMaster.stderr");
 
-// Get final commmand
+// Get final command
 StringBuilder command = new StringBuilder();
 for (CharSequence str : vargs) {
   command.append(str).append(" ");
@@ -339,7 +327,7 @@ ApplicationAttemptId appAttemptID = containerId.getApplicationAttemptId();
   nmClientAsync.start();
 ```
 
-* The AM has to emit heartbeats to the RM to keep it informed that the AM is alive and still running. The timeout expiry interval at the RM is defined by a config setting accessible via `YarnConfiguration.RM_AM_EXPIRY_INTERVAL_MS` with the default being defined by `YarnConfiguration.DEFAULT_RM_AM_EXPIRY_INTERVAL_MS`. The ApplicationMaster needs to register itself with the ResourceManager to start hearbeating.
+* The AM has to emit heartbeats to the RM to keep it informed that the AM is alive and still running. The timeout expiry interval at the RM is defined by a config setting accessible via `YarnConfiguration.RM_AM_EXPIRY_INTERVAL_MS` with the default being defined by `YarnConfiguration.DEFAULT_RM_AM_EXPIRY_INTERVAL_MS`. The ApplicationMaster needs to register itself with the ResourceManager to start heartbeating.
 
 ```java
 // Register self with ResourceManager
@@ -356,10 +344,10 @@ RegisterApplicationMasterResponse response = amRMClient
 // Dump out information about cluster capability as seen by the
 // resource manager
 int maxMem = response.getMaximumResourceCapability().getMemory();
-LOG.info("Max mem capabililty of resources in this cluster " + maxMem);
+LOG.info("Max mem capability of resources in this cluster " + maxMem);
 
 int maxVCores = response.getMaximumResourceCapability().getVirtualCores();
-LOG.info("Max vcores capabililty of resources in this cluster " + maxVCores);
+LOG.info("Max vcores capability of resources in this cluster " + maxVCores);
 
 // A resource ask cannot exceed the max.
 if (containerMemory > maxMem) {
@@ -384,8 +372,6 @@ LOG.info("Received " + previousAMRunningContainers.size()
 * Based on the task requirements, the AM can ask for a set of containers to run its tasks on. We can now calculate how many containers we need, and request those many containers.
 
 ```java
-List<Container> previousAMRunningContainers =
-    response.getContainersFromPreviousAttempts();
 List<Container> previousAMRunningContainers =
     response.getContainersFromPreviousAttempts();
 LOG.info("Received " + previousAMRunningContainers.size()
@@ -486,7 +472,7 @@ vargs.add(shellArgs);
 vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stdout");
 vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/stderr");
 
-// Get final commmand
+// Get final command
 StringBuilder command = new StringBuilder();
 for (CharSequence str : vargs) {
   command.append(str).append(" ");
@@ -535,8 +521,8 @@ You can use the LocalResource to add resources to your application request. This
 
 ```java
 File packageFile = new File(packagePath);
-Url packageUrl = ConverterUtils.getYarnUrlFromPath(
-    FileContext.getFileContext.makeQualified(new Path(packagePath)));
+URL packageUrl = ConverterUtils.getYarnUrlFromPath(
+    FileContext.getFileContext().makeQualified(new Path(packagePath)));
 
 packageResource.setResource(packageUrl);
 packageResource.setSize(packageFile.length());
@@ -579,11 +565,11 @@ Setting `-Djava.library.path` on the command line while launching a container ca
 Useful Links
 ------------
 
-* [YARN Architecture](http://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/YARN.html)
+* [YARN Architecture](./YARN.html)
 
-* [YARN Capacity Scheduler](http://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html)
+* [YARN Capacity Scheduler](./CapacityScheduler.html)
 
-* [YARN Fair Scheduler](http://hadoop.apache.org/docs/current/hadoop-yarn/hadoop-yarn-site/FairScheduler.html)
+* [YARN Fair Scheduler](./FairScheduler.html)
 
 Sample Code
 -----------

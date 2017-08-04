@@ -158,8 +158,6 @@ public interface QJournalProtocol {
 
   public void doRollback(String journalId) throws IOException;
 
-  public Long getJournalCTime(String journalId) throws IOException;
-
   /**
    * Discard journal segments whose first TxId is greater than or equal to the
    * given txid.
@@ -167,4 +165,6 @@ public interface QJournalProtocol {
   @Idempotent
   public void discardSegments(String journalId, long startTxId)
       throws IOException;
+
+  public Long getJournalCTime(String journalId) throws IOException;
 }

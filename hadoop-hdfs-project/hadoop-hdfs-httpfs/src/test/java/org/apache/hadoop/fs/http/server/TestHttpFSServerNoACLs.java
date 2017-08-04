@@ -31,8 +31,8 @@ import org.apache.hadoop.test.TestJetty;
 import org.apache.hadoop.test.TestJettyHelper;
 import org.junit.Assert;
 import org.junit.Test;
-import org.mortbay.jetty.Server;
-import org.mortbay.jetty.webapp.WebAppContext;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.webapp.WebAppContext;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -110,12 +110,12 @@ public class TestHttpFSServerNoACLs extends HTestCase {
 
     // HDFS configuration
     File hadoopConfDir = new File(new File(homeDir, "conf"), "hadoop-conf");
-    if ( !hadoopConfDir.mkdirs() ) {
+    if (!hadoopConfDir.mkdirs()) {
       throw new IOException();
     }
 
     String fsDefaultName =
-            nnConf.get(CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY);
+        nnConf.get(CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY);
     Configuration conf = new Configuration(false);
     conf.set(CommonConfigurationKeysPublic.FS_DEFAULT_NAME_KEY, fsDefaultName);
 
@@ -146,12 +146,12 @@ public class TestHttpFSServerNoACLs extends HTestCase {
 
     ClassLoader cl = Thread.currentThread().getContextClassLoader();
     URL url = cl.getResource("webapp");
-    if ( url == null ) {
+    if (url == null) {
       throw new IOException();
     }
     WebAppContext context = new WebAppContext(url.getPath(), "/webhdfs");
     Server server = TestJettyHelper.getJettyServer();
-    server.addHandler(context);
+    server.setHandler(context);
     server.start();
   }
 
@@ -168,7 +168,7 @@ public class TestHttpFSServerNoACLs extends HTestCase {
           throws Exception {
     String user = HadoopUsersConfTestHelper.getHadoopUsers()[0];
     // Remove leading / from filename
-    if ( filename.charAt(0) == '/' ) {
+    if (filename.charAt(0) == '/') {
       filename = filename.substring(1);
     }
     String pathOps = MessageFormat.format(
@@ -179,7 +179,7 @@ public class TestHttpFSServerNoACLs extends HTestCase {
     conn.connect();
     int resp = conn.getResponseCode();
     BufferedReader reader;
-    if ( expectOK ) {
+    if (expectOK) {
       Assert.assertEquals(HttpURLConnection.HTTP_OK, resp);
       reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
       String res = reader.readLine();
@@ -204,7 +204,7 @@ public class TestHttpFSServerNoACLs extends HTestCase {
                       String params, boolean expectOK) throws Exception {
     String user = HadoopUsersConfTestHelper.getHadoopUsers()[0];
     // Remove leading / from filename
-    if ( filename.charAt(0) == '/' ) {
+    if (filename.charAt(0) == '/') {
       filename = filename.substring(1);
     }
     String pathOps = MessageFormat.format(
@@ -216,7 +216,7 @@ public class TestHttpFSServerNoACLs extends HTestCase {
     conn.setRequestMethod("PUT");
     conn.connect();
     int resp = conn.getResponseCode();
-    if ( expectOK ) {
+    if (expectOK) {
       Assert.assertEquals(HttpURLConnection.HTTP_OK, resp);
     } else {
       Assert.assertEquals(HttpURLConnection.HTTP_INTERNAL_ERROR, resp);
@@ -229,6 +229,7 @@ public class TestHttpFSServerNoACLs extends HTestCase {
   }
 
   /**
+   * Test without ACLs.
    * Ensure that
    * <ol>
    *   <li>GETFILESTATUS and LISTSTATUS work happily</li>
@@ -243,12 +244,13 @@ public class TestHttpFSServerNoACLs extends HTestCase {
   @TestJetty
   public void testWithNoAcls() throws Exception {
     final String aclUser1 = "user:foo:rw-";
+    final String rmAclUser1 = "user:foo:";
     final String aclUser2 = "user:bar:r--";
     final String aclGroup1 = "group::r--";
     final String aclSpec = "aclspec=user::rwx," + aclUser1 + ","
             + aclGroup1 + ",other::---";
     final String modAclSpec = "aclspec=" + aclUser2;
-    final String remAclSpec = "aclspec=" + aclUser1;
+    final String remAclSpec = "aclspec=" + rmAclUser1;
     final String defUser1 = "default:user:glarch:r-x";
     final String defSpec1 = "aclspec=" + defUser1;
     final String dir = "/noACLs";

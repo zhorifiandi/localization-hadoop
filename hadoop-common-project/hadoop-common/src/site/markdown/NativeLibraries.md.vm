@@ -15,17 +15,7 @@
 Native Libraries Guide
 ======================
 
-* [Native Libraries Guide](#Native_Libraries_Guide)
-    * [Overview](#Overview)
-    * [Native Hadoop Library](#Native_Hadoop_Library)
-    * [Usage](#Usage)
-    * [Components](#Components)
-    * [Supported Platforms](#Supported_Platforms)
-    * [Download](#Download)
-    * [Build](#Build)
-    * [Runtime](#Runtime)
-    * [Check](#Check)
-    * [Native Shared Libraries](#Native_Shared_Libraries)
+<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
 
 Overview
 --------
@@ -128,6 +118,7 @@ NativeLibraryChecker is a tool to check whether native libraries are loaded corr
        hadoop: true /home/ozawa/hadoop/lib/native/libhadoop.so.1.0.0
        zlib:   true /lib/x86_64-linux-gnu/libz.so.1
        snappy: true /usr/lib/libsnappy.so.1
+       zstd: true /usr/lib/libzstd.so.1
        lz4:    true revision:99
        bzip2:  false
 

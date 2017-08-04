@@ -25,6 +25,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hdfs.protocolPB.JournalProtocolPB;
 import org.apache.hadoop.hdfs.protocolPB.PBHelper;
+import org.apache.hadoop.hdfs.protocolPB.PBHelperClient;
 import org.apache.hadoop.hdfs.qjournal.protocol.QJournalProtocol;
 import org.apache.hadoop.hdfs.qjournal.protocol.QJournalProtocolProtos;
 import org.apache.hadoop.hdfs.qjournal.protocol.QJournalProtocolProtos.AcceptRecoveryRequestProto;
@@ -161,7 +162,7 @@ public class QJournalProtocolTranslatorPB implements ProtocolMetaInterface,
         .setSegmentTxnId(segmentTxId)
         .setFirstTxnId(firstTxnId)
         .setNumTxns(numTxns)
-        .setRecords(PBHelper.getByteString(records))
+        .setRecords(PBHelperClient.getByteString(records))
         .build();
     try {
       rpcProxy.journal(NULL_CONTROLLER, req);
@@ -312,7 +313,7 @@ public class QJournalProtocolTranslatorPB implements ProtocolMetaInterface,
       throw ProtobufHelper.getRemoteException(e);
     }
   }
-
+  
   @Override
   public void doFinalize(String jid) throws IOException {
     try {
@@ -356,6 +357,19 @@ public class QJournalProtocolTranslatorPB implements ProtocolMetaInterface,
   }
 
   @Override
+  public void discardSegments(String journalId, long startTxId)
+      throws IOException {
+    try {
+      rpcProxy.discardSegments(NULL_CONTROLLER,
+          DiscardSegmentsRequestProto.newBuilder()
+            .setJid(convertJournalId(journalId)).setStartTxId(startTxId)
+            .build());
+    } catch (ServiceException e) {
+      throw ProtobufHelper.getRemoteException(e);
+    }
+  }
+
+  @Override
   public Long getJournalCTime(String journalId) throws IOException {
     try {
       GetJournalCTimeResponseProto response = rpcProxy.getJournalCTime(
@@ -369,16 +383,4 @@ public class QJournalProtocolTranslatorPB implements ProtocolMetaInterface,
     }
   }
 
-  @Override
-  public void discardSegments(String journalId, long startTxId)
-      throws IOException {
-    try {
-      rpcProxy.discardSegments(NULL_CONTROLLER,
-          DiscardSegmentsRequestProto.newBuilder()
-            .setJid(convertJournalId(journalId)).setStartTxId(startTxId)
-            .build());
-    } catch (ServiceException e) {
-      throw ProtobufHelper.getRemoteException(e);
-    }
-  }
 }

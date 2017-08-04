@@ -15,23 +15,7 @@
 ResourceManager REST API's.
 ===========================
 
-* [Overview](#Overview)
-* [Enabling CORS support](#Enabling_CORS_support)
-* [Cluster Information API](#Cluster_Information_API)
-* [Cluster Metrics API](#Cluster_Metrics_API)
-* [Cluster Scheduler API](#Cluster_Scheduler_API)
-* [Cluster Applications API](#Cluster_Applications_API)
-* [Cluster Application Statistics API](#Cluster_Application_Statistics_API)
-* [Cluster Application API](#Cluster_Application_API)
-* [Cluster Application Attempts API](#Cluster_Application_Attempts_API)
-* [Cluster Nodes API](#Cluster_Nodes_API)
-* [Cluster Node API](#Cluster_Node_API)
-* [Cluster Writeable APIs](#Cluster_Writeable_APIs)
-* [Cluster New Application API](#Cluster_New_Application_API)
-* [Cluster Applications API(Submit Application)](#Cluster_Applications_APISubmit_Application)
-* [Cluster Application State API](#Cluster_Application_State_API)
-* [Cluster Application Queue API](#Cluster_Application_Queue_API)
-* [Cluster Delegation Tokens API](#Cluster_Delegation_Tokens_API)
+<!-- MACRO{toc|fromDepth=0|toDepth=1} -->
 
 Overview
 --------
@@ -73,12 +57,14 @@ Both of the following URI's give you the cluster information.
 | startedOn | long | The time the cluster started (in ms since epoch) |
 | state | string | The ResourceManager state - valid values are: NOTINITED, INITED, STARTED, STOPPED |
 | haState | string | The ResourceManager HA state - valid values are: INITIALIZING, ACTIVE, STANDBY, STOPPED |
+| rmStateStoreName | string | Fully qualified name of class that implements the storage of ResourceManager state |
 | resourceManagerVersion | string | Version of the ResourceManager |
 | resourceManagerBuildVersion | string | ResourceManager build string with build version, user, and checksum |
 | resourceManagerVersionBuiltOn | string | Timestamp when ResourceManager was built (in ms since epoch) |
 | hadoopVersion | string | Version of hadoop common |
 | hadoopBuildVersion | string | Hadoop common build string with build version, user, and checksum |
 | hadoopVersionBuiltOn | string | Timestamp when hadoop common was built(in ms since epoch) |
+| haZooKeeperConnectionState | string | State of ZooKeeper connection of the high availability service |
 
 ### Response Examples
 
@@ -104,13 +90,15 @@ Response Body:
     "id":1324053971963,
     "startedOn":1324053971963,
     "state":"STARTED",
-    "resourceManagerVersion":"0.23.1-SNAPSHOT",
-    "resourceManagerBuildVersion":"0.23.1-SNAPSHOT from 1214049 by user1 source checksum 050cd664439d931c8743a6428fd6a693",
-    "resourceManagerVersionBuiltOn":"Tue Dec 13 22:12:48 CST 2011",
-    "hadoopVersion":"0.23.1-SNAPSHOT",
-    "hadoopBuildVersion":"0.23.1-SNAPSHOT from 1214049 by user1 source checksum 11458df3bb77342dca5f917198fad328",
-    "hadoopVersionBuiltOn":"Tue Dec 13 22:12:26 CST 2011"
-  }
+    "haState":"ACTIVE",
+    "rmStateStoreName":"org.apache.hadoop.yarn.server.resourcemanager.recovery.NullRMStateStore",
+    "resourceManagerVersion":"3.0.0-SNAPSHOT",
+    "resourceManagerBuildVersion":"3.0.0-SNAPSHOT from unknown by user1 source checksum 11111111111111111111111111111111",
+    "resourceManagerVersionBuiltOn":"2016-01-01T01:00Z",
+    "hadoopVersion":"3.0.0-SNAPSHOT",
+    "hadoopBuildVersion":"3.0.0-SNAPSHOT from unknown by user1 source checksum 11111111111111111111111111111111",
+    "hadoopVersionBuiltOn":"2016-01-01T01:00Z",
+    "haZooKeeperConnectionState": "ResourceManager HA is not enabled."  }
 }
 ```
 
@@ -133,15 +121,18 @@ Response Body:
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <clusterInfo>
-  <id>1324053971963</id>
-  <startedOn>1324053971963</startedOn>
+  <id>1476912658570</id>
+  <startedOn>1476912658570</startedOn>
   <state>STARTED</state>
-  <resourceManagerVersion>0.23.1-SNAPSHOT</resourceManagerVersion>
-  <resourceManagerBuildVersion>0.23.1-SNAPSHOT from 1214049 by user1 source checksum 050cd664439d931c8743a6428fd6a693</resourceManagerBuildVersion>
-  <resourceManagerVersionBuiltOn>Tue Dec 13 22:12:48 CST 2011</resourceManagerVersionBuiltOn>
-  <hadoopVersion>0.23.1-SNAPSHOT</hadoopVersion>
-  <hadoopBuildVersion>0.23.1-SNAPSHOT from 1214049 by user1 source checksum 11458df3bb77342dca5f917198fad328</hadoopBuildVersion>
-  <hadoopVersionBuiltOn>Tue Dec 13 22:12:48 CST 2011</hadoopVersionBuiltOn>
+  <haState>ACTIVE</haState>
+  <rmStateStoreName>org.apache.hadoop.yarn.server.resourcemanager.recovery.NullRMStateStore</rmStateStoreName>
+  <resourceManagerVersion>3.0.0-SNAPSHOT</resourceManagerVersion>
+  <resourceManagerBuildVersion>3.0.0-SNAPSHOT from unknown by user1 source checksum 11111111111111111111111111111111</resourceManagerBuildVersion>
+  <resourceManagerVersionBuiltOn>2016-01-01T01:00Z</resourceManagerVersionBuiltOn>
+  <hadoopVersion>3.0.0-SNAPSHOT</hadoopVersion>
+  <hadoopBuildVersion>3.0.0-SNAPSHOT from unknown by user1 source checksum 11111111111111111111111111111111</hadoopBuildVersion>
+  <hadoopVersionBuiltOn>2016-01-01T01:00Z</hadoopVersionBuiltOn>
+  <haZooKeeperConnectionState>ResourceManager HA is not enabled.</haZooKeeperConnectionState>
 </clusterInfo>
 ```
 
@@ -187,8 +178,10 @@ The cluster metrics resource provides some overall metrics about the cluster. Mo
 | activeNodes | int | The number of active nodes |
 | lostNodes | int | The number of lost nodes |
 | unhealthyNodes | int | The number of unhealthy nodes |
+| decommissioningNodes | int | The number of nodes being decommissioned |
 | decommissionedNodes | int | The number of nodes decommissioned |
 | rebootedNodes | int | The number of nodes rebooted |
+| shutdownNodes | int | The number of nodes shut down |
 
 ### Response Examples
 
@@ -231,9 +224,11 @@ Response Body:
     "totalNodes":1,
     "lostNodes":0,
     "unhealthyNodes":0,
+    "decommissioningNodes":0,
     "decommissionedNodes":0,
     "rebootedNodes":0,
-    "activeNodes":1
+    "activeNodes":1,
+    "shutdownNodes":0
   }
 }
 ```
@@ -277,16 +272,18 @@ Response Body:
   <totalNodes>1</totalNodes>
   <lostNodes>0</lostNodes>
   <unhealthyNodes>0</unhealthyNodes>
+  <decommissioningNodes>0</decommissioningNodes>
   <decommissionedNodes>0</decommissionedNodes>
   <rebootedNodes>0</rebootedNodes>
   <activeNodes>1</activeNodes>
+  <shutdownNodes>0</shutdownNodes>
 </clusterMetrics>
 ```
 
 Cluster Scheduler API
 ---------------------
 
-A scheduler resource contains information about the current scheduler configured in a cluster. It currently supports both the Fifo and Capacity Scheduler. You will get different information depending on which scheduler is configured so be sure to look at the type information.
+A scheduler resource contains information about the current scheduler configured in a cluster. It currently supports the Fifo, Capacity and Fair Scheduler. You will get different information depending on which scheduler is configured so be sure to look at the type information.
 
 ### URI
 
@@ -329,10 +326,10 @@ The capacity scheduler supports hierarchical queues. This one request will print
 | usedResources | string | A string describing the current resources used by the queue |
 | queueName | string | The name of the queue |
 | state | string of QueueState | The state of the queue |
-| queues | array of queues(JSON)/zero or more queue objects(XML) | A collection of sub-queue information |
+| queues | array of queues(JSON)/zero or more queue objects(XML) | A collection of sub-queue information. Omitted if the queue has no sub-queues. |
 | resourcesUsed | A single resource object | The total amount of resources used by this queue |
 
-### Elements of the queues object for a Leaf queue - contains all elements in parent plus the following:
+### Elements of the queues object for a Leaf queue - contains all the elements in parent except 'queues' plus the following:
 
 | Item | Data Type | Description |
 |:---- |:---- |:---- |
@@ -992,6 +989,318 @@ Response Body:
 </scheduler>
 ```
 
+### Fair Scheduler API
+
+### Elements of the *schedulerInfo* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| type | string | Scheduler type - fairScheduler |
+| rootQueue | The root queue object | A collection of root queue resources |
+
+### Elements of the root queue object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| maxApps | int | The maximum number of applications the queue can have |
+| minResources | A single resource object | The configured minimum resources that are guaranteed to the queue |
+| maxResources | A single resource object | The configured maximum resources that are allowed to the queue |
+| usedResources | A single resource object | The sum of resources allocated to containers within the queue |
+| fairResources | A single resource object | The queue's fair share of resources |
+| clusterResources | A single resource object | The capacity of the cluster |
+| queueName | string | The name of the queue |
+| schedulingPolicy | string | The name of the scheduling policy used by the queue |
+| childQueues | array of queues(JSON)/queue objects(XML) | A collection of sub-queue information. Omitted if the queue has no childQueues. |
+
+### Elements of the queues object for a Leaf queue - contains all the elements in parent except 'childQueues' plus the following
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| type | string | type of the queue - fairSchedulerLeafQueueInfo |
+| numActiveApps | int | The number of active applications in this queue |
+| numPendingApps | int | The number of pending applications in this queue |
+
+### Elements of the resource object for resourcesUsed in queues
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| memory | int | The amount of memory used (in MB) |
+| vCores | int | The number of virtual cores |
+
+#### Response Examples
+
+**JSON response**
+
+HTTP Request:
+
+      GET http://<rm http address:port>/ws/v1/cluster/scheduler
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+      Transfer-Encoding: chunked
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```json
+{
+    "scheduler": {
+        "schedulerInfo": {
+            "rootQueue": {
+                "childQueues": {
+                    "queue": [
+                        {
+                            "clusterResources": {
+                                "memory": 8192,
+                                "vCores": 8
+                            },
+                            "fairResources": {
+                                "memory": 0,
+                                "vCores": 0
+                            },
+                            "maxApps": 2147483647,
+                            "maxResources": {
+                                "memory": 8192,
+                                "vCores": 8
+                            },
+                            "minResources": {
+                                "memory": 0,
+                                "vCores": 0
+                            },
+                            "numActiveApps": 0,
+                            "numPendingApps": 0,
+                            "queueName": "root.default",
+                            "schedulingPolicy": "fair",
+                            "type": "fairSchedulerLeafQueueInfo",
+                            "usedResources": {
+                                "memory": 0,
+                                "vCores": 0
+                            }
+                        },
+                        {
+                            "childQueues": {
+                                "queue": [
+                                    {
+                                        "clusterResources": {
+                                            "memory": 8192,
+                                           "vCores": 8
+                                        },
+                                        "fairResources": {
+                                            "memory": 10000,
+                                            "vCores": 0
+                                        },
+                                        "maxApps": 2147483647,
+                                        "maxResources": {
+                                            "memory": 8192,
+                                            "vCores": 8
+                                        },
+                                        "minResources": {
+                                            "memory": 5000,
+                                            "vCores": 0
+                                        },
+                                        "numActiveApps": 0,
+                                        "numPendingApps": 0,
+                                        "queueName": "root.sample_queue.sample_sub_queue",
+                                        "schedulingPolicy": "fair",
+                                        "type": "fairSchedulerLeafQueueInfo",
+                                        "usedResources": {
+                                            "memory": 0,
+                                            "vCores": 0
+                                        }
+                                    }
+                                ]
+                            },
+                            "clusterResources": {
+                                "memory": 8192,
+                                "vCores": 8
+                            },
+                            "fairResources": {
+                                "memory": 10000,
+                                "vCores": 0
+                            },
+                            "maxApps": 50,
+                            "maxResources": {
+                                "memory": 8192,
+                                "vCores": 0
+                            },
+                            "minResources": {
+                                "memory": 10000,
+                                "vCores": 0
+                            },
+                            "queueName": "root.sample_queue",
+                            "schedulingPolicy": "fair",
+                            "usedResources": {
+                                "memory": 0,
+                                "vCores": 0
+                            }
+                        }
+                    ],
+                },
+                "clusterResources": {
+                    "memory": 8192,
+                    "vCores": 8
+                },
+                "fairResources": {
+                    "memory": 8192,
+                    "vCores": 8
+                },
+                "maxApps": 2147483647,
+                "maxResources": {
+                    "memory": 8192,
+                    "vCores": 8
+                },
+                "minResources": {
+                    "memory": 0,
+                    "vCores": 0
+                },
+                "queueName": "root",
+                "schedulingPolicy": "fair",
+                "usedResources": {
+                    "memory": 0,
+                    "vCores": 0
+                }
+            },
+            "type": "fairScheduler"
+        }
+    }
+}
+```
+
+**XML response**
+
+HTTP Request:
+
+      GET http://<rm http address:port>/ws/v1/cluster/scheduler
+      Accept: application/xml
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/xml
+      Content-Length: 2321 
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<scheduler>
+  <schedulerInfo xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="fairScheduler">
+    <rootQueue>
+      <maxApps>2147483647</maxApps>
+      <minResources>
+        <memory>0</memory>
+        <vCores>0</vCores>
+      </minResources>
+      <maxResources>
+        <memory>8192</memory>
+        <vCores>8</vCores>
+      </maxResources>
+      <usedResources>
+        <memory>0</memory>
+        <vCores>0</vCores>
+      </usedResources>
+      <fairResources>
+        <memory>8192</memory>
+        <vCores>8</vCores>
+      </fairResources>
+      <clusterResources>
+        <memory>8192</memory>
+        <vCores>8</vCores>
+      </clusterResources>
+      <queueName>root</queueName>
+      <schedulingPolicy>fair</schedulingPolicy>
+      <childQueues>
+        <queue xsi:type="fairSchedulerLeafQueueInfo">
+          <maxApps>2147483647</maxApps>
+          <minResources>
+            <memory>0</memory>
+            <vCores>0</vCores>
+          </minResources>
+          <maxResources>
+            <memory>8192</memory>
+            <vCores>8</vCores>
+          </maxResources>
+          <usedResources>
+            <memory>0</memory>
+            <vCores>0</vCores>
+          </usedResources>
+          <fairResources>
+            <memory>0</memory>
+            <vCores>0</vCores>
+          </fairResources>
+          <clusterResources>
+            <memory>8192</memory>
+            <vCores>8</vCores>
+          </clusterResources>
+          <queueName>root.default</queueName>
+          <schedulingPolicy>fair</schedulingPolicy>
+          <numPendingApps>0</numPendingApps>
+          <numActiveApps>0</numActiveApps>
+        </queue>
+        <queue>
+          <maxApps>50</maxApps>
+          <minResources>
+            <memory>10000</memory>
+            <vCores>0</vCores>
+          </minResources>
+          <maxResources>
+            <memory>8192</memory>
+            <vCores>0</vCores>
+          </maxResources>
+          <usedResources>
+            <memory>0</memory>
+            <vCores>0</vCores>
+          </usedResources>
+          <fairResources>
+            <memory>10000</memory>
+            <vCores>0</vCores>
+          </fairResources>
+          <clusterResources>
+            <memory>8192</memory>
+            <vCores>8</vCores>
+          </clusterResources>
+          <queueName>root.sample_queue</queueName>
+          <schedulingPolicy>fair</schedulingPolicy>
+          <childQueues>
+            <queue xsi:type="fairSchedulerLeafQueueInfo">
+              <maxApps>2147483647</maxApps>
+              <minResources>
+                <memory>5000</memory>
+                <vCores>0</vCores>
+              </minResources>
+              <maxResources>
+                <memory>8192</memory>
+                <vCores>8</vCores>
+              </maxResources>
+              <usedResources>
+                <memory>0</memory>
+                <vCores>0</vCores>
+              </usedResources>
+              <fairResources>
+                <memory>10000</memory>
+                <vCores>0</vCores>
+              </fairResources>
+              <clusterResources>
+                <memory>8192</memory>
+                <vCores>8</vCores>
+              </clusterResources>
+              <queueName>root.sample_queue.sample_sub_queue</queueName>
+              <schedulingPolicy>fair</schedulingPolicy>
+              <numPendingApps>0</numPendingApps>
+              <numActiveApps>0</numActiveApps>
+            </queue>
+          </childQueues>
+        </queue>
+      </childQueues>
+    </rootQueue>
+  </schedulerInfo>
+</scheduler>
+```
+
+
 Cluster Applications API
 ------------------------
 
@@ -1021,6 +1330,7 @@ Multiple parameters can be specified for GET operations. The started and finishe
       * finishedTimeEnd - applications with finish time ending with this time, specified in ms since epoch
       * applicationTypes - applications matching the given application types, specified as a comma-separated list.
       * applicationTags - applications matching any of the given application tags, specified as a comma-separated list.
+      * deSelects - a generic fields which will be skipped in the result.
 
 ### Elements of the *apps* (Applications) object
 
@@ -1029,6 +1339,21 @@ When you make a request for the list of applications, the information will be re
 | Item | Data Type | Description |
 |:---- |:---- |:---- |
 | app | array of app objects(JSON)/zero or more application objects(XML) | The collection of application objects |
+
+###Elements of the *deSelects* parameter
+
+Help requesters who don't need certain information to reduce the overhead.
+
+Current supported items:
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| resouceRequests | comma separated string | Skip resource requests of application in return |
+
+e.g:
+
+      * http://<rm http address:port>/ws/v1/cluster/apps?deSelects=resouceRequests
+
 
 ### Response Examples
 
@@ -1053,52 +1378,158 @@ Response Body:
   {
     "app":
     [
-       {
-          "finishedTime" : 1326815598530,
-          "amContainerLogs" : "http://host.domain.com:8042/node/containerlogs/container_1326815542473_0001_01_000001",
-          "trackingUI" : "History",
-          "state" : "FINISHED",
-          "user" : "user1",
-          "id" : "application_1326815542473_0001",
-          "clusterId" : 1326815542473,
-          "finalStatus" : "SUCCEEDED",
-          "amHostHttpAddress" : "host.domain.com:8042",
-          "progress" : 100,
-          "name" : "word count",
-          "startedTime" : 1326815573334,
-          "elapsedTime" : 25196,
-          "diagnostics" : "",
-          "trackingUrl" : "http://host.domain.com:8088/proxy/application_1326815542473_0001/jobhistory/job/job_1326815542473_1_1",
-          "queue" : "default",
-          "allocatedMB" : 0,
-          "allocatedVCores" : 0,
-          "runningContainers" : 0,
-          "memorySeconds" : 151730,
-          "vcoreSeconds" : 103
-       },
-       {
-          "finishedTime" : 1326815789546,
-          "amContainerLogs" : "http://host.domain.com:8042/node/containerlogs/container_1326815542473_0002_01_000001",
-          "trackingUI" : "History",
-          "state" : "FINISHED",
-          "user" : "user1",
-          "id" : "application_1326815542473_0002",
-          "clusterId" : 1326815542473,
-          "finalStatus" : "SUCCEEDED",
-          "amHostHttpAddress" : "host.domain.com:8042",
-          "progress" : 100,
-          "name" : "Sleep job",
-          "startedTime" : 1326815641380,
-          "elapsedTime" : 148166,
-          "diagnostics" : "",
-          "trackingUrl" : "http://host.domain.com:8088/proxy/application_1326815542473_0002/jobhistory/job/job_1326815542473_2_2",
-          "queue" : "default",
-          "allocatedMB" : 0,
-          "allocatedVCores" : 0,
-          "runningContainers" : 1,
-          "memorySeconds" : 640064,
-          "vcoreSeconds" : 442
-       } 
+      {
+        "id": "application_1476912658570_0002",
+        "user": "user2",
+        "name": "word count",
+        "queue": "default",
+        "state": "FINISHED",
+        "finalStatus": "SUCCEEDED",
+        "progress": 100,
+        "trackingUI": "History",
+        "trackingUrl": "http://host.domain.com:8088/cluster/app/application_1476912658570_0002",
+        "diagnostics": "...",
+        "clusterId": 1476912658570,
+        "applicationType": "MAPREDUCE",
+        "applicationTags": "",
+        "priority": -1,
+        "startedTime": 1476913457320,
+        "finishedTime": 1476913761898,
+        "elapsedTime": 304578,
+        "amContainerLogs": "http://host.domain.com:8042/node/containerlogs/container_1476912658570_0002_02_000001/user2",
+        "amHostHttpAddress": "host.domain.com:8042",
+        "allocatedMB": 0,
+        "allocatedVCores": 0,
+        "runningContainers": 0,
+        "memorySeconds": 206464,
+        "vcoreSeconds": 201,
+        "queueUsagePercentage": 0,
+        "clusterUsagePercentage": 0,
+        "preemptedResourceMB": 0,
+        "preemptedResourceVCores": 0,
+        "numNonAMContainerPreempted": 0,
+        "numAMContainerPreempted": 0,
+        "logAggregationStatus": "DISABLED",
+        "unmanagedApplication": false,
+        "appNodeLabelExpression": "",
+        "amNodeLabelExpression": "",
+        "resourceRequests": [
+        {
+            "capability": {
+                "memory": 4096,
+                "virtualCores": 1
+            },
+            "nodeLabelExpression": "",
+            "numContainers": 0,
+            "priority": {
+                "priority": 0
+            },
+            "relaxLocality": true,
+            "resourceName": "*"
+        },
+        {
+            "capability": {
+                "memory": 4096,
+                "virtualCores": 1
+            },
+            "nodeLabelExpression": "",
+            "numContainers": 0,
+            "priority": {
+                "priority": 20
+            },
+            "relaxLocality": true,
+            "resourceName": "host1.domain.com"
+        },
+        {
+            "capability": {
+                "memory": 4096,
+                "virtualCores": 1
+            },
+            "nodeLabelExpression": "",
+            "numContainers": 0,
+            "priority": {
+                "priority": 20
+            },
+            "relaxLocality": true,
+            "resourceName": "host2.domain.com"
+        }]
+      },
+      {
+        "id": "application_1476912658570_0001",
+        "user": "user1",
+        "name": "Sleep job",
+        "queue": "default",
+        "state": "FINISHED",
+        "finalStatus": "SUCCEEDED",
+        "progress": 100,
+        "trackingUI": "History",
+        "trackingUrl": "http://host.domain.com:8088/cluster/app/application_1476912658570_0001",
+        "diagnostics": "...",
+        "clusterId": 1476912658570,
+        "applicationType": "YARN",
+        "applicationTags": "",
+        "priority": -1,
+        "startedTime": 1476913464750,
+        "finishedTime": 1476913863175,
+        "elapsedTime": 398425,
+        "amContainerLogs": "http://host.domain.com:8042/node/containerlogs/container_1476912658570_0001_02_000001/user1",
+        "amHostHttpAddress": "host.domain.com:8042",
+        "allocatedMB": 0,
+        "allocatedVCores": 0,
+        "runningContainers": 0,
+        "memorySeconds": 205410,
+        "vcoreSeconds": 200,
+        "queueUsagePercentage": 0,
+        "clusterUsagePercentage": 0,
+        "preemptedResourceMB": 0,
+        "preemptedResourceVCores": 0,
+        "numNonAMContainerPreempted": 0,
+        "numAMContainerPreempted": 0,
+        "logAggregationStatus": "DISABLED",
+        "unmanagedApplication": false,
+        "appNodeLabelExpression": "",
+        "amNodeLabelExpression": "",
+        "resourceRequests": [
+        {
+            "capability": {
+                "memory": 4096,
+                "virtualCores": 1
+            },
+            "nodeLabelExpression": "",
+            "numContainers": 0,
+            "priority": {
+                "priority": 0
+            },
+            "relaxLocality": true,
+            "resourceName": "*"
+        },
+        {
+            "capability": {
+                "memory": 4096,
+                "virtualCores": 1
+            },
+            "nodeLabelExpression": "",
+            "numContainers": 0,
+            "priority": {
+                "priority": 20
+            },
+            "relaxLocality": true,
+            "resourceName": "host3.domain.com"
+        },
+        {
+            "capability": {
+                "memory": 4096,
+                "virtualCores": 1
+            },
+            "nodeLabelExpression": "",
+            "numContainers": 0,
+            "priority": {
+                "priority": 20
+            },
+            "relaxLocality": true,
+            "resourceName": "host4.domain.com"
+        }]
+      }
     ]
   }
 }
@@ -1123,54 +1554,156 @@ Response Body:
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <apps>
-  <app>
-    <id>application_1326815542473_0001</id>
-    <user>user1</user>
-    <name>word count</name>
-    <applicationType>MAPREDUCE</applicationType>
-    <queue>default</queue>
-    <state>FINISHED</state>
-    <finalStatus>SUCCEEDED</finalStatus>
-    <progress>100.0</progress>
-    <trackingUI>History</trackingUI>
-    <trackingUrl>http://host.domain.com:8088/proxy/application_1326815542473_0001/jobhistory/job/job_1326815542473_1_1</trackingUrl>
-    <diagnostics/>
-    <clusterId>1326815542473</clusterId>
-    <startedTime>1326815573334</startedTime>
-    <finishedTime>1326815598530</finishedTime>
-    <elapsedTime>25196</elapsedTime>
-    <amContainerLogs>http://host.domain.com:8042/node/containerlogs/container_1326815542473_0001_01_000001</amContainerLogs>
-    <amHostHttpAddress>host.domain.com:8042</amHostHttpAddress>
-    <allocatedMB>0</allocatedMB>
-    <allocatedVCores>0</allocatedVCores>
-    <runningContainers>0</runningContainers>
-    <memorySeconds>151730</memorySeconds>
-    <vcoreSeconds>103</vcoreSeconds>
-  </app>
-  <app>
-    <id>application_1326815542473_0002</id>
-    <user>user1</user>
-    <name>Sleep job</name>
-    <applicationType>YARN</applicationType>
-    <queue>default</queue>
-    <state>FINISHED</state>
-    <finalStatus>SUCCEEDED</finalStatus>
-    <progress>100.0</progress>
-    <trackingUI>History</trackingUI>
-    <trackingUrl>http://host.domain.com:8088/proxy/application_1326815542473_0002/jobhistory/job/job_1326815542473_2_2</trackingUrl>
-    <diagnostics/>
-    <clusterId>1326815542473</clusterId>
-    <startedTime>1326815641380</startedTime>
-    <finishedTime>1326815789546</finishedTime>
-    <elapsedTime>148166</elapsedTime>
-    <amContainerLogs>http://host.domain.com:8042/node/containerlogs/container_1326815542473_0002_01_000001</amContainerLogs>
-    <amHostHttpAddress>host.domain.com:8042</amHostHttpAddress>
-    <allocatedMB>0</allocatedMB>
-    <allocatedVCores>0</allocatedVCores>
-    <runningContainers>0</runningContainers>
-    <memorySeconds>640064</memorySeconds>
-    <vcoreSeconds>442</vcoreSeconds>
-  </app>
+    <app>
+        <id>application_1476912658570_0002</id>
+        <user>user2</user>
+        <name>word count</name>
+        <queue>default</queue>
+        <state>FINISHED</state>
+        <finalStatus>SUCCEEDED</finalStatus>
+        <progress>100.0</progress>
+        <trackingUI>History</trackingUI>
+        <trackingUrl>http://host.domain.com:8088/cluster/app/application_1476912658570_0002</trackingUrl>
+        <diagnostics>...</diagnostics>
+        <clusterId>1476912658570</clusterId>
+        <applicationType>YARN</applicationType>
+        <applicationTags></applicationTags>
+        <priority>-1</priority>
+        <startedTime>1476913457320</startedTime>
+        <finishedTime>1476913761898</finishedTime>
+        <elapsedTime>304578</elapsedTime>
+        <amContainerLogs>http://host.domain.com:8042/node/containerlogs/container_1476912658570_0002_02_000001/user2</amContainerLogs>
+        <amHostHttpAddress>host.domain.com:8042</amHostHttpAddress>
+        <allocatedMB>-1</allocatedMB>
+        <allocatedVCores>-1</allocatedVCores>
+        <runningContainers>-1</runningContainers>
+        <memorySeconds>206464</memorySeconds>
+        <vcoreSeconds>201</vcoreSeconds>
+        <queueUsagePercentage>0.0</queueUsagePercentage>
+        <clusterUsagePercentage>0.0</clusterUsagePercentage>
+        <preemptedResourceMB>0</preemptedResourceMB>
+        <preemptedResourceVCores>0</preemptedResourceVCores>
+        <numNonAMContainerPreempted>0</numNonAMContainerPreempted>
+        <numAMContainerPreempted>0</numAMContainerPreempted>
+        <logAggregationStatus>DISABLED</logAggregationStatus>
+        <unmanagedApplication>false</unmanagedApplication>
+        <appNodeLabelExpression></appNodeLabelExpression>
+        <amNodeLabelExpression></amNodeLabelExpression>
+        <resourceRequests>
+          <capability>
+            <memory>4096</memory>
+            <virtualCores>1</virtualCores>
+          </capability>
+          <nodeLabelExpression/>
+          <numContainers>0</numContainers>
+          <priority>
+            <priority>0</priority>
+          </priority>
+          <relaxLocality>true</relaxLocality>
+          <resourceName>*</resourceName>
+        </resourceRequests>
+        <resourceRequests>
+          <capability>
+            <memory>4096</memory>
+            <virtualCores>1</virtualCores>
+          </capability>
+          <nodeLabelExpression/>
+          <numContainers>0</numContainers>
+          <priority>
+            <priority>20</priority>
+          </priority>
+          <relaxLocality>true</relaxLocality>
+          <resourceName>host1.domain.com</resourceName>
+        </resourceRequests>
+        <resourceRequests>
+          <capability>
+            <memory>4096</memory>
+            <virtualCores>1</virtualCores>
+          </capability>
+          <nodeLabelExpression/>
+          <numContainers>0</numContainers>
+          <priority>
+            <priority>20</priority>
+          </priority>
+          <relaxLocality>true</relaxLocality>
+          <resourceName>host2.domain.com</resourceName>
+        </resourceRequests>
+    </app>
+    <app>
+        <id>application_1476912658570_0001</id>
+        <user>user1</user>
+        <name>Sleep job</name>
+        <queue>default</queue>
+        <state>FINISHED</state>
+        <finalStatus>SUCCEEDED</finalStatus>
+        <progress>100.0</progress>
+        <trackingUI>History</trackingUI>
+        <trackingUrl>http://host.domain.com:8088/cluster/app/application_1476912658570_0001</trackingUrl>
+        <diagnostics>...</diagnostics>
+        <clusterId>1476912658570</clusterId>
+        <applicationType>YARN</applicationType>
+        <applicationTags></applicationTags>
+        <priority>-1</priority>
+        <startedTime>1476913464750</startedTime>
+        <finishedTime>1476913863175</finishedTime>
+        <elapsedTime>398425</elapsedTime>
+        <amContainerLogs>http://host.domain.com:8042/node/containerlogs/container_1476912658570_0001_02_000001/user1</amContainerLogs>
+        <amHostHttpAddress>host.domain.com:8042</amHostHttpAddress>
+        <allocatedMB>-1</allocatedMB>
+        <allocatedVCores>-1</allocatedVCores>
+        <runningContainers>-1</runningContainers>
+        <memorySeconds>205410</memorySeconds>
+        <vcoreSeconds>200</vcoreSeconds>
+        <queueUsagePercentage>0.0</queueUsagePercentage>
+        <clusterUsagePercentage>0.0</clusterUsagePercentage>
+        <preemptedResourceMB>0</preemptedResourceMB>
+        <preemptedResourceVCores>0</preemptedResourceVCores>
+        <numNonAMContainerPreempted>0</numNonAMContainerPreempted>
+        <numAMContainerPreempted>0</numAMContainerPreempted>
+        <logAggregationStatus>DISABLED</logAggregationStatus>
+        <unmanagedApplication>false</unmanagedApplication>
+        <appNodeLabelExpression></appNodeLabelExpression>
+        <amNodeLabelExpression></amNodeLabelExpression>
+        <resourceRequests>
+          <capability>
+            <memory>4096</memory>
+            <virtualCores>1</virtualCores>
+          </capability>
+          <nodeLabelExpression/>
+          <numContainers>0</numContainers>
+          <priority>
+            <priority>0</priority>
+          </priority>
+          <relaxLocality>true</relaxLocality>
+          <resourceName>*</resourceName>
+        </resourceRequests>
+        <resourceRequests>
+          <capability>
+            <memory>4096</memory>
+            <virtualCores>1</virtualCores>
+          </capability>
+          <nodeLabelExpression/>
+          <numContainers>0</numContainers>
+          <priority>
+            <priority>20</priority>
+          </priority>
+          <relaxLocality>true</relaxLocality>
+          <resourceName>host1.domain.com</resourceName>
+        </resourceRequests>
+        <resourceRequests>
+          <capability>
+            <memory>4096</memory>
+            <virtualCores>1</virtualCores>
+          </capability>
+          <nodeLabelExpression/>
+          <numContainers>0</numContainers>
+          <priority>
+            <priority>20</priority>
+          </priority>
+          <relaxLocality>true</relaxLocality>
+          <resourceName>host2.domain.com</resourceName>
+        </resourceRequests>
+    </app>
 </apps>
 ```
 
@@ -1310,25 +1843,38 @@ Note that depending on security settings a user might not be able to see all the
 | id | string | The application id |
 | user | string | The user who started the application |
 | name | string | The application name |
-| Application Type | string | The application type |
 | queue | string | The queue the application was submitted to |
 | state | string | The application state according to the ResourceManager - valid values are members of the YarnApplicationState enum: NEW, NEW\_SAVING, SUBMITTED, ACCEPTED, RUNNING, FINISHED, FAILED, KILLED |
-| finalStatus | string | The final status of the application if finished - reported by the application itself - valid values are: UNDEFINED, SUCCEEDED, FAILED, KILLED |
+| finalStatus | string | The final status of the application if finished - reported by the application itself - valid values are the members of the FinalApplicationStatus enum: UNDEFINED, SUCCEEDED, FAILED, KILLED |
 | progress | float | The progress of the application as a percent |
 | trackingUI | string | Where the tracking url is currently pointing - History (for history server) or ApplicationMaster |
 | trackingUrl | string | The web URL that can be used to track the application |
 | diagnostics | string | Detailed diagnostics information |
 | clusterId | long | The cluster id |
+| applicationType | string | The application type |
+| applicationTags | string | Comma separated tags of an application |
+| priority | string | Priority of the submitted application |
 | startedTime | long | The time in which application started (in ms since epoch) |
 | finishedTime | long | The time in which the application finished (in ms since epoch) |
 | elapsedTime | long | The elapsed time since the application started (in ms) |
 | amContainerLogs | string | The URL of the application master container logs |
 | amHostHttpAddress | string | The nodes http address of the application master |
+| amRPCAddress | string | The RPC address of the application master |
 | allocatedMB | int | The sum of memory in MB allocated to the application's running containers |
 | allocatedVCores | int | The sum of virtual cores allocated to the application's running containers |
 | runningContainers | int | The number of containers currently running for the application |
 | memorySeconds | long | The amount of memory the application has allocated (megabyte-seconds) |
 | vcoreSeconds | long | The amount of CPU resources the application has allocated (virtual core-seconds) |
+| queueUsagePercentage | float | The percentage of resources of the queue that the app is using |
+| clusterUsagePercentage | float | The percentage of resources of the cluster that the app is using. |
+| preemptedResourceMB | long | Memory used by preempted container |
+| preemptedResourceVCores | long | Number of virtual cores used by preempted container |
+| numNonAMContainerPreempted | int | Number of standard containers preempted |
+| numAMContainerPreempted | int | Number of application master containers preempted |
+| logAggregationStatus | string | Status of log aggregation - valid values are the members of the LogAggregationStatus enum: DISABLED, NOT\_START, RUNNING, RUNNING\_WITH\_FAILURE, SUCCEEDED, FAILED, TIME\_OUT |
+| unmanagedApplication | boolean | Is the application unmanaged. |
+| appNodeLabelExpression | string | Node Label expression which is used to identify the nodes on which application's containers are expected to run by default.|
+| amNodeLabelExpression | string | Node Label expression which is used to identify the node on which application's  AM container is expected to run.|
 
 ### Response Examples
 
@@ -1336,7 +1882,7 @@ Note that depending on security settings a user might not be able to see all the
 
 HTTP Request:
 
-      GET http://<rm http address:port>/ws/v1/cluster/apps/application_1326821518301_0005
+      GET http://<rm http address:port>/ws/v1/cluster/apps/application_1476912658570_0002
 
 Response Header:
 
@@ -1349,27 +1895,42 @@ Response Body:
 
 ```json
 {
-   "app" : {
-      "finishedTime" : 1326824991300,
-      "amContainerLogs" : "http://host.domain.com:8042/node/containerlogs/container_1326821518301_0005_01_000001",
-      "trackingUI" : "History",
-      "state" : "FINISHED",
-      "user" : "user1",
-      "id" : "application_1326821518301_0005",
-      "clusterId" : 1326821518301,
-      "finalStatus" : "SUCCEEDED",
-      "amHostHttpAddress" : "host.domain.com:8042",
-      "progress" : 100,
-      "name" : "Sleep job",
-      "applicationType" : "Yarn",
-      "startedTime" : 1326824544552,
-      "elapsedTime" : 446748,
-      "diagnostics" : "",
-      "trackingUrl" : "http://host.domain.com:8088/proxy/application_1326821518301_0005/jobhistory/job/job_1326821518301_5_5",
-      "queue" : "a1",
-      "memorySeconds" : 151730,
-      "vcoreSeconds" : 103
-   }
+  "app": {
+    "id": "application_1476912658570_0002",
+    "user": "user2",
+    "name": "word count",
+    "queue": "default",
+    "state": "FINISHED",
+    "finalStatus": "SUCCEEDED",
+    "progress": 100,
+    "trackingUI": "History",
+    "trackingUrl": "http://host.domain.com:8088/cluster/app/application_1476912658570_0002",
+    "diagnostics": "...",
+    "clusterId": 1476912658570,
+    "applicationType": "YARN",
+    "applicationTags": "",
+    "priority": -1,
+    "startedTime": 1476913457320,
+    "finishedTime": 1476913761898,
+    "elapsedTime": 304578,
+    "amContainerLogs": "http://host.domain.com:8042/node/containerlogs/container_1476912658570_0002_02_000001/dr.who",
+    "amHostHttpAddress": "host.domain.com:8042",
+    "allocatedMB": -1,
+    "allocatedVCores": -1,
+    "runningContainers": -1,
+    "memorySeconds": 206464,
+    "vcoreSeconds": 201,
+    "queueUsagePercentage": 0,
+    "clusterUsagePercentage": 0,
+    "preemptedResourceMB": 0,
+    "preemptedResourceVCores": 0,
+    "numNonAMContainerPreempted": 0,
+    "numAMContainerPreempted": 0,
+    "logAggregationStatus": "DISABLED",
+    "unmanagedApplication": false,
+    "appNodeLabelExpression": "",
+    "amNodeLabelExpression": ""
+  }
 }
 ```
 
@@ -1392,24 +1953,40 @@ Response Body:
 ```xml
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <app>
-  <id>application_1326821518301_0005</id>
-  <user>user1</user>
-  <name>Sleep job</name>
-  <queue>a1</queue>
-  <state>FINISHED</state>
-  <finalStatus>SUCCEEDED</finalStatus>
-  <progress>100.0</progress>
-  <trackingUI>History</trackingUI>
-  <trackingUrl>http://host.domain.com:8088/proxy/application_1326821518301_0005/jobhistory/job/job_1326821518301_5_5</trackingUrl>
-  <diagnostics/>
-  <clusterId>1326821518301</clusterId>
-  <startedTime>1326824544552</startedTime>
-  <finishedTime>1326824991300</finishedTime>
-  <elapsedTime>446748</elapsedTime>
-  <amContainerLogs>http://host.domain.com:8042/node/containerlogs/container_1326821518301_0005_01_000001</amContainerLogs>
-  <amHostHttpAddress>host.domain.com:8042</amHostHttpAddress>
-  <memorySeconds>151730</memorySeconds>
-  <vcoreSeconds>103</vcoreSeconds>
+    <id>application_1476912658570_0002</id>
+    <user>user2</user>
+    <name>word count</name>
+    <queue>default</queue>
+    <state>FINISHED</state>
+    <finalStatus>SUCCEEDED</finalStatus>
+    <progress>100.0</progress>
+    <trackingUI>History</trackingUI>
+    <trackingUrl>http://host.domain.com:8088/cluster/app/application_1476912658570_0002</trackingUrl>
+    <diagnostics>...</diagnostics>
+    <clusterId>1476912658570</clusterId>
+    <applicationType>YARN</applicationType>
+    <applicationTags></applicationTags>
+    <priority>-1</priority>
+    <startedTime>1476913457320</startedTime>
+    <finishedTime>1476913761898</finishedTime>
+    <elapsedTime>304578</elapsedTime>
+    <amContainerLogs>http://host.domain.com:8042/node/containerlogs/container_1476912658570_0002_02_000001/dr.who</amContainerLogs>
+    <amHostHttpAddress>host.domain.com:8042</amHostHttpAddress>
+    <allocatedMB>-1</allocatedMB>
+    <allocatedVCores>-1</allocatedVCores>
+    <runningContainers>-1</runningContainers>
+    <memorySeconds>206464</memorySeconds>
+    <vcoreSeconds>201</vcoreSeconds>
+    <queueUsagePercentage>0.0</queueUsagePercentage>
+    <clusterUsagePercentage>0.0</clusterUsagePercentage>
+    <preemptedResourceMB>0</preemptedResourceMB>
+    <preemptedResourceVCores>0</preemptedResourceVCores>
+    <numNonAMContainerPreempted>0</numNonAMContainerPreempted>
+    <numAMContainerPreempted>0</numAMContainerPreempted>
+    <logAggregationStatus>DISABLED</logAggregationStatus>
+    <unmanagedApplication>false</unmanagedApplication>
+    <appNodeLabelExpression></appNodeLabelExpression>
+    <amNodeLabelExpression></amNodeLabelExpression>
 </app>
 ```
 
@@ -1566,33 +2143,51 @@ Response Body:
     [
       {
         "rack":"\/default-rack",
-        "state":"NEW",
-        "id":"h2:1235",
-        "nodeHostName":"h2",
-        "nodeHTTPAddress":"h2:2",
-        "healthStatus":"Healthy",
-        "lastHealthUpdate":1324056895432,
-        "healthReport":"Healthy",
+        "state":"RUNNING",
+        "id":"host.domain.com:54158",
+        "nodeHostName":"host.domain.com",
+        "nodeHTTPAddress":"host.domain.com:8042",
+        "lastHealthUpdate": 1476995346399,
+        "version": "3.0.0-alpha2-SNAPSHOT",
+        "healthReport":"",
         "numContainers":0,
         "usedMemoryMB":0,
         "availMemoryMB":8192,
         "usedVirtualCores":0,
-        "availableVirtualCores":8
+        "availableVirtualCores":8,
+        "resourceUtilization":
+        {
+          "nodePhysicalMemoryMB":1027,
+          "nodeVirtualMemoryMB":1027,
+          "nodeCPUUsage":0.016661113128066063,
+          "aggregatedContainersPhysicalMemoryMB":0,
+          "aggregatedContainersVirtualMemoryMB":0,
+          "containersCPUUsage":0
+        }
       },
       {
         "rack":"\/default-rack",
-        "state":"NEW",
-        "id":"h1:1234",
-        "nodeHostName":"h1",
-        "nodeHTTPAddress":"h1:2",
-        "healthStatus":"Healthy",
-        "lastHealthUpdate":1324056895092,
-        "healthReport":"Healthy",
+        "state":"RUNNING",
+        "id":"host.domain.com:54158",
+        "nodeHostName":"host.domain.com",
+        "nodeHTTPAddress":"host.domain.com:8042",
+        "lastHealthUpdate":1476995346399,
+        "version":"3.0.0-alpha2-SNAPSHOT",
+        "healthReport":"",
         "numContainers":0,
         "usedMemoryMB":0,
         "availMemoryMB":8192,
         "usedVirtualCores":0,
-        "availableVirtualCores":8
+        "availableVirtualCores":8,
+        "resourceUtilization":
+        {
+          "nodePhysicalMemoryMB":1027,
+          "nodeVirtualMemoryMB":1027,
+          "nodeCPUUsage":0.016661113128066063,
+          "aggregatedContainersPhysicalMemoryMB":0,
+          "aggregatedContainersVirtualMemoryMB":0,
+          "containersCPUUsage":0
+        }
       }
     ]
   }
@@ -1621,32 +2216,48 @@ Response Body:
   <node>
     <rack>/default-rack</rack>
     <state>RUNNING</state>
-    <id>h2:1234</id>
-    <nodeHostName>h2</nodeHostName>
-    <nodeHTTPAddress>h2:2</nodeHTTPAddress>
-    <healthStatus>Healthy</healthStatus>
-    <lastHealthUpdate>1324333268447</lastHealthUpdate>
-    <healthReport>Healthy</healthReport>
+    <id>host1.domain.com:54158</id>
+    <nodeHostName>host1.domain.com</nodeHostName>
+    <nodeHTTPAddress>host1.domain.com:8042</nodeHTTPAddress>
+    <lastHealthUpdate>1476995346399</lastHealthUpdate>
+    <version>3.0.0-SNAPSHOT</version>
+    <healthReport></healthReport>
     <numContainers>0</numContainers>
     <usedMemoryMB>0</usedMemoryMB>
-    <availMemoryMB>5120</availMemoryMB>
+    <availMemoryMB>8192</availMemoryMB>
     <usedVirtualCores>0</usedVirtualCores>
     <availableVirtualCores>8</availableVirtualCores>
+    <resourceUtilization>
+        <nodePhysicalMemoryMB>1027</nodePhysicalMemoryMB>
+        <nodeVirtualMemoryMB>1027</nodeVirtualMemoryMB>
+        <nodeCPUUsage>0.006664445623755455</nodeCPUUsage>
+        <aggregatedContainersPhysicalMemoryMB>0</aggregatedContainersPhysicalMemoryMB>
+        <aggregatedContainersVirtualMemoryMB>0</aggregatedContainersVirtualMemoryMB>
+        <containersCPUUsage>0.0</containersCPUUsage>
+    </resourceUtilization>
   </node>
   <node>
     <rack>/default-rack</rack>
     <state>RUNNING</state>
-    <id>h1:1234</id>
-    <nodeHostName>h1</nodeHostName>
-    <nodeHTTPAddress>h1:2</nodeHTTPAddress>
-    <healthStatus>Healthy</healthStatus>
-    <lastHealthUpdate>1324333268447</lastHealthUpdate>
-    <healthReport>Healthy</healthReport>
+    <id>host2.domain.com:54158</id>
+    <nodeHostName>host2.domain.com</nodeHostName>
+    <nodeHTTPAddress>host2.domain.com:8042</nodeHTTPAddress>
+    <lastHealthUpdate>1476995346399</lastHealthUpdate>
+    <version>3.0.0-SNAPSHOT</version>
+    <healthReport></healthReport>
     <numContainers>0</numContainers>
     <usedMemoryMB>0</usedMemoryMB>
-    <availMemoryMB>5120</availMemoryMB>
+    <availMemoryMB>8192</availMemoryMB>
     <usedVirtualCores>0</usedVirtualCores>
     <availableVirtualCores>8</availableVirtualCores>
+    <resourceUtilization>
+        <nodePhysicalMemoryMB>1027</nodePhysicalMemoryMB>
+        <nodeVirtualMemoryMB>1027</nodeVirtualMemoryMB>
+        <nodeCPUUsage>0.006664445623755455</nodeCPUUsage>
+        <aggregatedContainersPhysicalMemoryMB>0</aggregatedContainersPhysicalMemoryMB>
+        <aggregatedContainersVirtualMemoryMB>0</aggregatedContainersVirtualMemoryMB>
+        <containersCPUUsage>0.0</containersCPUUsage>
+    </resourceUtilization>
   </node>
 </nodes>
 ```
@@ -1675,18 +2286,30 @@ Use the following URI to obtain a Node Object, from a node identified by the nod
 | Item | Data Type | Description |
 |:---- |:---- |:---- |
 | rack | string | The rack location of this node |
-| state | string | State of the node - valid values are: NEW, RUNNING, UNHEALTHY, DECOMMISSIONED, LOST, REBOOTED |
+| state | string | State of the node - valid values are: NEW, RUNNING, UNHEALTHY, DECOMMISSIONING, DECOMMISSIONED, LOST, REBOOTED |
 | id | string | The node id |
 | nodeHostName | string | The host name of the node |
 | nodeHTTPAddress | string | The nodes HTTP address |
-| healthStatus | string | The health status of the node - Healthy or Unhealthy |
-| healthReport | string | A detailed health report |
 | lastHealthUpdate | long | The last time the node reported its health (in ms since epoch) |
+| version | string | Version of hadoop running on node |
+| healthReport | string | A detailed health report |
+| numContainers | int | The total number of containers currently running on the node |
 | usedMemoryMB | long | The total amount of memory currently used on the node (in MB) |
 | availMemoryMB | long | The total amount of memory currently available on the node (in MB) |
 | usedVirtualCores | long | The total number of vCores currently used on the node |
 | availableVirtualCores | long | The total number of vCores available on the node |
-| numContainers | int | The total number of containers currently running on the node |
+| resourceUtilization | object | Resource utilization on the node |
+
+The *resourceUtilization* object contains the following elements:
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| nodePhysicalMemoryMB | int | Node physical memory utilization |
+| nodeVirtualMemoryMB | int | Node virtual memory utilization |
+| nodeCPUUsage | double | Node CPU utilization |
+| aggregatedContainersPhysicalMemoryMB | int | The aggregated physical memory utilization of the containers |
+| aggregatedContainersVirtualMemoryMB | int | The aggregated virtual memory utilization of the containers |
+| containersCPUUsage | double | The aggregated CPU utilization of the containers |
 
 ### Response Examples
 
@@ -1710,18 +2333,27 @@ Response Body:
   "node":
   {
     "rack":"\/default-rack",
-    "state":"NEW",
-    "id":"h2:1235",
-    "nodeHostName":"h2",
-    "nodeHTTPAddress":"h2:2",
-    "healthStatus":"Healthy",
-    "lastHealthUpdate":1324056895432,
-    "healthReport":"Healthy",
+    "state":"RUNNING",
+    "id":"host.domain.com:54158",
+    "nodeHostName":"host.domain.com",
+    "nodeHTTPAddress":"host.domain.com:8042",
+    "lastHealthUpdate":1476916746399,
+    "version":"3.0.0-SNAPSHOT",
+    "healthReport":"",
     "numContainers":0,
     "usedMemoryMB":0,
-    "availMemoryMB":5120,
+    "availMemoryMB":8192,
     "usedVirtualCores":0,
-    "availableVirtualCores":8
+    "availableVirtualCores":8,
+    "resourceUtilization":
+    {
+      "nodePhysicalMemoryMB": 968,
+      "nodeVirtualMemoryMB": 968,
+      "nodeCPUUsage": 0.01332889124751091,
+      "aggregatedContainersPhysicalMemoryMB": 0,
+      "aggregatedContainersVirtualMemoryMB": 0,
+      "containersCPUUsage": 0
+    }
   }
 }
 ```
@@ -1746,18 +2378,26 @@ Response Body:
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <node>
   <rack>/default-rack</rack>
-  <state>NEW</state>
-  <id>h2:1235</id>
-  <nodeHostName>h2</nodeHostName>
-  <nodeHTTPAddress>h2:2</nodeHTTPAddress>
-  <healthStatus>Healthy</healthStatus>
-  <lastHealthUpdate>1324333268447</lastHealthUpdate>
-  <healthReport>Healthy</healthReport>
+  <state>RUNNING</state>
+  <id>host.domain.com:54158</id>
+  <nodeHostName>host.domain.com</nodeHostName>
+  <nodeHTTPAddress>host.domain.com:8042</nodeHTTPAddress>
+  <lastHealthUpdate>1476916746399</lastHealthUpdate>
+  <version>3.0.0-SNAPSHOT</version>
+  <healthReport></healthReport>
   <numContainers>0</numContainers>
   <usedMemoryMB>0</usedMemoryMB>
-  <availMemoryMB>5120</availMemoryMB>
+  <availMemoryMB>8192</availMemoryMB>
   <usedVirtualCores>0</usedVirtualCores>
-  <availableVirtualCores>5120</availableVirtualCores>
+  <availableVirtualCores>8</availableVirtualCores>
+  <resourceUtilization>
+    <nodePhysicalMemoryMB>968</nodePhysicalMemoryMB>
+    <nodeVirtualMemoryMB>968</nodeVirtualMemoryMB>
+    <nodeCPUUsage>0.01332889124751091</nodeCPUUsage>
+    <aggregatedContainersPhysicalMemoryMB>0</aggregatedContainersPhysicalMemoryMB>
+    <aggregatedContainersVirtualMemoryMB>0</aggregatedContainersVirtualMemoryMB>
+    <containersCPUUsage>0.0</containersCPUUsage>
+  </resourceUtilization>
 </node>
 ```
 
@@ -1798,7 +2438,7 @@ The *maximum-resource-capabilites* object contains the following elements:
 
 | Item | Data Type | Description |
 |:---- |:---- |:---- |
-| memory | int | The maxiumim memory available for a container |
+| memory | int | The maximum memory available for a container |
 | vCores | int | The maximum number of cores available for a container |
 
 ### Response Examples
@@ -1889,6 +2529,10 @@ Please note that this feature is currently in the alpha stage and may change in 
 | application-type | string | The application type(MapReduce, Pig, Hive, etc) |
 | keep-containers-across-application-attempts | boolean | Should YARN keep the containers used by this application instead of destroying them |
 | application-tags | object | List of application tags, please see the request examples on how to speciy the tags |
+| log-aggregation-context| object | Represents all of the information needed by the NodeManager to handle the logs for this application |
+| attempt-failures-validity-interval| long | The failure number will no take attempt failures which happen out of the validityInterval into failure count|
+| reservation-id| string | Represent the unique id of the corresponding reserved resource allocation in the scheduler |
+| am-black-listing-requests| object | Contains blacklisting information such as "enable/disable AM blacklisting" and "disable failure threshold" |
 
 Elements of the *am-container-spec* object
 
@@ -1930,6 +2574,24 @@ Elements of the POST request body *resource* object
 |:---- |:---- |:---- |
 | memory | int | Memory required for each container |
 | vCores | int | Virtual cores required for each container |
+
+Elements of the POST request body *log-aggregation-context* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| log-include-pattern | string | The log files which match the defined include pattern will be uploaded when the applicaiton finishes |
+| log-exclude-pattern | string | The log files which match the defined exclude pattern will not be uploaded when the applicaiton finishes |
+| rolled-log-include-pattern | string | The log files which match the defined include pattern will be aggregated in a rolling fashion |
+| rolled-log-exclude-pattern | string | The log files which match the defined exclude pattern will not be aggregated in a rolling fashion |
+| log-aggregation-policy-class-name | string | The policy which will be used by NodeManager to aggregate the logs |
+| log-aggregation-policy-parameters | string | The parameters passed to the policy class |
+
+Elements of the POST request body *am-black-listing-requests* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| am-black-listing-enabled | boolean | Whether AM Blacklisting is enabled |
+| disable-failure-threshold | float | AM Blacklisting disable failure threshold |
 
 **JSON response**
 
@@ -1996,7 +2658,23 @@ HTTP Request:
       "vCores":1
     },
     "application-type":"YARN",
-    "keep-containers-across-application-attempts":false
+    "keep-containers-across-application-attempts":false,
+    "log-aggregation-context":
+    {
+      "log-include-pattern":"file1",
+      "log-exclude-pattern":"file2",
+      "rolled-log-include-pattern":"file3",
+      "rolled-log-exclude-pattern":"file4",
+      "log-aggregation-policy-class-name":"org.apache.hadoop.yarn.server.nodemanager.containermanager.logaggregation.AllContainerLogAggregationPolicy",
+      "log-aggregation-policy-parameters":""
+    },
+    "attempt-failures-validity-interval":3600000,
+    "reservation-id":"reservation_1454114874_1",
+    "am-black-listing-requests":
+    {
+      "am-black-listing-enabled":true,
+      "disable-failure-threshold":0.01
+    }
   }
 ```
 
@@ -2098,6 +2776,20 @@ Content-Type: application/xml
     <tag>tag 2</tag>
     <tag>tag1</tag>
   </application-tags>
+  <log-aggregation-context>
+    <log-include-pattern>file1</log-include-pattern>
+    <log-exclude-pattern>file2</log-exclude-pattern>
+    <rolled-log-include-pattern>file3</rolled-log-include-pattern>
+    <rolled-log-exclude-pattern>file4</rolled-log-exclude-pattern>
+    <log-aggregation-policy-class-name>org.apache.hadoop.yarn.server.nodemanager.containermanager.logaggregation.AllContainerLogAggregationPolicy</log-aggregation-policy-class-name>
+    <log-aggregation-policy-parameters></log-aggregation-policy-parameters>
+  </log-aggregation-context>
+  <attempt-failures-validity-interval>3600000</attempt-failures-validity-interval>
+  <reservation-id>reservation_1454114874_1</reservation-id>
+  <am-black-listing-requests>
+    <am-black-listing-enabled>true</am-black-listing-enabled>
+    <disable-failure-threshold>0.01</disable-failure-threshold>
+  </am-black-listing-requests>
 </application-submission-context>
 ```
 
@@ -2446,6 +3138,125 @@ Response Body:
       <queue>test</queue>
     </appqueue>
 
+Cluster Application Priority API
+-----------------------------
+
+With the application priority API, you can query the priority of a submitted app as well update priority of a running or accepted app using a PUT request specifying the target priority. To perform the PUT operation, authentication has to be setup for the RM web services. In addition, you must be authorized to update the app priority. Currently you can only update the app priority if you're using the Capacity scheduler.
+
+Please note that in order to update priority of an app, you must have an authentication filter setup for the HTTP interface. The functionality requires that a username is set in the HttpServletRequest. If no filter is setup, the response will be an "UNAUTHORIZED" response.
+
+This feature is currently in the alpha stage and may change in the future.
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/apps/{appid}/priority
+
+### HTTP Operations Supported
+
+      * GET
+      * PUT
+
+### Query Parameters Supported
+
+      None
+
+### Elements of *apppriority* object
+
+When you make a request for the state of an app, the information returned has the following fields
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| priority | int | The application priority |
+
+### Response Examples
+
+**JSON responses**
+
+HTTP Request
+
+      GET http://<rm http address:port>/ws/v1/cluster/apps/application_1399397633663_0003/priority
+
+Response Header:
+
+    HTTP/1.1 200 OK
+    Content-Type: application/json
+    Transfer-Encoding: chunked
+    Server: Jetty(6.1.26)
+
+Response Body:
+
+    {
+      "priority":0
+    }
+
+HTTP Request
+
+      PUT http://<rm http address:port>/ws/v1/cluster/apps/application_1399397633663_0003/priority
+
+Request Body:
+
+    {
+      "priority":8
+    }
+
+Response Header:
+
+    HTTP/1.1 200 OK
+    Content-Type: application/json
+    Transfer-Encoding: chunked
+    Server: Jetty(6.1.26)
+
+Response Body:
+
+    {
+      "priority":8
+    }
+
+**XML responses**
+
+HTTP Request
+
+      GET http://<rm http address:port>/ws/v1/cluster/apps/application_1399397633663_0003/priority
+
+Response Header:
+
+    HTTP/1.1 200 OK
+    Content-Type: application/xml
+    Content-Length: 98
+    Server: Jetty(6.1.26)
+
+Response Body:
+
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <applicationpriority>
+      <priority>0</priority>
+    </applicationpriority>
+
+HTTP Request
+
+      PUT http://<rm http address:port>/ws/v1/cluster/apps/application_1399397633663_0003/priority
+
+Request Body:
+
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <applicationpriority>
+      <priority>8</priority>
+    </applicationpriority>
+
+Response Header:
+
+    HTTP/1.1 200 OK
+    Content-Type: application/xml
+    Content-Length: 95
+    Server: Jetty(6.1.26)
+
+Response Body:
+
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <applicationpriority>
+      <priority>8</priority>
+    </applicationpriority>
+
 Cluster Delegation Tokens API
 -----------------------------
 
@@ -2646,3 +3457,976 @@ Once setup, delegation tokens can be fetched using the web services listed above
       {
         "state":"KILLED"
       }
+
+Cluster Reservation API List
+----------------------------
+
+The Cluster Reservation API can be used to list reservations. When listing reservations the user must specify the constraints in terms of a queue, reservation-id, start time or end time. The user must also specify whether or not to include the full resource allocations of the reservations being listed. The resulting page returns a response containing information related to the reservation such as the acceptance time, the user, the resource allocations, the reservation-id, as well as the reservation definition.
+
+### URI
+
+    * http://<rm http address:port>/ws/v1/cluster/reservation/list
+
+### HTTP Operations Supported
+
+    * GET
+
+### Query Parameters Supported
+
+      * queue - the queue name containing the reservations to be listed. if not set, this value will default to "default".
+      * reservation-id - the reservation-id of the reservation which will be listed. If this parameter is present, start-time and end-time will be ignored.
+      * start-time - reservations that end after this start-time will be listed. If unspecified or invalid, this will default to 0.
+      * end-time - reservations that start after this end-time will be listed. If unspecified or invalid, this will default to Long.MaxValue.
+      * include-resource-allocations - true or false. If true, the resource allocations of the reservation will be included in the response. If false, no resource allocations will be included in the response. This will default to false.
+
+### Elements of the *ReservationListInfo* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservations | array of ReservationInfo(JSON) / zero or more ReservationInfo objects(XML) | The reservations that are listed with the given query |
+
+### Elements of the *reservations* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| acceptance-time | long | Time that the reservation was accepted |
+| resource-allocations | array of ResourceAllocationInfo(JSON) / zero or more ResourceAllocationInfo objects(XML) | Resource allocation information for the reservation |
+| reservation-id | A single ReservationId string | The unique reservation identifier |
+| reservation-definition | A single ReservationDefinition Object | A set of constraints representing the need for resources over time of a user |
+| user | string | User who made the reservation |
+
+### Elements of the *resource-allocations* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| resource | A single Resource object | The resources allocated for the reservation allocation |
+| startTime | long | Start time that the resource is allocated for |
+| endTime | long | End time that the resource is allocated for |
+
+### Elements of the  *resource* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| memory | int | The memory allocated for the reservation allocation |
+| vCores | int | The number of cores allocated for the reservation allocation |
+
+### Elements of the *reservation-definition* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| arrival | long | The UTC time representation of the earliest time this reservation can be allocated from. |
+| deadline | long | The UTC time representation of the latest time within which this reservation can be allocated. |
+| reservation-name | string | A mnemonic name of the reservation (not a valid identifier). |
+| reservation-requests | object | A list of "stages" or phases of this reservation, each describing resource requirements and duration |
+| priority | int | An integer representing the priority of the reservation. A lower number for priority indicates a higher priority reservation. Recurring reservations are always higher priority than non-recurring reservations. Priority for non-recurring reservations are only compared with non-recurring reservations. Likewise with recurring reservations. |
+
+### Elements of the *reservation-requests* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservation-request-interpreter | int | A numeric choice of how to interpret the set of ReservationRequest: 0 is an ANY, 1 for ALL, 2 for ORDER, 3 for ORDER\_NO\_GAP |
+| reservation-request | object | The description of the resource and time capabilities for a phase/stage of this reservation |
+
+### Elements of the *reservation-request* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| duration | long | The duration of a ReservationRequest in milliseconds (amount of consecutive milliseconds a satisfiable allocation for this portion of the reservation should exist for). |
+| num-containers | int | The number of containers required in this phase of the reservation (capture the maximum parallelism of the job(s) in this phase). |
+| min-concurrency | int | The minimum number of containers that must be concurrently allocated to satisfy this allocation (capture min-parallelism, useful to express gang semantics). |
+| capability | object | Allows to specify the size of each container (memory, vCores).|
+
+### GET Response Examples
+
+Get requests can be used to list reservations to the ResourceManager. As mentioned above, information pertaining to the reservation is returned upon success (in the body of the answer). Successful list requests result in a 200 response. Please note that in order to submit a reservation, you must have an authentication filter setup for the HTTP interface. the functionality requires that the username is set in the HttpServletRequest. If no filter is setup, the response will be an "UNAUTHORIZED" response. Please note that this feature is currently in the alpha stage and may change in the future.
+
+**JSON response**
+
+This request return all active reservations within the start time 1455159355000 and 1475160036000. Since include-resource-allocations is set to true, the full set of resource allocations will be included in the response.
+
+HTTP Request:
+
+      GET http://<rm http address:port>/ws/v1/cluster/reservation/list?queue=dedicated&start-time=1455159355000&end-time=1475160036000&include-resource-allocations=true
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+      Transfer-Encoding: chunked
+      Cache-Control: no-cache
+      Content-Encoding: gzip
+      Pragma: no-cache,no-cache
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```json
+{
+  "reservations": {
+    "acceptance-time": "1455160008442",
+    "user": "submitter",
+    "resource-allocations": [
+      {
+        "resource": {
+          "memory": "0",
+          "vCores": "0"
+        },
+        "startTime": "1465541532000",
+        "endTime": "1465542250000"
+      },
+      {
+        "resource": {
+          "memory": "1024",
+          "vCores": "1"
+        },
+        "startTime": "1465542250000",
+        "endTime": "1465542251000"
+      },
+      {
+        "resource": {
+          "memory": "0",
+          "vCores": "0"
+        },
+        "startTime": "1465542251000",
+        "endTime": "1465542252000"
+      }
+    ],
+    "reservation-id": "reservation_1458852875788_0002",
+    "reservation-definition": {
+      "arrival": "1465541532000",
+      "deadline": "1465542252000",
+      "reservation-requests": {
+        "reservation-request-interpreter": "0",
+        "reservation-request": {
+          "capability": {
+            "memory": "1024",
+            "vCores": "1"
+          },
+          "min-concurrency": "1",
+          "num-containers": "1",
+          "duration": "60"
+        }
+      },
+      "reservation-name": "res_1"
+    }
+  }
+}
+```
+
+**XML Response**
+
+HTTP Request:
+
+      GET http://<rm http address:port>/ws/v1/cluster/reservation/list?queue=dedicated&start-time=1455159355000&end-time=1475160036000&include-resource-allocations=true
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/xml
+      Content-length: 395
+      Cache-Control: no-cache
+      Content-Encoding: gzip
+      Pragma: no-cache,no-cache
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <reservationListInfo>
+        <reservations>
+        <acceptance-time>1455233661003</acceptance-time>
+        <user>dr.who</user>
+        <resource-allocations>
+            <resource>
+                <memory>0</memory>
+                <vCores>0</vCores>
+            </resource>
+            <startTime>1465541532000</startTime>
+            <endTime>1465542251000</endTime>
+        </resource-allocations>
+        <resource-allocations>
+            <resource>
+                <memory>1024</memory>
+                <vCores>1</vCores>
+            </resource>
+            <startTime>1465542251000</startTime>
+            <endTime>1465542252000</endTime>
+        </resource-allocations>
+        <reservation-id>reservation_1458852875788_0002</reservation-id>
+        <reservation-definition>
+            <arrival>1465541532000</arrival>
+            <deadline>1465542252000</deadline>
+            <reservation-requests>
+                <reservation-request-interpreter>0</reservation-request-interpreter>
+                <reservation-request>
+                    <capability>
+                        <memory>1024</memory>
+                        <vCores>1</vCores>
+                    </capability>
+                    <min-concurrency>1</min-concurrency>
+                    <num-containers>1</num-containers>
+                    <duration>60</duration>
+                </reservation-request>
+            </reservation-requests>
+            <reservation-name>res_1</reservation-name>
+        </reservation-definition>
+    </reservations>
+</reservationListInfo>
+```
+
+Cluster Reservation API Create
+---------------------------
+
+Use the New Reservation API, to obtain a reservation-id which can then be used as part of the [Cluster Reservation API Submit](#Cluster_Reservation_API_Submit) to submit reservations.
+
+This feature is currently in the alpha stage and may change in the future.
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/reservation/new-reservation
+
+### HTTP Operations Supported
+
+      * POST
+
+### Query Parameters Supported
+
+      None
+
+### Elements of the new-reservation object
+
+The new-reservation response contains the following elements:
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservation-id | string | The newly created reservation id |
+
+### Response Examples
+
+**JSON response**
+
+HTTP Request:
+
+      POST http://<rm http address:port>/ws/v1/cluster/reservation/new-reservation
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+      Transfer-Encoding: chunked
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```json
+{
+  "reservation-id":"reservation_1404198295326_0003"
+}
+```
+
+**XML response**
+
+HTTP Request:
+
+      POST http://<rm http address:port>/ws/v1/cluster/reservation/new-reservation
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/xml
+      Content-Length: 248
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<new-reservation>
+  <reservation-id>reservation_1404198295326_0003</reservation-id>
+</new-reservation>
+```
+
+Cluster Reservation API Submit
+------------------------------
+
+The Cluster Reservation API can be used to submit reservations. When submitting a reservation the user specifies the constraints in terms of resources, and time that is required. The resulting response is successful if the reservation can be made. If a reservation-id is used to submit a reservation multiple times, the request will succeed if the reservation definition is the same, but only one reservation will be created. If the reservation definition is different, the server will respond with an error response. When the reservation is made, the user can use the reservation-id used to submit the reservation to get access to the resources by specifying it as part of [Cluster Submit Applications API](#Cluster_Applications_APISubmit_Application).
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/reservation/submit
+
+### HTTP Operations Supported
+
+      * POST
+
+### POST Response Examples
+
+POST requests can be used to submit reservations to the ResourceManager. As mentioned above, a reservation-id is returned upon success (in the body of the answer). Successful submissions result in a 200 response. Please note that in order to submit a reservation, you must have an authentication filter setup for the HTTP interface. The functionality requires that a username is set in the HttpServletRequest. If no filter is setup, the response will be an "UNAUTHORIZED" response.
+
+Please note that this feature is currently in the alpha stage and may change in the future.
+
+#### Elements of the POST request object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| queue | string | The (reservable) queue you are submitting to|
+| reservation-definition | object | A set of constraints representing the need for resources over time of a user. |
+| reservation-id | string | The reservation id to use to submit the reservation. |
+
+Elements of the *reservation-definition* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+|arrival | long | The UTC time representation of the earliest time this reservation can be allocated from. |
+| deadline | long | The UTC time representation of the latest time within which this reservation can be allocated. |
+| reservation-name | string | A mnemonic name of the reservation (not a valid identifier). |
+| reservation-requests | object | A list of "stages" or phases of this reservation, each describing resource requirements and duration |
+| priority | int | An integer representing the priority of the reservation. A lower number for priority indicates a higher priority reservation. Recurring reservations are always higher priority than non-recurring reservations. Priority for non-recurring reservations are only compared with non-recurring reservations. Likewise with recurring reservations. |
+
+Elements of the *reservation-requests* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservation-request-interpreter | int | A numeric choice of how to interpret the set of ReservationRequest: 0 is an ANY, 1 for ALL, 2 for ORDER, 3 for ORDER\_NO\_GAP |
+| reservation-request | object | The description of the resource and time capabilities for a phase/stage of this reservation |
+
+Elements of the *reservation-request* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| duration | long | The duration of a ReservationRequeust in milliseconds (amount of consecutive milliseconds a satisfiable allocation for this portion of the reservation should exist for). |
+| num-containers | int | The number of containers required in this phase of the reservation (capture the maximum parallelism of the job(s) in this phase). |
+| min-concurrency | int | The minimum number of containers that must be concurrently allocated to satisfy this allocation (capture min-parallelism, useful to express gang semantics). |
+| capability | object | Allows to specify the size of each container (memory, vCores).|
+
+Elements of the *capability* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| memory | int | the number of MB of memory for this container |
+| vCores | int | the number of virtual cores for this container |
+
+
+**JSON response**
+
+This examples contains a reservation composed of two stages (alternative to each other as the *reservation-request-interpreter* is set to 0), so that the first is shorter and "taller" and "gang"
+with exactly 220 containers for 60 seconds, while the second alternative is longer with 120 seconds duration and less tall with 110 containers (and a min-concurrency of 1 container, thus no gang semantics).
+
+HTTP Request:
+
+```json
+POST http://rmdns:8088/ws/v1/cluster/reservation/submit
+Content-Type: application/json
+{
+  "queue" : "dedicated",
+  "reservation-id":"reservation_1404198295326_0003"
+  "reservation-definition" : {
+     "arrival" : 1765541532000,
+     "deadline" : 1765542252000,
+     "reservation-name" : "res_1",
+     "reservation-requests" : {
+        "reservation-request-interpreter" : 0,
+        "reservation-request" : [
+           {
+             "duration" : 60000,
+             "num-containers" : 220,
+             "min-concurrency" : 220,
+             "capability" : {
+               "memory" : 1024,
+               "vCores" : 1
+             }
+           },
+           {
+             "duration" : 120000,
+             "num-containers" : 110,
+             "min-concurrency" : 1,
+             "capability" : {
+               "memory" : 1024,
+               "vCores" : 1
+             }
+           }
+        ]
+     }
+   }
+}
+```
+
+Response Header:
+
+200 OK
+Cache-Control:  no-cache
+Expires:  Thu, 17 Dec 2015 23:36:34 GMT, Thu, 17 Dec 2015 23:36:34 GMT
+Date:  Thu, 17 Dec 2015 23:36:34 GMT, Thu, 17 Dec 2015 23:36:34 GMT
+Pragma:  no-cache, no-cache
+Content-Type:  application/xml
+Content-Encoding:  gzip
+Content-Length:  137
+Server:  Jetty(6.1.26)
+
+Response Body:
+
+      No response body
+
+**XML response**
+
+HTTP Request:
+
+```xml
+POST http://rmdns:8088/ws/v1/cluster/reservation/submit
+Accept: application/xml
+Content-Type: application/xml
+<reservation-submission-context>
+  <queue>dedicated</queue>
+  <reservation-id>reservation_1404198295326_0003</reservation-id>
+  <reservation-definition>
+     <arrival>1765541532000</arrival>
+     <deadline>1765542252000</deadline>
+     <reservation-name>res_1</reservation-name>
+     <reservation-requests>
+        <reservation-request-interpreter>0</reservation-request-interpreter>
+        <reservation-request>
+             <duration>60000</duration>
+             <num-containers>220</num-containers>
+             <min-concurrency>220</min-concurrency>
+             <capability>
+               <memory>1024</memory>
+               <vCores>1</vCores>
+             </capability>
+        </reservation-request>
+        <reservation-request>
+             <duration>120000</duration>
+             <num-containers>110</num-containers>
+             <min-concurrency>1</min-concurrency>
+             <capability>
+               <memory>1024</memory>
+               <vCores>1</vCores>
+             </capability>
+        </reservation-request>
+     </reservation-requests>
+  </reservation-definition>
+</reservation-submission-context>
+```
+
+Response Header:
+
+200 OK
+Cache-Control:  no-cache
+Expires:  Thu, 17 Dec 2015 23:49:21 GMT, Thu, 17 Dec 2015 23:49:21 GMT
+Date:  Thu, 17 Dec 2015 23:49:21 GMT, Thu, 17 Dec 2015 23:49:21 GMT
+Pragma:  no-cache, no-cache
+Content-Type:  application/xml
+Content-Encoding:  gzip
+Content-Length:  137
+Server:  Jetty(6.1.26)
+
+Response Body:
+
+      No response body
+
+Cluster Reservation API Update
+------------------------------
+
+The Cluster Reservation API Update can be used to update existing reservations.Update of a Reservation works similarly to submit described above, but the user submits the reservation-id of an existing reservation to be updated. The semantics is a try-and-swap, successful operation will modify the existing reservation based on the requested update parameter, while a failed execution will leave the existing reservation unchanged.
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/reservation/update
+
+### HTTP Operations Supported
+
+      * POST
+
+### POST Response Examples
+
+POST requests can be used to update reservations to the ResourceManager. Successful submissions result in a 200 response, indicate in-place update of the existing reservation (id does not change). Please note that in order to update a reservation, you must have an authentication filter setup for the HTTP interface. The functionality requires that a username is set in the HttpServletRequest. If no filter is setup, the response will be an "UNAUTHORIZED" response.
+
+Please note that this feature is currently in the alpha stage and may change in the future.
+
+#### Elements of the POST request object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservation-id | string | The id of the reservation to be updated (the system automatically looks up the right queue from this)|
+| reservation-definition | object | A set of constraints representing the need for resources over time of a user. |
+
+Elements of the *reservation-definition* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+|arrival | long | The UTC time representation of the earliest time this reservation can be allocated from. |
+| deadline | long | The UTC time representation of the latest time within which this reservation can be allocated. |
+| reservation-name | string | A mnemonic name of the reservation (not a valid identifier). |
+| reservation-requests | object | A list of "stages" or phases of this reservation, each describing resource requirements and duration |
+| priority | int | An integer representing the priority of the reservation. A lower number for priority indicates a higher priority reservation. Recurring reservations are always higher priority than non-recurring reservations. Priority for non-recurring reservations are only compared with non-recurring reservations. Likewise with recurring reservations. |
+
+Elements of the *reservation-requests* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservation-request-interpreter | int | A numeric choice of how to interpret the set of ReservationRequest: 0 is an ANY, 1 for ALL, 2 for ORDER, 3 for ORDER\_NO\_GAP |
+| reservation-request | object | The description of the resource and time capabilities for a phase/stage of this reservation |
+
+Elements of the *reservation-request* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| duration | long | The duration of a ReservationRequeust in milliseconds (amount of consecutive milliseconds a satisfiable allocation for this portion of the reservation should exist for). |
+| num-containers | int | The number of containers required in this phase of the reservation (capture the maximum parallelism of the job(s) in this phase). |
+| min-concurrency | int | The minimum number of containers that must be concurrently allocated to satisfy this allocation (capture min-parallelism, useful to express gang semantics). |
+| capability | object | Allows to specify the size of each container (memory, vCores).|
+
+Elements of the *capability* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| memory | int | the number of MB of memory for this container |
+| vCores | int | the number of virtual cores for this container |
+
+
+**JSON response**
+
+This examples updates an existing reservation identified by *reservation_1449259268893_0005* with two stages (in order as the *reservation-request-interpreter* is set to 2), with the first stage being a "gang" of 10 containers for 5 minutes (min-concurrency of 10 containers) followed by a 50 containers for 10 minutes(min-concurrency of 1 container, thus no gang semantics).
+
+HTTP Request:
+
+```json
+POST http://rmdns:8088/ws/v1/cluster/reservation/update
+Accept: application/json
+Content-Type: application/json
+{
+  "reservation-id" : "reservation_1449259268893_0005",
+  "reservation-definition" : {
+     "arrival" : 1765541532000,
+     "deadline" : 1765542252000,
+     "reservation-name" : "res_1",
+     "reservation-requests" : {
+        "reservation-request-interpreter" : 2,
+        "reservation-request" : [
+           {
+             "duration" : 300000,
+             "num-containers" : 10,
+             "min-concurrency" : 10,
+             "capability" : {
+               "memory" : 1024,
+               "vCores" : 1
+             }
+           },
+           {
+             "duration" : 60000,
+             "num-containers" : 50,
+             "min-concurrency" : 1,
+             "capability" : {
+               "memory" : 1024,
+               "vCores" : 1
+             }
+           }
+          ]
+     }
+   }
+}
+```
+
+Response Header:
+
+200 OK
+Cache-Control:  no-cache
+Expires:  Thu, 17 Dec 2015 23:36:34 GMT, Thu, 17 Dec 2015 23:36:34 GMT
+Date:  Thu, 17 Dec 2015 23:36:34 GMT, Thu, 17 Dec 2015 23:36:34 GMT
+Pragma:  no-cache, no-cache
+Content-Type:  application/json
+Content-Encoding:  gzip
+Content-Length:  137
+Server:  Jetty(6.1.26)
+
+Response Body:
+
+      No response body
+
+**XML response**
+
+HTTP Request:
+
+```xml
+POST http://rmdns:8088/ws/v1/cluster/reservation/update
+Accept: application/xml
+Content-Type: application/xml
+<reservation-update-context>
+  <reservation-id>reservation_1449259268893_0005</reservation-id>
+  <reservation-definition>
+     <arrival>1765541532000</arrival>
+     <deadline>1765542252000</deadline>
+     <reservation-name>res_1</reservation-name>
+     <reservation-requests>
+        <reservation-request-interpreter>2</reservation-request-interpreter>
+        <reservation-request>
+             <duration>300000</duration>
+             <num-containers>10</num-containers>
+             <min-concurrency>10</min-concurrency>
+             <capability>
+               <memory>1024</memory>
+               <vCores>1</vCores>
+             </capability>
+        </reservation-request>
+        <reservation-request>
+             <duration>60000</duration>
+             <num-containers>50</num-containers>
+             <min-concurrency>1</min-concurrency>
+             <capability>
+               <memory>1024</memory>
+               <vCores>1</vCores>
+             </capability>
+        </reservation-request>
+     </reservation-requests>
+  </reservation-definition>
+</reservation-update-context>
+```
+
+Response Header:
+
+200 OK
+Cache-Control:  no-cache
+Expires:  Thu, 17 Dec 2015 23:49:21 GMT, Thu, 17 Dec 2015 23:49:21 GMT
+Date:  Thu, 17 Dec 2015 23:49:21 GMT, Thu, 17 Dec 2015 23:49:21 GMT
+Pragma:  no-cache, no-cache
+Content-Type:  application/xml
+Content-Encoding:  gzip
+Content-Length:  137
+Server:  Jetty(6.1.26)
+
+Response Body:
+
+      No response body
+
+Cluster Reservation API Delete
+------------------------------
+
+The Cluster Reservation API Delete can be used to delete existing reservations.Delete works similar to update. The requests contains the reservation-id, and if successful the reservation is cancelled, otherwise the reservation remains in the system.
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/reservation/delete
+
+### HTTP Operations Supported
+
+      * POST
+
+### POST Response Examples
+
+POST requests can be used to delete reservations to the ResourceManager. Successful submissions result in a 200 response, indicating that the delete succeeded. Please note that in order to delete a reservation, you must have an authentication filter setup for the HTTP interface. The functionality requires that a username is set in the HttpServletRequest. If no filter is setup, the response will be an "UNAUTHORIZED" response.
+
+Please note that this feature is currently in the alpha stage and may change in the future.
+
+#### Elements of the POST request object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| reservation-id | string | The id of the reservation to be deleted (the system automatically looks up the right queue from this)|
+
+
+**JSON response**
+
+This examples deletes an existing reservation identified by *reservation_1449259268893_0006*
+
+HTTP Request:
+
+```json
+POST http://10.200.91.98:8088/ws/v1/cluster/reservation/delete
+Accept: application/json
+Content-Type: application/json
+{
+  "reservation-id" : "reservation_1449259268893_0006"
+}
+```
+
+Response Header:
+
+200 OK
+Cache-Control:  no-cache
+Expires:  Fri, 18 Dec 2015 01:31:05 GMT, Fri, 18 Dec 2015 01:31:05 GMT
+Date:  Fri, 18 Dec 2015 01:31:05 GMT, Fri, 18 Dec 2015 01:31:05 GMT
+Pragma:  no-cache, no-cache
+Content-Type:  application/json
+Content-Encoding:  gzip
+Transfer-Encoding:  chunked
+Server:  Jetty(6.1.26)
+
+Response Body:
+
+      No response body
+
+**XML response**
+
+HTTP Request:
+
+```xml
+POST http://10.200.91.98:8088/ws/v1/cluster/reservation/delete
+Accept: application/xml
+Content-Type: application/xml
+<reservation-delete-context>
+<reservation-id>reservation_1449259268893_0006</reservation-id>
+</reservation-delete-context>
+```
+
+Response Header:
+
+200 OK
+Cache-Control:  no-cache
+Expires:  Fri, 18 Dec 2015 01:33:23 GMT, Fri, 18 Dec 2015 01:33:23 GMT
+Date:  Fri, 18 Dec 2015 01:33:23 GMT, Fri, 18 Dec 2015 01:33:23 GMT
+Pragma:  no-cache, no-cache
+Content-Type:  application/xml
+Content-Encoding:  gzip
+Content-Length:  101
+Server:  Jetty(6.1.26)
+
+Response Body:
+
+      No response body
+
+Cluster Application Timeouts API
+--------------------------------
+
+Cluster Application Timeouts API can be used to get all configured timeouts of an application. When you run a GET operation on this resource, a collection of timeout objects is returned. Each timeout object is composed of a timeout type, expiry-time and remaining time in seconds.
+
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeouts
+
+### HTTP Operations Supported
+
+      * GET
+
+### Elements of the *timeouts* (Application Timeouts) object
+
+When you make a request for the list of application timeouts, the information will be returned as a collection of timeout objects. See also [Cluster Application Timeout API](#Cluster_Application_Timeout_API) for syntax of the timeout object.
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| timeout | array of timeout objects(JSON)/zero or more application objects(XML) | The collection of application timeout objects |
+
+**JSON response**
+
+HTTP Request:
+
+      Accept: application/json
+      GET http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeouts
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+      Transfer-Encoding: chunked
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```json
+{
+  "timeouts":
+  {
+    "timeout":
+    [
+      {
+        "type": "LIFETIME",
+        "expiryTime": "2016-12-05T22:51:00.104+0530",
+        "remainingTimeInSeconds": 27
+      }
+    ]
+  }
+}
+```
+
+**XML response**
+
+HTTP Request:
+
+      Accept: application/xml
+      GET http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeouts
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/xml
+      Content-Length: 712
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<timeouts>
+    <timeout>
+       <type>LIFETIME</type>
+       <expiryTime>2016-12-05T22:51:00.104+0530</expiryTime>
+       <remainingTimeInSeconds>27</remainingTimeInSeconds>
+    </timeout>
+</timeouts>
+```
+
+Cluster Application Timeout API
+--------------------------------
+
+The Cluster Application Timeout resource contains information about timeout.
+
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeouts/{type}
+
+### HTTP Operations Supported
+
+      * GET
+
+### Elements of the *timeout* (Application Timeout) object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| type | string | Timeout type. Valid values are the members of the ApplicationTimeoutType enum. LIFETIME is currently the only valid value. |
+| expiryTime | string | Time at which the application will expire in ISO8601 yyyy-MM-dd'T'HH:mm:ss.SSSZ format. If UNLIMITED, then application will run forever.  |
+| remainingTimeInSeconds | long | Remaining time for configured application timeout. -1 indicates that application is not configured with timeout. Zero(0) indicates that application has expired with configured timeout type. |
+
+**JSON response**
+
+HTTP Request:
+
+      Accept: application/json
+      GET http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeouts/LIFETIME
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+      Transfer-Encoding: chunked
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```json
+{
+"timeout":
+   {
+     "type": "LIFETIME",
+     "expiryTime": "2016-12-05T22:51:00.104+0530",
+     "remainingTimeInSeconds": 27
+   }
+}
+```
+
+**XML response**
+
+HTTP Request:
+
+      Accept: application/xml
+      GET http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeouts/LIFETIME
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/xml
+      Content-Length: 712
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<timeout>
+    <type>LIFETIME</type>
+    <expiryTime>2016-12-05T22:51:00.104+0530</expiryTime>
+    <remainingTimeInSeconds>27</remainingTimeInSeconds>
+</timeout>
+```
+
+Cluster Application Timeout Update API
+--------------------------------
+
+Update timeout of an application for given timeout type.
+
+
+### URI
+
+      * http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeout
+
+### HTTP Operations Supported
+
+      * PUT
+
+### Elements of the *timeout* object
+
+| Item | Data Type | Description |
+|:---- |:---- |:---- |
+| type | string | Timeout type. Valid values are the members of the ApplicationTimeoutType enum. LIFETIME is currently the only valid value. |
+| expiryTime | string | Time at which the application will expire in ISO8601 yyyy-MM-dd'T'HH:mm:ss.SSSZ format.  |
+
+**JSON response**
+
+HTTP Request:
+
+```json
+      Accept: application/json
+      GET http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeout
+      Content-Type: application/json
+        {
+        "timeout":
+                   {
+                     "type": "LIFETIME",
+                     "expiryTime": "2016-11-27T09:36:16.678+05:30"
+                   }
+        }
+```
+
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/json
+      Transfer-Encoding: chunked
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```json
+{
+"timeout":
+   {
+     "type": "LIFETIME",
+     "expiryTime": "2016-11-27T09:36:16.678+05:30",
+     "remainingTimeInSeconds": 90
+   }
+}
+```
+
+**XML response**
+
+HTTP Request:
+
+```xml
+      Accept: application/xml
+      GET http://<rm http address:port>/ws/v1/cluster/apps/{appid}/timeout
+      Content-Type: application/xml
+        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+        <timeout>
+            <type>LIFETIME</type>
+            <expiryTime>2016-11-27T09:36:16.678+05:30</expiryTime>
+        </timeout>
+```
+
+Response Header:
+
+      HTTP/1.1 200 OK
+      Content-Type: application/xml
+      Content-Length: 712
+      Server: Jetty(6.1.26)
+
+Response Body:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<timeout>
+    <type>LIFETIME</type>
+    <expiryTime>2016-11-27T09:36:16.678+05:30</expiryTime>
+    <remainingTimeInSeconds>90</remainingTimeInSeconds>
+</timeout>
+```

@@ -153,6 +153,7 @@ public class TestRollingUpgradeRollback {
     try {
       mjc = new MiniJournalCluster.Builder(conf).numJournalNodes(
           NUM_JOURNAL_NODES).build();
+      mjc.waitActive();
       conf.set(DFSConfigKeys.DFS_NAMENODE_EDITS_DIR_KEY, mjc
           .getQuorumJournalURI(JOURNAL_ID).toString());
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(0).build();
@@ -228,6 +229,7 @@ public class TestRollingUpgradeRollback {
       dfs.mkdirs(bar);
       dfs.close();
 
+      dfs = dfsCluster.getFileSystem(0);
       TestRollingUpgrade.queryForPreparation(dfs);
 
       // If the query returns true, both active and the standby NN should have

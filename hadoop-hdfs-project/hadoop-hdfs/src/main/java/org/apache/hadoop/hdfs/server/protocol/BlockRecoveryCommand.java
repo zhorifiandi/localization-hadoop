@@ -24,6 +24,7 @@ import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
+import org.apache.hadoop.hdfs.protocol.ErasureCodingPolicy;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 
@@ -61,7 +62,7 @@ public class BlockRecoveryCommand extends DatanodeCommand {
      * Create RecoveringBlock.
      */
     public RecoveringBlock(ExtendedBlock b, DatanodeInfo[] locs, long newGS) {
-      super(b, locs, -1, false); // startOffset is unknown
+      super(b, locs); // startOffset is unknown
       this.newGenerationStamp = newGS;
       this.recoveryBlock = null;
     }
@@ -71,9 +72,16 @@ public class BlockRecoveryCommand extends DatanodeCommand {
      */
     public RecoveringBlock(ExtendedBlock b, DatanodeInfo[] locs,
         Block recoveryBlock) {
-      super(b, locs, -1, false); // startOffset is unknown
+      super(b, locs); // startOffset is unknown
       this.newGenerationStamp = recoveryBlock.getGenerationStamp();
       this.recoveryBlock = recoveryBlock;
+    }
+
+    public RecoveringBlock(RecoveringBlock rBlock) {
+      super(rBlock.getBlock(), rBlock.getLocations(), rBlock.getStorageIDs(),
+          rBlock.getStorageTypes());
+      this.newGenerationStamp = rBlock.newGenerationStamp;
+      this.recoveryBlock = rBlock.recoveryBlock;
     }
 
     /**
@@ -89,6 +97,31 @@ public class BlockRecoveryCommand extends DatanodeCommand {
      */
     public Block getNewBlock() {
       return recoveryBlock;
+    }
+  }
+
+  public static class RecoveringStripedBlock extends RecoveringBlock {
+    private final byte[] blockIndices;
+    private final ErasureCodingPolicy ecPolicy;
+
+    public RecoveringStripedBlock(RecoveringBlock rBlock, byte[] blockIndices,
+        ErasureCodingPolicy ecPolicy) {
+      super(rBlock);
+      this.blockIndices = blockIndices == null ? new byte[]{} : blockIndices;
+      this.ecPolicy = ecPolicy;
+    }
+
+    public byte[] getBlockIndices() {
+      return blockIndices;
+    }
+
+    public ErasureCodingPolicy getErasureCodingPolicy() {
+      return ecPolicy;
+    }
+
+    @Override
+    public boolean isStriped() {
+      return true;
     }
   }
 

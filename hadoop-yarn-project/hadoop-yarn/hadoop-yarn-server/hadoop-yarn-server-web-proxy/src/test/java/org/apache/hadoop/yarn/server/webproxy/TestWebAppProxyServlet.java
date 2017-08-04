@@ -32,6 +32,7 @@ import java.net.HttpCookie;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 
@@ -54,12 +55,14 @@ import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.exceptions.ApplicationNotFoundException;
 import org.apache.hadoop.yarn.exceptions.YarnException;
 import org.apache.hadoop.yarn.webapp.util.WebAppUtils;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.servlet.ServletContextHandler;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.mortbay.jetty.Server;
-import org.mortbay.jetty.servlet.Context;
-import org.mortbay.jetty.servlet.ServletHolder;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,7 +76,11 @@ public class TestWebAppProxyServlet {
 
   private static Server server;
   private static int originalPort = 0;
+  private static int numberOfHeaders = 0;
+  private static final String UNKNOWN_HEADER = "Unknown-Header";
+  private static boolean hasUnknownHeader = false;
   Configuration configuration = new Configuration();
+
 
   /**
    * Simple http server. Server should send answer with status 200
@@ -81,15 +88,19 @@ public class TestWebAppProxyServlet {
   @BeforeClass
   public static void start() throws Exception {
     server = new Server(0);
-    Context context = new Context();
+    ((QueuedThreadPool)server.getThreadPool()).setMaxThreads(10);
+    ServletContextHandler context = new ServletContextHandler();
     context.setContextPath("/foo");
     server.setHandler(context);
     context.addServlet(new ServletHolder(TestServlet.class), "/bar");
-    server.getConnectors()[0].setHost("localhost");
+    ((ServerConnector)server.getConnectors()[0]).setHost("localhost");
     server.start();
-    originalPort = server.getConnectors()[0].getLocalPort();
+    originalPort = ((ServerConnector)server.getConnectors()[0]).getLocalPort();
     LOG.info("Running embedded servlet container at: http://localhost:"
         + originalPort);
+    // This property needs to be set otherwise CORS Headers will be dropped
+    // by HttpUrlConnection
+    System.setProperty("sun.net.http.allowRestrictedHeaders", "true");
   }
 
   @SuppressWarnings("serial")
@@ -98,6 +109,18 @@ public class TestWebAppProxyServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
         throws ServletException, IOException {
+      int numHeaders = 0;
+      hasUnknownHeader = false;
+      @SuppressWarnings("unchecked")
+      Enumeration<String> names = req.getHeaderNames();
+      while(names.hasMoreElements()) {
+        String headerName = names.nextElement();
+        if (headerName.equals(UNKNOWN_HEADER)) {
+          hasUnknownHeader = true;
+        }
+        ++numHeaders;
+      }
+      numberOfHeaders = numHeaders;
       resp.setStatus(HttpServletResponse.SC_OK);
     }
 
@@ -119,19 +142,25 @@ public class TestWebAppProxyServlet {
 
   @Test(timeout=5000)
   public void testWebAppProxyServlet() throws Exception {
-
     configuration.set(YarnConfiguration.PROXY_ADDRESS, "localhost:9090");
-    // overriding num of web server threads, see HttpServer.HTTP_MAXTHREADS 
-    configuration.setInt("hadoop.http.max.threads", 5);
+    // overriding num of web server threads, see HttpServer.HTTP_MAXTHREADS
+    configuration.setInt("hadoop.http.max.threads", 10);
     WebAppProxyServerForTest proxy = new WebAppProxyServerForTest();
     proxy.init(configuration);
     proxy.start();
-    
+
     int proxyPort = proxy.proxy.proxyServer.getConnectorAddress(0).getPort();
     AppReportFetcherForTest appReportFetcher = proxy.proxy.appReportFetcher;
 
     // wrong url
     try {
+      // wrong url without app ID
+      URL emptyUrl = new URL("http://localhost:" + proxyPort + "/proxy");
+      HttpURLConnection emptyProxyConn = (HttpURLConnection) emptyUrl
+          .openConnection();
+      emptyProxyConn.connect();
+      assertEquals(HttpURLConnection.HTTP_NOT_FOUND, emptyProxyConn.getResponseCode());
+
       // wrong url. Set wrong app ID
       URL wrongUrl = new URL("http://localhost:" + proxyPort + "/proxy/app");
       HttpURLConnection proxyConn = (HttpURLConnection) wrongUrl
@@ -140,6 +169,7 @@ public class TestWebAppProxyServlet {
       proxyConn.connect();
       assertEquals(HttpURLConnection.HTTP_INTERNAL_ERROR,
           proxyConn.getResponseCode());
+
       // set true Application ID in url
       URL url = new URL("http://localhost:" + proxyPort + "/proxy/application_00_0");
       proxyConn = (HttpURLConnection) url.openConnection();
@@ -149,6 +179,25 @@ public class TestWebAppProxyServlet {
       assertEquals(HttpURLConnection.HTTP_OK, proxyConn.getResponseCode());
       assertTrue(isResponseCookiePresent(
           proxyConn, "checked_application_0_0000", "true"));
+
+      // test that redirection is squashed correctly
+      URL redirectUrl = new URL("http://localhost:" + proxyPort
+          + "/proxy/redirect/application_00_0");
+      proxyConn = (HttpURLConnection) redirectUrl.openConnection();
+      proxyConn.setInstanceFollowRedirects(false);
+      proxyConn.connect();
+      assertEquals("The proxy returned an unexpected status code rather than"
+          + "redirecting the connection (302)",
+          HttpURLConnection.HTTP_MOVED_TEMP, proxyConn.getResponseCode());
+
+      String expected =
+          WebAppUtils.getResolvedRMWebAppURLWithScheme(configuration)
+            + "/cluster/failure/application_00_0";
+      String redirect = proxyConn.getHeaderField(ProxyUtils.LOCATION);
+
+      assertEquals("The proxy did not redirect the connection to the failure "
+          + "page of the RM", expected, redirect);
+
       // cannot found application 1: null
       appReportFetcher.answer = 1;
       proxyConn = (HttpURLConnection) url.openConnection();
@@ -158,6 +207,7 @@ public class TestWebAppProxyServlet {
           proxyConn.getResponseCode());
       assertFalse(isResponseCookiePresent(
           proxyConn, "checked_application_0_0000", "true"));
+
       // cannot found application 2: ApplicationNotFoundException
       appReportFetcher.answer = 4;
       proxyConn = (HttpURLConnection) url.openConnection();
@@ -167,6 +217,7 @@ public class TestWebAppProxyServlet {
           proxyConn.getResponseCode());
       assertFalse(isResponseCookiePresent(
           proxyConn, "checked_application_0_0000", "true"));
+
       // wrong user
       appReportFetcher.answer = 2;
       proxyConn = (HttpURLConnection) url.openConnection();
@@ -176,6 +227,7 @@ public class TestWebAppProxyServlet {
       assertTrue(s
           .contains("to continue to an Application Master web interface owned by"));
       assertTrue(s.contains("WARNING: The following page may not be safe!"));
+
       //case if task has a not running status
       appReportFetcher.answer = 3;
       proxyConn = (HttpURLConnection) url.openConnection();
@@ -194,7 +246,6 @@ public class TestWebAppProxyServlet {
       LOG.info("ProxyConn.getHeaderField(): " +  proxyConn.getHeaderField(ProxyUtils.LOCATION));
       assertEquals("http://localhost:" + originalPort
           + "/foo/bar/test/tez?a=b&x=y&h=p#main", proxyConn.getURL().toString());
-
     } finally {
       proxy.close();
     }
@@ -204,7 +255,7 @@ public class TestWebAppProxyServlet {
   public void testAppReportForEmptyTrackingUrl() throws Exception {
     configuration.set(YarnConfiguration.PROXY_ADDRESS, "localhost:9090");
     // overriding num of web server threads, see HttpServer.HTTP_MAXTHREADS
-    configuration.setInt("hadoop.http.max.threads", 5);
+    configuration.setInt("hadoop.http.max.threads", 10);
     WebAppProxyServerForTest proxy = new WebAppProxyServerForTest();
     proxy.init(configuration);
     proxy.start();
@@ -249,7 +300,7 @@ public class TestWebAppProxyServlet {
     }
     String appAddressInAhs = WebAppUtils.getHttpSchemePrefix(configuration) +
         WebAppUtils.getAHSWebAppURLWithoutScheme(configuration) +
-        "/applicationhistory" + "/apps/" + app.toString();
+        "/applicationhistory" + "/app/" + app.toString();
     assertTrue("Webapp proxy servlet should have redirected to AHS",
         proxyConn.getURL().toString().equals(appAddressInAhs));
     }
@@ -257,6 +308,43 @@ public class TestWebAppProxyServlet {
       proxy.close();
     }
   }
+
+  @Test(timeout=5000)
+  public void testWebAppProxyPassThroughHeaders() throws Exception {
+    Configuration configuration = new Configuration();
+    configuration.set(YarnConfiguration.PROXY_ADDRESS, "localhost:9091");
+    configuration.setInt("hadoop.http.max.threads", 10);
+    WebAppProxyServerForTest proxy = new WebAppProxyServerForTest();
+    proxy.init(configuration);
+    proxy.start();
+
+    int proxyPort = proxy.proxy.proxyServer.getConnectorAddress(0).getPort();
+
+    try {
+      URL url = new URL("http://localhost:" + proxyPort + "/proxy/application_00_1");
+      HttpURLConnection proxyConn = (HttpURLConnection) url.openConnection();
+      // set headers
+      proxyConn.addRequestProperty("Origin", "http://www.someurl.com");
+      proxyConn.addRequestProperty("Access-Control-Request-Method", "GET");
+      proxyConn.addRequestProperty(
+          "Access-Control-Request-Headers", "Authorization");
+      proxyConn.addRequestProperty(UNKNOWN_HEADER, "unknown");
+      // Verify if four headers mentioned above have been added
+      assertEquals(proxyConn.getRequestProperties().size(), 4);
+      proxyConn.connect();
+      assertEquals(HttpURLConnection.HTTP_OK, proxyConn.getResponseCode());
+      // Verify if number of headers received by end server is 8.
+      // Eight headers include Accept, Host, Connection, User-Agent, Cookie,
+      // Origin, Access-Control-Request-Method and
+      // Access-Control-Request-Headers. Pls note that Unknown-Header is dropped
+      // by proxy as it is not in the list of allowed headers.
+      assertEquals(numberOfHeaders, 8);
+      assertFalse(hasUnknownHeader);
+    } finally {
+      proxy.close();
+    }
+  }
+
 
   /**
    * Test main method of WebAppProxyServer
@@ -305,14 +393,14 @@ public class TestWebAppProxyServlet {
     return new String(data.toByteArray(), "UTF-8");
   }
 
-  private boolean isResponseCookiePresent(HttpURLConnection proxyConn, 
+  private boolean isResponseCookiePresent(HttpURLConnection proxyConn,
       String expectedName, String expectedValue) {
     Map<String, List<String>> headerFields = proxyConn.getHeaderFields();
     List<String> cookiesHeader = headerFields.get("Set-Cookie");
     if (cookiesHeader != null) {
       for (String cookie : cookiesHeader) {
         HttpCookie c = HttpCookie.parse(cookie).get(0);
-        if (c.getName().equals(expectedName) 
+        if (c.getName().equals(expectedName)
             && c.getValue().equals(expectedValue)) {
           return true;
         }
@@ -352,7 +440,7 @@ public class TestWebAppProxyServlet {
   }
 
   private class WebAppProxyForTest extends WebAppProxy {
-    
+
     HttpServer2 proxyServer;
     AppReportFetcherForTest appReportFetcher;
 
@@ -362,7 +450,7 @@ public class TestWebAppProxyServlet {
       String bindAddress = conf.get(YarnConfiguration.PROXY_ADDRESS);
       bindAddress = StringUtils.split(bindAddress, ':')[0];
       AccessControlList acl = new AccessControlList(
-          conf.get(YarnConfiguration.YARN_ADMIN_ACL, 
+          conf.get(YarnConfiguration.YARN_ADMIN_ACL,
           YarnConfiguration.DEFAULT_YARN_ADMIN_ACL));
       proxyServer = new HttpServer2.Builder()
           .setName("proxy")
@@ -379,11 +467,11 @@ public class TestWebAppProxyServlet {
       proxyServer.setAttribute(FETCHER_ATTRIBUTE,
           appReportFetcher );
       proxyServer.setAttribute(IS_SECURITY_ENABLED_ATTRIBUTE, Boolean.TRUE);
-      
+
       String proxy = WebAppUtils.getProxyHostAndPort(conf);
       String[] proxyParts = proxy.split(":");
       String proxyHost = proxyParts[0];
-      
+
       proxyServer.setAttribute(PROXY_HOST_ATTRIBUTE, proxyHost);
       proxyServer.start();
       LOG.info("Proxy server is started at port {}",
@@ -394,7 +482,7 @@ public class TestWebAppProxyServlet {
 
   private class AppReportFetcherForTest extends AppReportFetcher {
     int answer = 0;
-    
+
     public AppReportFetcherForTest(Configuration conf) {
       super(conf);
     }

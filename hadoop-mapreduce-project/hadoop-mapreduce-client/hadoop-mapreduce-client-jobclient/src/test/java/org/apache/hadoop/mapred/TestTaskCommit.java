@@ -17,9 +17,6 @@
  */
 package org.apache.hadoop.mapred;
 
-import java.io.File;
-import java.io.IOException;
-
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FileUtil;
 import org.apache.hadoop.fs.Path;
@@ -27,6 +24,19 @@ import org.apache.hadoop.io.Text;
 import org.apache.hadoop.ipc.ProtocolSignature;
 import org.apache.hadoop.mapred.SortedRanges.Range;
 import org.apache.hadoop.mapreduce.TaskType;
+import org.apache.hadoop.mapreduce.checkpoint.TaskCheckpointID;
+import org.junit.After;
+import org.junit.Test;
+
+import java.io.File;
+import java.io.IOException;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
+
 
 public class TestTaskCommit extends HadoopTestCase {
   Path rootDir = 
@@ -76,12 +86,13 @@ public class TestTaskCommit extends HadoopTestCase {
     super(LOCAL_MR, LOCAL_FS, 1, 1);
   }
   
-  @Override
+  @After
   public void tearDown() throws Exception {
     super.tearDown();
     FileUtil.fullyDelete(new File(rootDir.toString()));
   }
-  
+
+  @Test
   public void testCommitFail() throws IOException {
     final Path inDir = new Path(rootDir, "./input");
     final Path outDir = new Path(rootDir, "./output");
@@ -132,11 +143,6 @@ public class TestTaskCommit extends HadoopTestCase {
     }
 
     @Override
-    public boolean ping(TaskAttemptID taskid) throws IOException {
-      return true;
-    }
-
-    @Override
     public void reportDiagnosticInfo(TaskAttemptID taskid, String trace)
         throws IOException {
     }
@@ -152,9 +158,11 @@ public class TestTaskCommit extends HadoopTestCase {
     }
 
     @Override
-    public boolean statusUpdate(TaskAttemptID taskId, TaskStatus taskStatus)
+    public AMFeedback statusUpdate(TaskAttemptID taskId, TaskStatus taskStatus)
         throws IOException, InterruptedException {
-      return true;
+      AMFeedback a = new AMFeedback();
+      a.setTaskFound(true);
+      return a;
     }
 
     @Override
@@ -167,6 +175,22 @@ public class TestTaskCommit extends HadoopTestCase {
     public ProtocolSignature getProtocolSignature(String protocol,
         long clientVersion, int clientMethodsHash) throws IOException {
       return null;
+    }
+
+    @Override
+    public void preempted(TaskAttemptID taskId, TaskStatus taskStatus)
+        throws IOException, InterruptedException {
+      fail("Task should not go to commit-pending");
+    }
+
+    @Override
+    public TaskCheckpointID getCheckpointID(TaskID taskId) {
+      return null;
+    }
+
+    @Override
+    public void setCheckpointID(TaskID downgrade, TaskCheckpointID cid) {
+      // ignore
     }
   }
   
@@ -182,6 +206,7 @@ public class TestTaskCommit extends HadoopTestCase {
    * 
    * @throws Exception
    */
+  @Test
   public void testTaskCleanupDoesNotCommit() throws Exception {
     // Mimic a job with a special committer that does not cleanup
     // files when a task fails.
@@ -228,23 +253,27 @@ public class TestTaskCommit extends HadoopTestCase {
     assertTrue("Task did not succeed", umbilical.taskDone);
   }
 
+  @Test
   public void testCommitRequiredForMapTask() throws Exception {
     Task testTask = createDummyTask(TaskType.MAP);
     assertTrue("MapTask should need commit", testTask.isCommitRequired());
   }
 
+  @Test
   public void testCommitRequiredForReduceTask() throws Exception {
     Task testTask = createDummyTask(TaskType.REDUCE);
     assertTrue("ReduceTask should need commit", testTask.isCommitRequired());
   }
-  
+
+  @Test
   public void testCommitNotRequiredForJobSetup() throws Exception {
     Task testTask = createDummyTask(TaskType.MAP);
     testTask.setJobSetupTask();
     assertFalse("Job setup task should not need commit", 
         testTask.isCommitRequired());
   }
-  
+
+  @Test
   public void testCommitNotRequiredForJobCleanup() throws Exception {
     Task testTask = createDummyTask(TaskType.MAP);
     testTask.setJobCleanupTask();
@@ -252,6 +281,7 @@ public class TestTaskCommit extends HadoopTestCase {
         testTask.isCommitRequired());
   }
 
+  @Test
   public void testCommitNotRequiredForTaskCleanup() throws Exception {
     Task testTask = createDummyTask(TaskType.REDUCE);
     testTask.setTaskCleanupTask();

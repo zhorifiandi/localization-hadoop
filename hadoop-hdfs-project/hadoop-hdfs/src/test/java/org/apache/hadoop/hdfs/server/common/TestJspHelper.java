@@ -36,6 +36,7 @@ import org.apache.hadoop.security.authorize.ProxyUsers;
 import org.apache.hadoop.security.token.Token;
 import org.apache.hadoop.security.token.TokenIdentifier;
 import org.apache.hadoop.security.token.delegation.AbstractDelegationTokenSecretManager;
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -44,10 +45,10 @@ import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 
-import org.junit.Assert;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
 
 public class TestJspHelper {
 
@@ -108,6 +109,7 @@ public class TestJspHelper {
     
     //Test attribute name.node.address 
     //Set the nnaddr url parameter to null.
+    token.decodeIdentifier().clearCache();
     when(request.getParameter(JspHelper.NAMENODE_ADDRESS)).thenReturn(null);
     InetSocketAddress addr = new InetSocketAddress("localhost", 2222);
     when(context.getAttribute(NameNodeHttpServer.NAMENODE_ADDRESS_ATTRIBUTE_KEY))
@@ -115,7 +117,12 @@ public class TestJspHelper {
     verifyServiceInToken(context, request, addr.getAddress().getHostAddress()
         + ":2222");
     
-    //Test service already set in the token
+    //Test service already set in the token and DN doesn't change service
+    //when it doesn't know the NN service addr
+    userText = new Text(user+"2");
+    dtId = new DelegationTokenIdentifier(userText, userText, null);
+    token = new Token<DelegationTokenIdentifier>(
+        dtId, new DummySecretManager(0, 0, 0, 0));
     token.setService(new Text("3.3.3.3:3333"));
     tokenString = token.encodeToUrlString();
     //Set the name.node.address attribute in Servlet context to null
@@ -133,7 +140,6 @@ public class TestJspHelper {
         .next();
     Assert.assertEquals(expected, tokenInUgi.getService().toString());
   }
-  
 
   @Test
   public void testGetUgiFromToken() throws IOException {

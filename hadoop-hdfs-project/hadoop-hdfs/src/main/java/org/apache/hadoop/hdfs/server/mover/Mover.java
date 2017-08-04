@@ -41,11 +41,15 @@ import org.apache.hadoop.hdfs.server.balancer.ExitStatus;
 import org.apache.hadoop.hdfs.server.balancer.Matcher;
 import org.apache.hadoop.hdfs.server.balancer.NameNodeConnector;
 import org.apache.hadoop.hdfs.server.blockmanagement.BlockStoragePolicySuite;
+import org.apache.hadoop.hdfs.server.namenode.ErasureCodingPolicyManager;
 import org.apache.hadoop.hdfs.server.namenode.INode;
 import org.apache.hadoop.hdfs.server.protocol.DatanodeStorageReport;
 import org.apache.hadoop.hdfs.server.protocol.StorageReport;
 import org.apache.hadoop.io.IOUtils;
+import org.apache.hadoop.net.NetUtils;
 import org.apache.hadoop.net.NetworkTopology;
+import org.apache.hadoop.security.SecurityUtil;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.util.StringUtils;
 import org.apache.hadoop.util.Time;
 import org.apache.hadoop.util.Tool;
@@ -53,12 +57,13 @@ import org.apache.hadoop.util.ToolRunner;
 
 import java.io.BufferedReader;
 import java.io.FileInputStream;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.text.DateFormat;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @InterfaceAudience.Private
@@ -111,10 +116,12 @@ public class Mover {
   private final List<Path> targetPaths;
   private final int retryMaxAttempts;
   private final AtomicInteger retryCount;
+  private final Map<Long, Set<DatanodeInfo>> excludedPinnedBlocks;
 
   private final BlockStoragePolicy[] blockStoragePolicies;
 
-  Mover(NameNodeConnector nnc, Configuration conf, AtomicInteger retryCount) {
+  Mover(NameNodeConnector nnc, Configuration conf, AtomicInteger retryCount,
+      Map<Long, Set<DatanodeInfo>> excludedPinnedBlocks) {
     final long movedWinWidth = conf.getLong(
         DFSConfigKeys.DFS_MOVER_MOVEDWINWIDTH_KEY,
         DFSConfigKeys.DFS_MOVER_MOVEDWINWIDTH_DEFAULT);
@@ -124,17 +131,21 @@ public class Mover {
     final int maxConcurrentMovesPerNode = conf.getInt(
         DFSConfigKeys.DFS_DATANODE_BALANCE_MAX_NUM_CONCURRENT_MOVES_KEY,
         DFSConfigKeys.DFS_DATANODE_BALANCE_MAX_NUM_CONCURRENT_MOVES_DEFAULT);
+    final int maxNoMoveInterval = conf.getInt(
+        DFSConfigKeys.DFS_MOVER_MAX_NO_MOVE_INTERVAL_KEY,
+        DFSConfigKeys.DFS_MOVER_MAX_NO_MOVE_INTERVAL_DEFAULT);
     this.retryMaxAttempts = conf.getInt(
         DFSConfigKeys.DFS_MOVER_RETRY_MAX_ATTEMPTS_KEY,
         DFSConfigKeys.DFS_MOVER_RETRY_MAX_ATTEMPTS_DEFAULT);
     this.retryCount = retryCount;
     this.dispatcher = new Dispatcher(nnc, Collections.<String> emptySet(),
         Collections.<String> emptySet(), movedWinWidth, moverThreads, 0,
-        maxConcurrentMovesPerNode, conf);
+        maxConcurrentMovesPerNode, maxNoMoveInterval, conf);
     this.storages = new StorageMap();
     this.targetPaths = nnc.getTargetPaths();
     this.blockStoragePolicies = new BlockStoragePolicy[1 <<
         BlockStoragePolicySuite.ID_BIT_LENGTH];
+    this.excludedPinnedBlocks = excludedPinnedBlocks;
   }
 
   void init() throws IOException {
@@ -153,8 +164,8 @@ public class Mover {
   }
 
   private void initStoragePolicies() throws IOException {
-    BlockStoragePolicy[] policies = dispatcher.getDistributedFileSystem()
-        .getStoragePolicies();
+    Collection<BlockStoragePolicy> policies =
+        dispatcher.getDistributedFileSystem().getAllStoragePolicies();
     for (BlockStoragePolicy policy : policies) {
       this.blockStoragePolicies[policy.getId()] = policy;
     }
@@ -163,21 +174,34 @@ public class Mover {
   private ExitStatus run() {
     try {
       init();
-      boolean hasRemaining = new Processor().processNamespace();
-      return hasRemaining ? ExitStatus.IN_PROGRESS : ExitStatus.SUCCESS;
+      return new Processor().processNamespace().getExitStatus();
     } catch (IllegalArgumentException e) {
       System.out.println(e + ".  Exiting ...");
       return ExitStatus.ILLEGAL_ARGUMENTS;
     } catch (IOException e) {
       System.out.println(e + ".  Exiting ...");
+      LOG.error(e + ".  Exiting ...");
       return ExitStatus.IO_EXCEPTION;
     } finally {
       dispatcher.shutdownNow();
     }
   }
 
-  DBlock newDBlock(Block block, List<MLocation> locations) {
-    final DBlock db = new DBlock(block);
+  DBlock newDBlock(LocatedBlock lb, List<MLocation> locations,
+                   ErasureCodingPolicy ecPolicy) {
+    Block blk = lb.getBlock().getLocalBlock();
+    DBlock db;
+    if (lb.isStriped()) {
+      LocatedStripedBlock lsb = (LocatedStripedBlock) lb;
+      byte[] indices = new byte[lsb.getBlockIndices().length];
+      for (int i = 0; i < indices.length; i++) {
+        indices[i] = (byte) lsb.getBlockIndices()[i];
+      }
+      db = new DBlockStriped(blk, indices, (short) ecPolicy.getNumDataUnits(),
+          ecPolicy.getCellSize());
+    } else {
+      db = new DBlock(blk);
+    }
     for(MLocation ml : locations) {
       StorageGroup source = storages.getSource(ml);
       if (source != null) {
@@ -262,19 +286,25 @@ public class Mover {
      * @return whether there is still remaining migration work for the next
      *         round
      */
-    private boolean processNamespace() throws IOException {
+    private Result processNamespace() throws IOException {
       getSnapshottableDirs();
-      boolean hasRemaining = false;
+      Result result = new Result();
       for (Path target : targetPaths) {
-        hasRemaining |= processPath(target.toUri().getPath());
+        processPath(target.toUri().getPath(), result);
       }
       // wait for pending move to finish and retry the failed migration
       boolean hasFailed = Dispatcher.waitForMoveCompletion(storages.targets
           .values());
-      if (hasFailed) {
+      Dispatcher.checkForBlockPinningFailures(excludedPinnedBlocks,
+          storages.targets.values());
+      boolean hasSuccess = Dispatcher.checkForSuccess(storages.targets
+          .values());
+      if (hasFailed && !hasSuccess) {
         if (retryCount.get() == retryMaxAttempts) {
-          throw new IOException("Failed to move some block's after "
+          result.setRetryFailed();
+          LOG.error("Failed to move some block's after "
               + retryMaxAttempts + " retries.");
+          return result;
         } else {
           retryCount.incrementAndGet();
         }
@@ -282,16 +312,15 @@ public class Mover {
         // Reset retry count if no failure.
         retryCount.set(0);
       }
-      hasRemaining |= hasFailed;
-      return hasRemaining;
+      result.updateHasRemaining(hasFailed);
+      return result;
     }
 
     /**
      * @return whether there is still remaing migration work for the next
      *         round
      */
-    private boolean processPath(String fullPath) {
-      boolean hasRemaining = false;
+    private void processPath(String fullPath, Result result) {
       for (byte[] lastReturnedName = HdfsFileStatus.EMPTY_NAME;;) {
         final DirectoryListing children;
         try {
@@ -299,94 +328,119 @@ public class Mover {
         } catch(IOException e) {
           LOG.warn("Failed to list directory " + fullPath
               + ". Ignore the directory and continue.", e);
-          return hasRemaining;
+          return;
         }
         if (children == null) {
-          return hasRemaining;
+          return;
         }
         for (HdfsFileStatus child : children.getPartialListing()) {
-          hasRemaining |= processRecursively(fullPath, child);
+          processRecursively(fullPath, child, result);
         }
         if (children.hasMore()) {
           lastReturnedName = children.getLastName();
         } else {
-          return hasRemaining;
+          return;
         }
       }
     }
 
     /** @return whether the migration requires next round */
-    private boolean processRecursively(String parent, HdfsFileStatus status) {
+    private void processRecursively(String parent, HdfsFileStatus status,
+        Result result) {
       String fullPath = status.getFullName(parent);
-      boolean hasRemaining = false;
       if (status.isDir()) {
         if (!fullPath.endsWith(Path.SEPARATOR)) {
           fullPath = fullPath + Path.SEPARATOR;
         }
 
-        hasRemaining = processPath(fullPath);
+        processPath(fullPath, result);
         // process snapshots if this is a snapshottable directory
         if (snapshottableDirs.contains(fullPath)) {
           final String dirSnapshot = fullPath + HdfsConstants.DOT_SNAPSHOT_DIR;
-          hasRemaining |= processPath(dirSnapshot);
+          processPath(dirSnapshot, result);
         }
       } else if (!status.isSymlink()) { // file
         try {
           if (!isSnapshotPathInCurrent(fullPath)) {
             // the full path is a snapshot path but it is also included in the
             // current directory tree, thus ignore it.
-            hasRemaining = processFile(fullPath, (HdfsLocatedFileStatus)status);
+            processFile(fullPath, (HdfsLocatedFileStatus) status, result);
           }
         } catch (IOException e) {
           LOG.warn("Failed to check the status of " + parent
               + ". Ignore it and continue.", e);
-          return false;
         }
       }
-      return hasRemaining;
     }
 
     /** @return true if it is necessary to run another round of migration */
-    private boolean processFile(String fullPath, HdfsLocatedFileStatus status) {
-      final byte policyId = status.getStoragePolicy();
-      // currently we ignore files with unspecified storage policy
-      if (policyId == BlockStoragePolicySuite.ID_UNSPECIFIED) {
-        return false;
+    private void processFile(String fullPath, HdfsLocatedFileStatus status,
+        Result result) {
+      byte policyId = status.getStoragePolicy();
+      if (policyId == HdfsConstants.BLOCK_STORAGE_POLICY_ID_UNSPECIFIED) {
+        try {
+          // get default policy from namenode
+          policyId = dfs.getServerDefaults().getDefaultStoragePolicyId();
+        } catch (IOException e) {
+          LOG.warn("Failed to get default policy for " + fullPath, e);
+          return;
+        }
       }
       final BlockStoragePolicy policy = blockStoragePolicies[policyId];
       if (policy == null) {
         LOG.warn("Failed to get the storage policy of file " + fullPath);
-        return false;
+        return;
       }
-      final List<StorageType> types = policy.chooseStorageTypes(
+      List<StorageType> types = policy.chooseStorageTypes(
           status.getReplication());
 
+      final ErasureCodingPolicy ecPolicy = status.getErasureCodingPolicy();
       final LocatedBlocks locatedBlocks = status.getBlockLocations();
-      boolean hasRemaining = false;
       final boolean lastBlkComplete = locatedBlocks.isLastBlockComplete();
       List<LocatedBlock> lbs = locatedBlocks.getLocatedBlocks();
-      for(int i = 0; i < lbs.size(); i++) {
+      for (int i = 0; i < lbs.size(); i++) {
         if (i == lbs.size() - 1 && !lastBlkComplete) {
           // last block is incomplete, skip it
           continue;
         }
         LocatedBlock lb = lbs.get(i);
+        if (lb.isStriped()) {
+          if (ErasureCodingPolicyManager
+              .checkStoragePolicySuitableForECStripedMode(policyId)) {
+            types = policy.chooseStorageTypes((short) lb.getLocations().length);
+          } else {
+            // Currently we support only limited policies (HOT, COLD, ALLSSD)
+            // for EC striped mode files.
+            // Mover tool will ignore to move the blocks if the storage policy
+            // is not in EC Striped mode supported policies
+            LOG.warn("The storage policy " + policy.getName()
+                + " is not suitable for Striped EC files. "
+                + "So, Ignoring to move the blocks");
+            return;
+          }
+        }
         final StorageTypeDiff diff = new StorageTypeDiff(types,
             lb.getStorageTypes());
         if (!diff.removeOverlap(true)) {
-          if (scheduleMoves4Block(diff, lb)) {
-            hasRemaining |= (diff.existing.size() > 1 &&
-                diff.expected.size() > 1);
+          if (scheduleMoves4Block(diff, lb, ecPolicy)) {
+            result.updateHasRemaining(diff.existing.size() > 1
+                && diff.expected.size() > 1);
+            // One block scheduled successfully, set noBlockMoved to false
+            result.setNoBlockMoved(false);
+          } else {
+            result.updateHasRemaining(true);
           }
         }
       }
-      return hasRemaining;
     }
 
-    boolean scheduleMoves4Block(StorageTypeDiff diff, LocatedBlock lb) {
+    boolean scheduleMoves4Block(StorageTypeDiff diff, LocatedBlock lb,
+                                ErasureCodingPolicy ecPolicy) {
       final List<MLocation> locations = MLocation.toLocations(lb);
-      Collections.shuffle(locations);
-      final DBlock db = newDBlock(lb.getBlock().getLocalBlock(), locations);
+      if (!(lb instanceof LocatedStripedBlock)) {
+        Collections.shuffle(locations);
+      }
+      final DBlock db = newDBlock(lb, locations, ecPolicy);
 
       for (final StorageType t : diff.existing) {
         for (final MLocation ml : locations) {
@@ -415,6 +469,19 @@ public class Mover {
       // Match storage on the same node
       if (chooseTargetInSameNode(db, source, targetTypes)) {
         return true;
+      }
+
+      // Check the given block is pinned in the source datanode. A pinned block
+      // can't be moved to a different datanode. So we can skip adding these
+      // blocks to different nodes.
+      long blockId = db.getBlock().getBlockId();
+      if (excludedPinnedBlocks.containsKey(blockId)) {
+        Set<DatanodeInfo> locs = excludedPinnedBlocks.get(blockId);
+        for (DatanodeInfo dn : locs) {
+          if (source.getDatanodeInfo().equals(dn)) {
+            return false;
+          }
+        }
       }
 
       if (dispatcher.getCluster().isNodeGroupAware()) {
@@ -455,7 +522,9 @@ public class Mover {
         List<StorageType> targetTypes, Matcher matcher) {
       final NetworkTopology cluster = dispatcher.getCluster(); 
       for (StorageType t : targetTypes) {
-        for(StorageGroup target : storages.getTargetStorages(t)) {
+        final List<StorageGroup> targets = storages.getTargetStorages(t);
+        Collections.shuffle(targets);
+        for (StorageGroup target : targets) {
           if (matcher.match(cluster, source.getDatanodeInfo(),
               target.getDatanodeInfo())) {
             final PendingMove pm = source.addPendingMove(db, target);
@@ -541,16 +610,38 @@ public class Mover {
     }
   }
 
+  private static void checkKeytabAndInit(Configuration conf)
+      throws IOException {
+    if (conf.getBoolean(DFSConfigKeys.DFS_MOVER_KEYTAB_ENABLED_KEY,
+        DFSConfigKeys.DFS_MOVER_KEYTAB_ENABLED_DEFAULT)) {
+      LOG.info("Keytab is configured, will login using keytab.");
+      UserGroupInformation.setConfiguration(conf);
+      String addr = conf.get(DFSConfigKeys.DFS_MOVER_ADDRESS_KEY,
+          DFSConfigKeys.DFS_MOVER_ADDRESS_DEFAULT);
+      InetSocketAddress socAddr = NetUtils.createSocketAddr(addr, 0,
+          DFSConfigKeys.DFS_MOVER_ADDRESS_KEY);
+      SecurityUtil.login(conf, DFSConfigKeys.DFS_MOVER_KEYTAB_FILE_KEY,
+          DFSConfigKeys.DFS_MOVER_KERBEROS_PRINCIPAL_KEY,
+          socAddr.getHostName());
+    }
+  }
+
   static int run(Map<URI, List<Path>> namenodes, Configuration conf)
       throws IOException, InterruptedException {
     final long sleeptime =
-        conf.getLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY,
-            DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_DEFAULT) * 2000 +
-        conf.getLong(DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_KEY,
-            DFSConfigKeys.DFS_NAMENODE_REPLICATION_INTERVAL_DEFAULT) * 1000;
+        conf.getTimeDuration(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY,
+            DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_DEFAULT,
+            TimeUnit.SECONDS) * 2000 +
+        conf.getTimeDuration(
+            DFSConfigKeys.DFS_NAMENODE_REDUNDANCY_INTERVAL_SECONDS_KEY,
+            DFSConfigKeys.DFS_NAMENODE_REDUNDANCY_INTERVAL_SECONDS_DEFAULT,
+            TimeUnit.SECONDS) * 1000;
     AtomicInteger retryCount = new AtomicInteger(0);
+    // TODO: Need to limit the size of the pinned blocks to limit memory usage
+    Map<Long, Set<DatanodeInfo>> excludedPinnedBlocks = new HashMap<>();
     LOG.info("namenodes = " + namenodes);
-    
+
+    checkKeytabAndInit(conf);
     List<NameNodeConnector> connectors = Collections.emptyList();
     try {
       connectors = NameNodeConnector.newNameNodeConnectors(namenodes,
@@ -562,19 +653,31 @@ public class Mover {
         Iterator<NameNodeConnector> iter = connectors.iterator();
         while (iter.hasNext()) {
           NameNodeConnector nnc = iter.next();
-          final Mover m = new Mover(nnc, conf, retryCount);
+          final Mover m = new Mover(nnc, conf, retryCount,
+              excludedPinnedBlocks);
           final ExitStatus r = m.run();
 
           if (r == ExitStatus.SUCCESS) {
             IOUtils.cleanup(LOG, nnc);
             iter.remove();
           } else if (r != ExitStatus.IN_PROGRESS) {
+            if (r == ExitStatus.NO_MOVE_PROGRESS) {
+              System.err.println("Failed to move some blocks after "
+                  + m.retryMaxAttempts + " retries. Exiting...");
+            } else if (r == ExitStatus.NO_MOVE_BLOCK) {
+              System.err.println("Some blocks can't be moved. Exiting...");
+            } else {
+              System.err.println("Mover failed. Exiting with status " + r
+                  + "... ");
+            }
             // must be an error statue, return
             return r.getExitCode();
           }
         }
         Thread.sleep(sleeptime);
       }
+      System.out.println("Mover Successful: all blocks satisfy"
+          + " the specified storage policy. Exiting...");
       return ExitStatus.SUCCESS.getExitCode();
     } finally {
       for (NameNodeConnector nnc : connectors) {
@@ -630,7 +733,7 @@ public class Mover {
       } else if (line.hasOption("p")) {
         paths = line.getOptionValues("p");
       }
-      Collection<URI> namenodes = DFSUtil.getNsServiceRpcUris(conf);
+      Collection<URI> namenodes = DFSUtil.getInternalNsRpcUris(conf);
       if (paths == null || paths.length == 0) {
         for (URI namenode : namenodes) {
           map.put(namenode, null);
@@ -711,6 +814,56 @@ public class Mover {
     }
   }
 
+  private static class Result {
+
+    private boolean hasRemaining;
+    private boolean noBlockMoved;
+    private boolean retryFailed;
+
+    Result() {
+      hasRemaining = false;
+      noBlockMoved = true;
+      retryFailed = false;
+    }
+
+    boolean isHasRemaining() {
+      return hasRemaining;
+    }
+
+    boolean isNoBlockMoved() {
+      return noBlockMoved;
+    }
+
+    void updateHasRemaining(boolean hasRemaining) {
+      this.hasRemaining |= hasRemaining;
+    }
+
+    void setNoBlockMoved(boolean noBlockMoved) {
+      this.noBlockMoved = noBlockMoved;
+    }
+
+    void setRetryFailed() {
+      this.retryFailed = true;
+    }
+
+    /**
+     * @return NO_MOVE_PROGRESS if no progress in move after some retry. Return
+     *         SUCCESS if all moves are success and there is no remaining move.
+     *         Return NO_MOVE_BLOCK if there moves available but all the moves
+     *         cannot be scheduled. Otherwise, return IN_PROGRESS since there
+     *         must be some remaining moves.
+     */
+    ExitStatus getExitStatus() {
+      if (retryFailed) {
+        return ExitStatus.NO_MOVE_PROGRESS;
+      } else {
+        return !isHasRemaining() ? ExitStatus.SUCCESS
+            : isNoBlockMoved() ? ExitStatus.NO_MOVE_BLOCK
+                : ExitStatus.IN_PROGRESS;
+      }
+    }
+
+  }
   /**
    * Run a Mover in command line.
    *

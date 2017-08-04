@@ -15,50 +15,7 @@
 MapReduce Tutorial
 ==================
 
-* [MapReduce Tutorial](#MapReduce_Tutorial)
-    * [Purpose](#Purpose)
-    * [Prerequisites](#Prerequisites)
-    * [Overview](#Overview)
-    * [Inputs and Outputs](#Inputs_and_Outputs)
-    * [Example: WordCount v1.0](#Example:_WordCount_v1.0)
-        * [Source Code](#Source_Code)
-        * [Usage](#Usage)
-        * [Walk-through](#Walk-through)
-    * [MapReduce - User Interfaces](#MapReduce_-_User_Interfaces)
-        * [Payload](#Payload)
-            * [Mapper](#Mapper)
-            * [Reducer](#Reducer)
-            * [Partitioner](#Partitioner)
-            * [Counter](#Counter)
-        * [Job Configuration](#Job_Configuration)
-        * [Task Execution & Environment](#Task_Execution__Environment)
-            * [Memory Management](#Memory_Management)
-            * [Map Parameters](#Map_Parameters)
-            * [Shuffle/Reduce Parameters](#ShuffleReduce_Parameters)
-            * [Configured Parameters](#Configured_Parameters)
-            * [Task Logs](#Task_Logs)
-            * [Distributing Libraries](#Distributing_Libraries)
-        * [Job Submission and Monitoring](#Job_Submission_and_Monitoring)
-            * [Job Control](#Job_Control)
-        * [Job Input](#Job_Input)
-            * [InputSplit](#InputSplit)
-            * [RecordReader](#RecordReader)
-        * [Job Output](#Job_Output)
-            * [OutputCommitter](#OutputCommitter)
-            * [Task Side-Effect Files](#Task_Side-Effect_Files)
-            * [RecordWriter](#RecordWriter)
-        * [Other Useful Features](#Other_Useful_Features)
-            * [Submitting Jobs to Queues](#Submitting_Jobs_to_Queues)
-            * [Counters](#Counters)
-            * [DistributedCache](#DistributedCache)
-            * [Profiling](#Profiling)
-            * [Debugging](#Debugging)
-            * [Data Compression](#Data_Compression)
-            * [Skipping Bad Records](#Skipping_Bad_Records)
-        * [Example: WordCount v2.0](#Example:_WordCount_v2.0)
-            * [Source Code](#Source_Code)
-            * [Sample Runs](#Sample_Runs)
-            * [Highlights](#Highlights)
+<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
 
 Purpose
 -------
@@ -85,11 +42,11 @@ A MapReduce *job* usually splits the input data-set into independent chunks whic
 
 Typically the compute nodes and the storage nodes are the same, that is, the MapReduce framework and the Hadoop Distributed File System (see [HDFS Architecture Guide](../../hadoop-project-dist/hadoop-hdfs/HdfsDesign.html)) are running on the same set of nodes. This configuration allows the framework to effectively schedule tasks on the nodes where data is already present, resulting in very high aggregate bandwidth across the cluster.
 
-The MapReduce framework consists of a single master `ResourceManager`, one slave `NodeManager` per cluster-node, and `MRAppMaster` per application (see [YARN Architecture Guide](../../hadoop-yarn/hadoop-yarn-site/YARN.html)).
+The MapReduce framework consists of a single master `ResourceManager`, one worker `NodeManager` per cluster-node, and `MRAppMaster` per application (see [YARN Architecture Guide](../../hadoop-yarn/hadoop-yarn-site/YARN.html)).
 
 Minimally, applications specify the input/output locations and supply *map* and *reduce* functions via implementations of appropriate interfaces and/or abstract-classes. These, and other job parameters, comprise the *job configuration*.
 
-The Hadoop *job client* then submits the job (jar/executable etc.) and configuration to the `ResourceManager` which then assumes the responsibility of distributing the software/configuration to the slaves, scheduling tasks and monitoring them, providing status and diagnostic information to the job-client.
+The Hadoop *job client* then submits the job (jar/executable etc.) and configuration to the `ResourceManager` which then assumes the responsibility of distributing the software/configuration to the workers, scheduling tasks and monitoring them, providing status and diagnostic information to the job-client.
 
 Although the Hadoop framework is implemented in Java™, MapReduce applications need not be written in Java.
 
@@ -210,7 +167,9 @@ Assuming that:
 
 Sample text-files as input:
 
-    $ bin/hadoop fs -ls /user/joe/wordcount/input/ /user/joe/wordcount/input/file01 /user/joe/wordcount/input/file02
+    $ bin/hadoop fs -ls /user/joe/wordcount/input/
+    /user/joe/wordcount/input/file01
+    /user/joe/wordcount/input/file02
 
     $ bin/hadoop fs -cat /user/joe/wordcount/input/file01
     Hello World Bye World
@@ -224,12 +183,12 @@ Run the application:
 
 Output:
 
-    $ bin/hadoop fs -cat /user/joe/wordcount/output/part-r-00000`
+    $ bin/hadoop fs -cat /user/joe/wordcount/output/part-r-00000
     Bye 1
     Goodbye 1
     Hadoop 2
     Hello 2
-    World 2`
+    World 2
 
 Applications can specify a comma separated list of paths which would be present in the current working directory of the task using the option `-files`. The `-libjars` option allows applications to add jars to the classpaths of the maps and reduces. The option `-archives` allows them to pass comma separated list of archives as arguments. These archives are unarchived and a link with name of the archive is created in the current working directory of tasks. More details about the command line options are available at [Commands Guide](../../hadoop-project-dist/hadoop-common/CommandsManual.html).
 
@@ -288,13 +247,13 @@ The output of the first map:
 
     < Bye, 1>
     < Hello, 1>
-    < World, 2>`
+    < World, 2>
 
 The output of the second map:
 
     < Goodbye, 1>
     < Hadoop, 2>
-    < Hello, 1>`
+    < Hello, 1>
 
 ```java
 public void reduce(Text key, Iterable<IntWritable> values,
@@ -309,7 +268,7 @@ public void reduce(Text key, Iterable<IntWritable> values,
 }
 ```
 
-The `Reducer` implementation, via the `reduce` method just sums up the values, which are the occurence counts for each key (i.e. words in this example).
+The `Reducer` implementation, via the `reduce` method just sums up the values, which are the occurrence counts for each key (i.e. words in this example).
 
 Thus the output of the job is:
 
@@ -317,7 +276,7 @@ Thus the output of the job is:
     < Goodbye, 1>
     < Hadoop, 2>
     < Hello, 2>
-    < World, 2>`
+    < World, 2>
 
 The `main` method specifies various facets of the job, such as the input/output paths (passed via the command line), key/value types, input/output formats etc., in the `Job`. It then calls the `job.waitForCompletion` to submit the job and monitor its progress.
 
@@ -346,7 +305,7 @@ Maps are the individual tasks that transform input records into intermediate rec
 
 The Hadoop MapReduce framework spawns one map task for each `InputSplit` generated by the `InputFormat` for the job.
 
-Overall, `Mapper` implementations are passed the `Job` for the job via the [Job.setMapperClass(Class)](../../api/org/apache/hadoop/mapreduce/Job.html) method. The framework then calls [map(WritableComparable, Writable, Context)](../../api/org/apache/hadoop/mapreduce/Mapper.html) for each key/value pair in the `InputSplit` for that task. Applications can then override the `cleanup(Context)` method to perform any required cleanup.
+Overall, mapper implementations are passed to the job via [Job.setMapperClass(Class)](../../api/org/apache/hadoop/mapreduce/Job.html) method. The framework then calls [map(WritableComparable, Writable, Context)](../../api/org/apache/hadoop/mapreduce/Mapper.html) for each key/value pair in the `InputSplit` for that task. Applications can then override the `cleanup(Context)` method to perform any required cleanup.
 
 Output pairs do not need to be of the same types as input pairs. A given input pair may map to zero or many output pairs. Output pairs are collected with calls to context.write(WritableComparable, Writable).
 
@@ -458,7 +417,7 @@ indicates the set of input files
 [FileInputFormat.addInputPath(Job, Path)](../../api/org/apache/hadoop/mapreduce/lib/input/FileInputFormat.html)) and
 ([FileInputFormat.setInputPaths(Job, String...)](../../api/org/apache/hadoop/mapreduce/lib/input/FileInputFormat.html)/
 [FileInputFormat.addInputPaths(Job, String))](../../api/org/apache/hadoop/mapreduce/lib/input/FileInputFormat.html) and where the output files should be written
-([FileOutputFormat.setOutputPath(Path)](../../api/org/apache/hadoop/mapreduce/lib/input/FileOutputFormat.html)).
+([FileOutputFormat.setOutputPath(Path)](../../api/org/apache/hadoop/mapreduce/lib/output/FileOutputFormat.html)).
 
 Optionally, `Job` is used to specify other advanced facets of the job such as the `Comparator` to be used, files to be put in the `DistributedCache`, whether intermediate and/or job outputs are to be compressed (and how), whether job tasks can be executed in a *speculative* manner
 ([setMapSpeculativeExecution(boolean)](../../api/org/apache/hadoop/mapreduce/Job.html))/
@@ -763,7 +722,7 @@ RecordWriter implementations write the job outputs to the `FileSystem`.
 
 Users submit jobs to Queues. Queues, as collection of jobs, allow the system to provide specific functionality. For example, queues use ACLs to control which users who can submit jobs to them. Queues are expected to be primarily used by Hadoop Schedulers.
 
-Hadoop comes configured with a single mandatory queue, called 'default'. Queue names are defined in the `mapreduce.job.queuename`\> property of the Hadoop site configuration. Some job schedulers, such as the
+Hadoop comes configured with a single mandatory queue, called 'default'. Queue names are defined in the `mapreduce.job.queuename` property of the Hadoop site configuration. Some job schedulers, such as the
 [Capacity Scheduler](../../hadoop-yarn/hadoop-yarn-site/CapacityScheduler.html),
 support multiple queues.
 
@@ -785,11 +744,11 @@ or Counters.incrCounter(String, String, long) in the `map` and/or `reduce` metho
 
 Applications specify the files to be cached via urls (hdfs://) in the `Job`. The `DistributedCache` assumes that the files specified via hdfs:// urls are already present on the `FileSystem`.
 
-The framework will copy the necessary files to the slave node before any tasks for the job are executed on that node. Its efficiency stems from the fact that the files are only copied once per job and the ability to cache archives which are un-archived on the slaves.
+The framework will copy the necessary files to the worker node before any tasks for the job are executed on that node. Its efficiency stems from the fact that the files are only copied once per job and the ability to cache archives which are un-archived on the workers.
 
 `DistributedCache` tracks the modification timestamps of the cached files. Clearly the cache files should not be modified by the application or externally while the job is executing.
 
-`DistributedCache` can be used to distribute simple, read-only data/text files and more complex types such as archives and jars. Archives (zip, tar, tgz and tar.gz files) are *un-archived* at the slave nodes. Files have *execution permissions* set.
+`DistributedCache` can be used to distribute simple, read-only data/text files and more complex types such as archives and jars. Archives (zip, tar, tgz and tar.gz files) are *un-archived* at the worker nodes. Files have *execution permissions* set.
 
 The files/archives can be distributed by setting the property `mapreduce.job.cache.{files |archives}`. If more than one file/archive has to be distributed, they can be added as comma separated paths. The properties can also be set by APIs
 [Job.addCacheFile(URI)](../../api/org/apache/hadoop/mapreduce/Job.html)/
@@ -797,7 +756,7 @@ The files/archives can be distributed by setting the property `mapreduce.job.cac
 and
 [Job.setCacheFiles(URI[])](../../api/org/apache/hadoop/mapreduce/Job.html)/
 [Job.setCacheArchives(URI[])](../../api/org/apache/hadoop/mapreduce/Job.html)
-where URI is of the form `hdfs://host:port/absolute-path\#link-name`. In Streaming, the files can be distributed through command line option `-cacheFile/-cacheArchive`.
+where URI is of the form `hdfs://host:port/absolute-path#link-name`. In Streaming, the files can be distributed through command line option `-cacheFile/-cacheArchive`.
 
 The `DistributedCache` can also be used as a rudimentary software distribution mechanism for use in the map and/or reduce tasks. It can be used to distribute both jars and native libraries. The
 [Job.addArchiveToClassPath(Path)](../../api/org/apache/hadoop/mapreduce/Job.html) or
@@ -806,12 +765,12 @@ api can be used to cache files/jars and also add them to the *classpath* of chil
 
 ##### Private and Public DistributedCache Files
 
-DistributedCache files can be private or public, that determines how they can be shared on the slave nodes.
+DistributedCache files can be private or public, that determines how they can be shared on the worker nodes.
 
 * "Private" DistributedCache files are cached in a localdirectory private to
   the user whose jobs need these files. These files are shared by all tasks
   and jobs of the specific user only and cannot be accessed by jobs of
-  other users on the slaves. A DistributedCache file becomes private by
+  other users on the workers. A DistributedCache file becomes private by
   virtue of its permissions on the file system where the files are
   uploaded, typically HDFS. If the file has no world readable access, or if
   the directory path leading to the file has no world executable access for
@@ -819,7 +778,7 @@ DistributedCache files can be private or public, that determines how they can be
 
 * "Public" DistributedCache files are cached in a global directory and the
   file access is setup such that they are publicly visible to all users.
-  These files can be shared by tasks and jobs of all users on the slaves. A
+  These files can be shared by tasks and jobs of all users on the workers. A
   DistributedCache file becomes public by virtue of its permissions on the
   file system where the files are uploaded, typically HDFS. If the file has
   world readable access, AND if the directory path leading to the file has
@@ -846,7 +805,7 @@ In the following sections we discuss how to submit a debug script with a job. Th
 
 ##### How to distribute the script file:
 
-The user needs to use [DistributedCache](#DistributedCache) to *distribute* and *symlink* thescript file.
+The user needs to use [DistributedCache](#DistributedCache) to *distribute* and *symlink* to the script file.
 
 ##### How to submit the script:
 
@@ -976,7 +935,7 @@ public class WordCount2 {
         InterruptedException {
       conf = context.getConfiguration();
       caseSensitive = conf.getBoolean("wordcount.case.sensitive", true);
-      if (conf.getBoolean("wordcount.skip.patterns", true)) {
+      if (conf.getBoolean("wordcount.skip.patterns", false)) {
         URI[] patternsURIs = Job.getInstance(conf).getCacheFiles();
         for (URI patternsURI : patternsURIs) {
           Path patternsPath = new Path(patternsURI.getPath());
@@ -1038,7 +997,7 @@ public class WordCount2 {
     Configuration conf = new Configuration();
     GenericOptionsParser optionParser = new GenericOptionsParser(conf, args);
     String[] remainingArgs = optionParser.getRemainingArgs();
-    if (!(remainingArgs.length != 2 | | remainingArgs.length != 4)) {
+    if ((remainingArgs.length != 2) && (remainingArgs.length != 4)) {
       System.err.println("Usage: wordcount <in> <out> [-skip skipPatternFile]");
       System.exit(2);
     }

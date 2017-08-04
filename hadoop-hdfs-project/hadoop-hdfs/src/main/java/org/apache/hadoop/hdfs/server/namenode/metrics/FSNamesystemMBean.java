@@ -78,17 +78,31 @@ public interface FSNamesystemMBean {
   public long getFilesTotal();
  
   /**
-   * Blocks pending to be replicated
-   * @return -  num of blocks to be replicated
+   * Get aggregated count of all blocks pending to be reconstructed.
+   * @deprecated Use {@link #getPendingReconstructionBlocks()} instead.
    */
+  @Deprecated
   public long getPendingReplicationBlocks();
- 
+
   /**
-   * Blocks under replicated 
-   * @return -  num of blocks under replicated
+   * Get aggregated count of all blocks pending to be reconstructed.
+   * @return Number of blocks to be replicated.
    */
+  public long getPendingReconstructionBlocks();
+
+  /**
+   * Get aggregated count of all blocks with low redundancy.
+   * @deprecated Use {@link #getLowRedundancyBlocks()} instead.
+   */
+  @Deprecated
   public long getUnderReplicatedBlocks();
- 
+
+  /**
+   * Get aggregated count of all blocks with low redundancy.
+   * @return Number of blocks with low redundancy.
+   */
+  public long getLowRedundancyBlocks();
+
   /**
    * Blocks scheduled for replication
    * @return -  num of blocks scheduled for replication
@@ -184,4 +198,43 @@ public interface FSNamesystemMBean {
    * @return JSON string
    */
   public String getTopUserOpCounts();
+
+  /**
+   * Return the number of encryption zones in the system.
+   */
+  int getNumEncryptionZones();
+
+  /**
+   * Returns the length of the wait Queue for the FSNameSystemLock.
+   *
+   * A larger number here indicates lots of threads are waiting for
+   * FSNameSystemLock.
+   * @return int - Number of Threads waiting to acquire FSNameSystemLock
+   */
+  int getFsLockQueueLength();
+
+  /**
+   * Return total number of Sync Operations on FSEditLog.
+   */
+  long getTotalSyncCount();
+
+  /**
+   * Return total time spent doing sync operations on FSEditLog.
+   */
+  String getTotalSyncTimes();
+
+  /**
+   * @return Number of IN_MAINTENANCE live data nodes
+   */
+  int getNumInMaintenanceLiveDataNodes();
+
+  /**
+   * @return Number of IN_MAINTENANCE dead data nodes
+   */
+  int getNumInMaintenanceDeadDataNodes();
+
+  /**
+   * @return Number of ENTERING_MAINTENANCE data nodes
+   */
+  int getNumEnteringMaintenanceDataNodes();
 }

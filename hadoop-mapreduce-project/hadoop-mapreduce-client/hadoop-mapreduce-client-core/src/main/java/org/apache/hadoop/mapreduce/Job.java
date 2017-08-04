@@ -75,11 +75,11 @@ import org.apache.hadoop.yarn.api.records.ReservationId;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Evolving
-public class Job extends JobContextImpl implements JobContext {  
+public class Job extends JobContextImpl implements JobContext, AutoCloseable {
   private static final Log LOG = LogFactory.getLog(Job.class);
 
   @InterfaceStability.Evolving
-  public static enum JobState {DEFINE, RUNNING};
+  public enum JobState {DEFINE, RUNNING};
   private static final long MAX_JOBSTATUS_AGE = 1000 * 2;
   public static final String OUTPUT_FILTER = "mapreduce.client.output.filter";
   /** Key in mapred-*.xml that sets completionPollInvervalMillis */
@@ -95,13 +95,16 @@ public class Job extends JobContextImpl implements JobContext {
   static final int DEFAULT_MONITOR_POLL_INTERVAL = 1000;
 
   public static final String USED_GENERIC_PARSER = 
-    "mapreduce.client.genericoptionsparser.used";
+      "mapreduce.client.genericoptionsparser.used";
   public static final String SUBMIT_REPLICATION = 
-    "mapreduce.client.submit.file.replication";
+      "mapreduce.client.submit.file.replication";
   public static final int DEFAULT_SUBMIT_REPLICATION = 10;
+  public static final String USE_WILDCARD_FOR_LIBJARS =
+      "mapreduce.client.libjars.wildcard";
+  public static final boolean DEFAULT_USE_WILDCARD_FOR_LIBJARS = true;
 
   @InterfaceStability.Evolving
-  public static enum TaskStatusFilter { NONE, KILLED, FAILED, SUCCEEDED, ALL }
+  public enum TaskStatusFilter { NONE, KILLED, FAILED, SUCCEEDED, ALL }
 
   static {
     ConfigUtil.loadResources();
@@ -320,7 +323,7 @@ public class Job extends JobContextImpl implements JobContext {
       this.status = ugi.doAs(new PrivilegedExceptionAction<JobStatus>() {
         @Override
         public JobStatus run() throws IOException, InterruptedException {
-          return cluster.getClient().getJobStatus(status.getJobID());
+          return cluster.getClient().getJobStatus(getJobID());
         }
       });
     }
@@ -407,7 +410,7 @@ public class Job extends JobContextImpl implements JobContext {
   /**
    * Get scheduling info of the job.
    * 
-   * @return the scheduling info of the job
+   * @return the priority info of the job
    */
   public JobPriority getPriority() throws IOException, InterruptedException {
     ensureState(JobState.RUNNING);
@@ -419,7 +422,7 @@ public class Job extends JobContextImpl implements JobContext {
    * The user-specified job name.
    */
   public String getJobName() {
-    if (state == JobState.DEFINE) {
+    if (state == JobState.DEFINE || status == null) {
       return super.getJobName();
     }
     ensureState(JobState.RUNNING);
@@ -635,25 +638,76 @@ public class Job extends JobContextImpl implements JobContext {
 
   /**
    * Set the priority of a running job.
-   * @param priority the new priority for the job.
+   * @param jobPriority the new priority for the job.
    * @throws IOException
    */
-  public void setPriority(JobPriority priority) 
-      throws IOException, InterruptedException {
+  public void setPriority(JobPriority jobPriority) throws IOException,
+      InterruptedException {
     if (state == JobState.DEFINE) {
-      conf.setJobPriority(
-        org.apache.hadoop.mapred.JobPriority.valueOf(priority.name()));
+      if (jobPriority == JobPriority.UNDEFINED_PRIORITY) {
+        conf.setJobPriorityAsInteger(convertPriorityToInteger(jobPriority));
+      } else {
+        conf.setJobPriority(org.apache.hadoop.mapred.JobPriority
+            .valueOf(jobPriority.name()));
+      }
     } else {
       ensureState(JobState.RUNNING);
-      final JobPriority tmpPriority = priority;
+      final int tmpPriority = convertPriorityToInteger(jobPriority);
       ugi.doAs(new PrivilegedExceptionAction<Object>() {
         @Override
         public Object run() throws IOException, InterruptedException {
-          cluster.getClient().setJobPriority(getJobID(), tmpPriority.toString());
+          cluster.getClient()
+              .setJobPriority(getJobID(), Integer.toString(tmpPriority));
           return null;
         }
       });
     }
+  }
+
+  /**
+   * Set the priority of a running job.
+   *
+   * @param jobPriority
+   *          the new priority for the job.
+   * @throws IOException
+   */
+  public void setPriorityAsInteger(int jobPriority) throws IOException,
+      InterruptedException {
+    if (state == JobState.DEFINE) {
+      conf.setJobPriorityAsInteger(jobPriority);
+    } else {
+      ensureState(JobState.RUNNING);
+      final int tmpPriority = jobPriority;
+      ugi.doAs(new PrivilegedExceptionAction<Object>() {
+        @Override
+        public Object run() throws IOException, InterruptedException {
+          cluster.getClient()
+              .setJobPriority(getJobID(), Integer.toString(tmpPriority));
+          return null;
+        }
+      });
+    }
+  }
+
+  private int convertPriorityToInteger(JobPriority jobPriority) {
+    switch (jobPriority) {
+    case VERY_HIGH :
+      return 5;
+    case HIGH :
+      return 4;
+    case NORMAL :
+      return 3;
+    case LOW :
+      return 2;
+    case VERY_LOW :
+      return 1;
+    case DEFAULT :
+      return 0;
+    default:
+      break;
+    }
+    // For UNDEFINED_PRIORITY, we can set it to default for better handling
+    return 0;
   }
 
   /**
@@ -1207,7 +1261,7 @@ public class Job extends JobContextImpl implements JobContext {
   /**
    * Default to the new APIs unless they are explicitly set or the old mapper or
    * reduce attributes are used.
-   * @throws IOException if the configuration is inconsistant
+   * @throws IOException if the configuration is inconsistent
    */
   private void setUseNewAPI() throws IOException {
     int numReduces = conf.getNumReduceTasks();
@@ -1225,7 +1279,7 @@ public class Job extends JobContextImpl implements JobContext {
         ensureNotSet("mapred.output.format.class", mode);
       }      
     } else {
-      String mode = "map compatability";
+      String mode = "map compatibility";
       ensureNotSet(INPUT_FORMAT_CLASS_ATTR, mode);
       ensureNotSet(MAP_CLASS_ATTR, mode);
       if (numReduces != 0) {
@@ -1242,7 +1296,7 @@ public class Job extends JobContextImpl implements JobContext {
         ensureNotSet("mapred.output.format.class", mode);
         ensureNotSet(oldReduceClass, mode);   
       } else {
-        String mode = "reduce compatability";
+        String mode = "reduce compatibility";
         ensureNotSet(OUTPUT_FORMAT_CLASS_ATTR, mode);
         ensureNotSet(REDUCE_CLASS_ATTR, mode);   
       }
@@ -1304,9 +1358,7 @@ public class Job extends JobContextImpl implements JobContext {
   public boolean waitForCompletion(boolean verbose
                                    ) throws IOException, InterruptedException,
                                             ClassNotFoundException {
-    JobID jobId = getJobID();
     if (state == JobState.DEFINE) {
-      LOG.info("ARIZHO >>  Submitting Job (JobId : "+jobId+" , Start Time at at"+ getStartTime() +".....");
       submit();
     }
     if (verbose) {
@@ -1322,9 +1374,6 @@ public class Job extends JobContextImpl implements JobContext {
         }
       }
     }
-
-    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Done, Finish Time at at"+ getFinishTime() +".....");
-    LOG.info("ARIZHO >>  Job (JobId : "+jobId+" is Started at "+getStartTime() +" ...");
     return isSuccessful();
   }
   
@@ -1504,4 +1553,15 @@ public class Job extends JobContextImpl implements JobContext {
     this.reservationId = reservationId;
   }
   
+  /**
+   * Close the <code>Job</code>.
+   * @throws IOException if fail to close.
+   */
+  @Override
+  public void close() throws IOException {
+    if (cluster != null) {
+      cluster.close();
+      cluster = null;
+    }
+  }
 }

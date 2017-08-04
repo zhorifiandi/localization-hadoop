@@ -20,15 +20,16 @@ package org.apache.hadoop.yarn.server.resourcemanager.webapp;
 
 import static org.apache.hadoop.yarn.webapp.view.JQueryUI.DATATABLES_ID;
 
-import org.apache.hadoop.yarn.nodelabels.NodeLabel;
+import org.apache.hadoop.yarn.api.records.NodeLabel;
+import org.apache.hadoop.yarn.nodelabels.RMNodeLabel;
 import org.apache.hadoop.yarn.server.resourcemanager.ResourceManager;
 import org.apache.hadoop.yarn.server.resourcemanager.nodelabels.RMNodeLabelsManager;
 import org.apache.hadoop.yarn.webapp.SubView;
 import org.apache.hadoop.yarn.webapp.YarnWebParams;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TABLE;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TBODY;
-import org.apache.hadoop.yarn.webapp.hamlet.Hamlet.TR;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TABLE;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TBODY;
+import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet.TR;
 import org.apache.hadoop.yarn.webapp.view.HtmlBlock;
 
 import com.google.inject.Inject;
@@ -49,34 +50,38 @@ public class NodeLabelsPage extends RmView {
           thead().
           tr().
           th(".name", "Label Name").
+          th(".type", "Label Type").
           th(".numOfActiveNMs", "Num Of Active NMs").
           th(".totalResource", "Total Resource").
-          _()._().
+          __().__().
           tbody();
   
       RMNodeLabelsManager nlm = rm.getRMContext().getNodeLabelManager();
-      for (NodeLabel info : nlm.pullRMNodeLabelsInfo()) {
+      for (RMNodeLabel info : nlm.pullRMNodeLabelsInfo()) {
         TR<TBODY<TABLE<Hamlet>>> row =
-            tbody.tr().td(
-                info.getLabelName().isEmpty() ? "<NO_LABEL>" : info
-                    .getLabelName());
+            tbody.tr().td(info.getLabelName().isEmpty()
+                ? NodeLabel.DEFAULT_NODE_LABEL_PARTITION : info.getLabelName());
+        String type =
+            (info.getIsExclusive()) ? "Exclusive Partition"
+                : "Non Exclusive Partition";
+        row = row.td(type);
         int nActiveNMs = info.getNumActiveNMs();
         if (nActiveNMs > 0) {
           row = row.td()
           .a(url("nodes",
               "?" + YarnWebParams.NODE_LABEL + "=" + info.getLabelName()),
               String.valueOf(nActiveNMs))
-           ._();
+           .__();
         } else {
           row = row.td(String.valueOf(nActiveNMs));
         }
-        row.td(info.getResource().toString())._();
+        row.td(info.getResource().toString()).__();
       }
-      tbody._()._();
+      tbody.__().__();
     }
   }
 
-  @Override protected void preHead(Page.HTML<_> html) {
+  @Override protected void preHead(Page.HTML<__> html) {
     commonPreHead(html);
     String title = "Node labels of the cluster";
     setTitle(title);

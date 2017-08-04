@@ -20,6 +20,9 @@ package org.apache.hadoop.yarn.server.nodemanager.containermanager.launcher;
 
 public enum ContainersLauncherEventType {
   LAUNCH_CONTAINER,
+  RELAUNCH_CONTAINER,
   RECOVER_CONTAINER,
   CLEANUP_CONTAINER, // The process(grp) itself.
+  CLEANUP_CONTAINER_FOR_REINIT, // The process(grp) itself.
+  SIGNAL_CONTAINER,
 }

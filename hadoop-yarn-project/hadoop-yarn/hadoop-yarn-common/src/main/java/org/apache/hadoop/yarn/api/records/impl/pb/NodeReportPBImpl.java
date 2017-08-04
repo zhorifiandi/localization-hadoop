@@ -27,10 +27,12 @@ import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.api.records.NodeReport;
 import org.apache.hadoop.yarn.api.records.NodeState;
 import org.apache.hadoop.yarn.api.records.Resource;
+import org.apache.hadoop.yarn.api.records.ResourceUtilization;
 import org.apache.hadoop.yarn.proto.YarnProtos.NodeIdProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.NodeReportProto;
 import org.apache.hadoop.yarn.proto.YarnProtos.NodeReportProtoOrBuilder;
 import org.apache.hadoop.yarn.proto.YarnProtos.ResourceProto;
+import org.apache.hadoop.yarn.proto.YarnProtos.ResourceUtilizationProto;
 
 import com.google.protobuf.TextFormat;
 
@@ -44,6 +46,8 @@ public class NodeReportPBImpl extends NodeReport {
   private NodeId nodeId;
   private Resource used;
   private Resource capability;
+  private ResourceUtilization containersUtilization = null;
+  private ResourceUtilization nodeUtilization = null;
   Set<String> labels;
 
   public NodeReportPBImpl() {
@@ -249,19 +253,27 @@ public class NodeReportPBImpl extends NodeReport {
             builder.getNodeId())) {
       builder.setNodeId(convertToProtoFormat(this.nodeId));
     }
-    if (this.used != null
-        && !((ResourcePBImpl) this.used).getProto().equals(
-            builder.getUsed())) {
+    if (this.used != null) {
       builder.setUsed(convertToProtoFormat(this.used));
     }
-    if (this.capability != null
-        && !((ResourcePBImpl) this.capability).getProto().equals(
-            builder.getCapability())) {
+    if (this.capability != null) {
       builder.setCapability(convertToProtoFormat(this.capability));
     }
     if (this.labels != null) {
       builder.clearNodeLabels();
       builder.addAllNodeLabels(this.labels);
+    }
+    if (this.nodeUtilization != null
+        && !((ResourceUtilizationPBImpl) this.nodeUtilization).getProto()
+            .equals(builder.getNodeUtilization())) {
+      builder.setNodeUtilization(convertToProtoFormat(this.nodeUtilization));
+    }
+    if (this.containersUtilization != null
+        && !((ResourceUtilizationPBImpl) this.containersUtilization).getProto()
+            .equals(builder.getContainersUtilization())) {
+      builder
+          .setContainersUtilization(convertToProtoFormat(
+              this.containersUtilization));
     }
   }
 
@@ -294,7 +306,16 @@ public class NodeReportPBImpl extends NodeReport {
   }
 
   private ResourceProto convertToProtoFormat(Resource r) {
-    return ((ResourcePBImpl) r).getProto();
+    return ProtoUtils.convertToProtoFormat(r);
+  }
+
+  private ResourceUtilizationPBImpl convertFromProtoFormat(
+      ResourceUtilizationProto p) {
+    return new ResourceUtilizationPBImpl(p);
+  }
+
+  private ResourceUtilizationProto convertToProtoFormat(ResourceUtilization r) {
+    return ((ResourceUtilizationPBImpl) r).getProto();
   }
 
   @Override
@@ -317,5 +338,53 @@ public class NodeReportPBImpl extends NodeReport {
     NodeReportProtoOrBuilder p = viaProto ? proto : builder;
     this.labels = new HashSet<String>();
     this.labels.addAll(p.getNodeLabelsList());
+  }
+
+  @Override
+  public ResourceUtilization getAggregatedContainersUtilization() {
+    if (this.containersUtilization != null) {
+      return this.containersUtilization;
+    }
+
+    NodeReportProtoOrBuilder p = viaProto ? proto : builder;
+    if (!p.hasContainersUtilization()) {
+      return null;
+    }
+    this.containersUtilization = convertFromProtoFormat(p
+        .getContainersUtilization());
+    return this.containersUtilization;
+  }
+
+  @Override
+  public void setAggregatedContainersUtilization(
+      ResourceUtilization containersResourceUtilization) {
+    maybeInitBuilder();
+    if (containersResourceUtilization == null) {
+      builder.clearContainersUtilization();
+    }
+    this.containersUtilization = containersResourceUtilization;
+  }
+
+  @Override
+  public ResourceUtilization getNodeUtilization() {
+    if (this.nodeUtilization != null) {
+      return this.nodeUtilization;
+    }
+
+    NodeReportProtoOrBuilder p = viaProto ? proto : builder;
+    if (!p.hasNodeUtilization()) {
+      return null;
+    }
+    this.nodeUtilization = convertFromProtoFormat(p.getNodeUtilization());
+    return this.nodeUtilization;
+  }
+
+  @Override
+  public void setNodeUtilization(ResourceUtilization nodeResourceUtilization) {
+    maybeInitBuilder();
+    if (nodeResourceUtilization == null) {
+      builder.clearNodeUtilization();
+    }
+    this.nodeUtilization = nodeResourceUtilization;
   }
 }

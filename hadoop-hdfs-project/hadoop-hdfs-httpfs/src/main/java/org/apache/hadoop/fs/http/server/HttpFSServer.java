@@ -18,12 +18,14 @@
 
 package org.apache.hadoop.fs.http.server;
 
+import com.google.common.base.Charsets;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.XAttrCodec;
 import org.apache.hadoop.fs.XAttrSetFlag;
 import org.apache.hadoop.fs.http.client.HttpFSFileSystem;
+import org.apache.hadoop.fs.http.client.HttpFSUtils;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.AccessTimeParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.AclPermissionParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.BlockSizeParam;
@@ -39,6 +41,7 @@ import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.OperationParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.OverwriteParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.OwnerParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.PermissionParam;
+import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.PolicyNameParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.RecursiveParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.ReplicationParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.SourcesParam;
@@ -46,6 +49,8 @@ import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.XAttrEncodingPa
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.XAttrNameParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.XAttrSetFlagParam;
 import org.apache.hadoop.fs.http.server.HttpFSParametersProvider.XAttrValueParam;
+import org.apache.hadoop.hdfs.web.JsonUtil;
+import org.apache.hadoop.http.JettyUtils;
 import org.apache.hadoop.lib.service.FileSystemAccess;
 import org.apache.hadoop.lib.service.FileSystemAccessException;
 import org.apache.hadoop.lib.service.Groups;
@@ -79,6 +84,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.security.AccessControlException;
+import java.security.PrivilegedExceptionAction;
 import java.text.MessageFormat;
 import java.util.EnumSet;
 import java.util.List;
@@ -94,6 +100,7 @@ import java.util.Map;
 @InterfaceAudience.Private
 public class HttpFSServer {
   private static Logger AUDIT_LOG = LoggerFactory.getLogger("httpfsaudit");
+  private static final Logger LOG = LoggerFactory.getLogger(HttpFSServer.class);
 
   /**
    * Executes a {@link FileSystemAccess.FileSystemExecutor} using a filesystem for the effective
@@ -104,7 +111,7 @@ public class HttpFSServer {
    *
    * @return FileSystemExecutor response
    *
-   * @throws IOException thrown if an IO error occurrs.
+   * @throws IOException thrown if an IO error occurs.
    * @throws FileSystemAccessException thrown if a FileSystemAccess releated error occurred. Thrown
    * exceptions are handled by {@link HttpFSExceptionProvider}.
    */
@@ -164,7 +171,7 @@ public class HttpFSServer {
    * {@link HttpFSExceptionProvider}.
    */
   @GET
-  @Produces(MediaType.APPLICATION_JSON)
+  @Produces(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8)
   public Response getRoot(@QueryParam(OperationParam.NAME) OperationParam op,
                           @Context Parameters params,
                           @Context HttpServletRequest request)
@@ -193,7 +200,8 @@ public class HttpFSServer {
    */
   @GET
   @Path("{path:.*}")
-  @Produces({MediaType.APPLICATION_OCTET_STREAM, MediaType.APPLICATION_JSON})
+  @Produces({MediaType.APPLICATION_OCTET_STREAM + "; " + JettyUtils.UTF_8,
+      MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8})
   public Response get(@PathParam("path") String path,
                       @QueryParam(OperationParam.NAME) OperationParam op,
                       @Context Parameters params,
@@ -205,115 +213,179 @@ public class HttpFSServer {
     MDC.put(HttpFSFileSystem.OP_PARAM, op.value().name());
     MDC.put("hostname", request.getRemoteAddr());
     switch (op.value()) {
-      case OPEN: {
-        //Invoking the command directly using an unmanaged FileSystem that is
-        // released by the FileSystemReleaseFilter
-        FSOperations.FSOpen command = new FSOperations.FSOpen(path);
-        FileSystem fs = createFileSystem(user);
-        InputStream is = command.execute(fs);
-        Long offset = params.get(OffsetParam.NAME, OffsetParam.class);
-        Long len = params.get(LenParam.NAME, LenParam.class);
-        AUDIT_LOG.info("[{}] offset [{}] len [{}]",
-                       new Object[]{path, offset, len});
-        InputStreamEntity entity = new InputStreamEntity(is, offset, len);
-        response =
+    case OPEN: {
+      //Invoking the command directly using an unmanaged FileSystem that is
+      // released by the FileSystemReleaseFilter
+      final FSOperations.FSOpen command = new FSOperations.FSOpen(path);
+      final FileSystem fs = createFileSystem(user);
+      InputStream is = null;
+      UserGroupInformation ugi = UserGroupInformation
+          .createProxyUser(user.getShortUserName(),
+              UserGroupInformation.getLoginUser());
+      try {
+        is = ugi.doAs(new PrivilegedExceptionAction<InputStream>() {
+          @Override
+          public InputStream run() throws Exception {
+            return command.execute(fs);
+          }
+        });
+      } catch (InterruptedException ie) {
+        LOG.info("Open interrupted.", ie);
+        Thread.currentThread().interrupt();
+      }
+      Long offset = params.get(OffsetParam.NAME, OffsetParam.class);
+      Long len = params.get(LenParam.NAME, LenParam.class);
+      AUDIT_LOG.info("[{}] offset [{}] len [{}]",
+          new Object[] { path, offset, len });
+      InputStreamEntity entity = new InputStreamEntity(is, offset, len);
+      response =
           Response.ok(entity).type(MediaType.APPLICATION_OCTET_STREAM).build();
-        break;
-      }
-      case GETFILESTATUS: {
-        FSOperations.FSFileStatus command =
-          new FSOperations.FSFileStatus(path);
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("[{}]", path);
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
-      }
-      case LISTSTATUS: {
-        String filter = params.get(FilterParam.NAME, FilterParam.class);
-        FSOperations.FSListStatus command = new FSOperations.FSListStatus(
-          path, filter);
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("[{}] filter [{}]", path,
-                       (filter != null) ? filter : "-");
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
-      }
-      case GETHOMEDIRECTORY: {
-        enforceRootPath(op.value(), path);
-        FSOperations.FSHomeDir command = new FSOperations.FSHomeDir();
-        JSONObject json = fsExecute(user, command);
-        AUDIT_LOG.info("");
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
-      }
-      case INSTRUMENTATION: {
-        enforceRootPath(op.value(), path);
-        Groups groups = HttpFSServerWebApp.get().get(Groups.class);
-        List<String> userGroups = groups.getGroups(user.getShortUserName());
-        if (!userGroups.contains(HttpFSServerWebApp.get().getAdminGroup())) {
-          throw new AccessControlException(
+      break;
+    }
+    case GETFILESTATUS: {
+      FSOperations.FSFileStatus command = new FSOperations.FSFileStatus(path);
+      Map json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case LISTSTATUS: {
+      String filter = params.get(FilterParam.NAME, FilterParam.class);
+      FSOperations.FSListStatus command =
+          new FSOperations.FSListStatus(path, filter);
+      Map json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}] filter [{}]", path, (filter != null) ? filter : "-");
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETHOMEDIRECTORY: {
+      enforceRootPath(op.value(), path);
+      FSOperations.FSHomeDir command = new FSOperations.FSHomeDir();
+      JSONObject json = fsExecute(user, command);
+      AUDIT_LOG.info("");
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case INSTRUMENTATION: {
+      enforceRootPath(op.value(), path);
+      Groups groups = HttpFSServerWebApp.get().get(Groups.class);
+      List<String> userGroups = groups.getGroups(user.getShortUserName());
+      if (!userGroups.contains(HttpFSServerWebApp.get().getAdminGroup())) {
+        throw new AccessControlException(
             "User not in HttpFSServer admin group");
-        }
-        Instrumentation instrumentation =
+      }
+      Instrumentation instrumentation =
           HttpFSServerWebApp.get().get(Instrumentation.class);
-        Map snapshot = instrumentation.getSnapshot();
-        response = Response.ok(snapshot).build();
-        break;
-      }
-      case GETCONTENTSUMMARY: {
-        FSOperations.FSContentSummary command =
+      Map snapshot = instrumentation.getSnapshot();
+      response = Response.ok(snapshot).build();
+      break;
+    }
+    case GETCONTENTSUMMARY: {
+      FSOperations.FSContentSummary command =
           new FSOperations.FSContentSummary(path);
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("[{}]", path);
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
-      }
-      case GETFILECHECKSUM: {
-        FSOperations.FSFileChecksum command =
+      Map json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETFILECHECKSUM: {
+      FSOperations.FSFileChecksum command =
           new FSOperations.FSFileChecksum(path);
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("[{}]", path);
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
+      Map json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETFILEBLOCKLOCATIONS: {
+      long offset = 0;
+      // In case length is not given, reset to max long
+      // in order to retrieve all file block locations
+      long len = Long.MAX_VALUE;
+      Long offsetParam = params.get(OffsetParam.NAME, OffsetParam.class);
+      Long lenParam = params.get(LenParam.NAME, LenParam.class);
+      AUDIT_LOG.info("[{}] offset [{}] len [{}]",
+          new Object[] {path, offsetParam, lenParam});
+      if (offsetParam != null && offsetParam.longValue() > 0) {
+        offset = offsetParam.longValue();
       }
-      case GETFILEBLOCKLOCATIONS: {
-        response = Response.status(Response.Status.BAD_REQUEST).build();
-        break;
+      if (lenParam != null && lenParam.longValue() > 0) {
+        len = lenParam.longValue();
       }
-      case GETACLSTATUS: {
-        FSOperations.FSAclStatus command =
-                new FSOperations.FSAclStatus(path);
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("ACL status for [{}]", path);
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
+      FSOperations.FSFileBlockLocations command =
+          new FSOperations.FSFileBlockLocations(path, offset, len);
+      @SuppressWarnings("rawtypes") Map locations = fsExecute(user, command);
+      final String json = JsonUtil.toJsonString("BlockLocations", locations);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETACLSTATUS: {
+      FSOperations.FSAclStatus command = new FSOperations.FSAclStatus(path);
+      Map json = fsExecute(user, command);
+      AUDIT_LOG.info("ACL status for [{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETXATTRS: {
+      List<String> xattrNames =
+          params.getValues(XAttrNameParam.NAME, XAttrNameParam.class);
+      XAttrCodec encoding =
+          params.get(XAttrEncodingParam.NAME, XAttrEncodingParam.class);
+      FSOperations.FSGetXAttrs command =
+          new FSOperations.FSGetXAttrs(path, xattrNames, encoding);
+      @SuppressWarnings("rawtypes") Map json = fsExecute(user, command);
+      AUDIT_LOG.info("XAttrs for [{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case LISTXATTRS: {
+      FSOperations.FSListXAttrs command = new FSOperations.FSListXAttrs(path);
+      @SuppressWarnings("rawtypes") Map json = fsExecute(user, command);
+      AUDIT_LOG.info("XAttr names for [{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case LISTSTATUS_BATCH: {
+      String startAfter = params.get(
+          HttpFSParametersProvider.StartAfterParam.NAME,
+          HttpFSParametersProvider.StartAfterParam.class);
+      byte[] token = HttpFSUtils.EMPTY_BYTES;
+      if (startAfter != null) {
+        token = startAfter.getBytes(Charsets.UTF_8);
       }
-      case GETXATTRS: {
-        List<String> xattrNames = params.getValues(XAttrNameParam.NAME, 
-            XAttrNameParam.class);
-        XAttrCodec encoding = params.get(XAttrEncodingParam.NAME, 
-            XAttrEncodingParam.class);
-        FSOperations.FSGetXAttrs command = new FSOperations.FSGetXAttrs(path, 
-            xattrNames, encoding);
-        @SuppressWarnings("rawtypes")
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("XAttrs for [{}]", path);
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
-      }
-      case LISTXATTRS: {
-        FSOperations.FSListXAttrs command = new FSOperations.FSListXAttrs(path);
-        @SuppressWarnings("rawtypes")
-        Map json = fsExecute(user, command);
-        AUDIT_LOG.info("XAttr names for [{}]", path);
-        response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
-        break;
-      }
-      default: {
-        throw new IOException(
-          MessageFormat.format("Invalid HTTP GET operation [{0}]",
-                               op.value()));
-      }
+      FSOperations.FSListStatusBatch command = new FSOperations
+          .FSListStatusBatch(path, token);
+      @SuppressWarnings("rawtypes") Map json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}] token [{}]", path, token);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETTRASHROOT: {
+      FSOperations.FSTrashRoot command = new FSOperations.FSTrashRoot(path);
+      JSONObject json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETALLSTORAGEPOLICY: {
+      FSOperations.FSGetAllStoragePolicies command =
+          new FSOperations.FSGetAllStoragePolicies();
+      JSONObject json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    case GETSTORAGEPOLICY: {
+      FSOperations.FSGetStoragePolicy command =
+          new FSOperations.FSGetStoragePolicy(path);
+      JSONObject json = fsExecute(user, command);
+      AUDIT_LOG.info("[{}]", path);
+      response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
+      break;
+    }
+    default: {
+      throw new IOException(
+          MessageFormat.format("Invalid HTTP GET operation [{0}]", op.value()));
+    }
     }
     return response;
   }
@@ -336,7 +408,7 @@ public class HttpFSServer {
    */
   @DELETE
   @Path("{path:.*}")
-  @Produces(MediaType.APPLICATION_JSON)
+  @Produces(MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8)
   public Response delete(@PathParam("path") String path,
                          @QueryParam(OperationParam.NAME) OperationParam op,
                          @Context Parameters params,
@@ -387,7 +459,7 @@ public class HttpFSServer {
   @POST
   @Path("{path:.*}")
   @Consumes({"*/*"})
-  @Produces({MediaType.APPLICATION_JSON})
+  @Produces({MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8})
   public Response post(InputStream is,
                        @Context UriInfo uriInfo,
                        @PathParam("path") String path,
@@ -437,6 +509,14 @@ public class HttpFSServer {
         response = Response.ok(json).type(MediaType.APPLICATION_JSON).build();
         break;
       }
+      case UNSETSTORAGEPOLICY: {
+        FSOperations.FSUnsetStoragePolicy command =
+             new FSOperations.FSUnsetStoragePolicy(path);
+         fsExecute(user, command);
+         AUDIT_LOG.info("Unset storage policy [{}]", path);
+         response = Response.ok().build();
+         break;
+      }
       default: {
         throw new IOException(
           MessageFormat.format("Invalid HTTP POST operation [{0}]",
@@ -482,7 +562,7 @@ public class HttpFSServer {
   @PUT
   @Path("{path:.*}")
   @Consumes({"*/*"})
-  @Produces({MediaType.APPLICATION_JSON})
+  @Produces({MediaType.APPLICATION_JSON + "; " + JettyUtils.UTF_8})
   public Response put(InputStream is,
                        @Context UriInfo uriInfo,
                        @PathParam("path") String path,
@@ -651,6 +731,16 @@ public class HttpFSServer {
                 new FSOperations.FSRemoveDefaultAcl(path);
         fsExecute(user, command);
         AUDIT_LOG.info("[{}] remove default acl", path);
+        response = Response.ok().build();
+        break;
+      }
+      case SETSTORAGEPOLICY: {
+        String policyName = params.get(PolicyNameParam.NAME,
+            PolicyNameParam.class);
+        FSOperations.FSSetStoragePolicy command =
+            new FSOperations.FSSetStoragePolicy(path, policyName);
+        fsExecute(user, command);
+        AUDIT_LOG.info("[{}] to policy [{}]", path, policyName);
         response = Response.ok().build();
         break;
       }

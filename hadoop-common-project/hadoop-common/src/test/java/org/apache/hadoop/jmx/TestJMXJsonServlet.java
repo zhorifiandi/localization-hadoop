@@ -24,6 +24,8 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.regex.Matcher;
@@ -52,7 +54,7 @@ public class TestJMXJsonServlet extends HttpServerFunctionalTest {
     assertTrue("'"+p+"' does not match "+value, m.find());
   }
   
-  @Test public void testQury() throws Exception {
+  @Test public void testQuery() throws Exception {
     String result = readOutput(new URL(baseUrl, "/jmx?qry=java.lang:type=Runtime"));
     assertReFind("\"name\"\\s*:\\s*\"java.lang:type=Runtime\"", result);
     assertReFind("\"modelerType\"", result);
@@ -81,4 +83,15 @@ public class TestJMXJsonServlet extends HttpServerFunctionalTest {
     assertEquals("GET", conn.getHeaderField(ACCESS_CONTROL_ALLOW_METHODS));
     assertNotNull(conn.getHeaderField(ACCESS_CONTROL_ALLOW_ORIGIN));
   }
+
+  @Test
+  public void testTraceRequest() throws IOException {
+    URL url = new URL(baseUrl, "/jmx");
+    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+    conn.setRequestMethod("TRACE");
+
+    assertEquals("Unexpected response code",
+        HttpServletResponse.SC_METHOD_NOT_ALLOWED, conn.getResponseCode());
+  }
+
 }

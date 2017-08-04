@@ -22,9 +22,9 @@ import java.io.FileNotFoundException;
 import java.net.URI;
 import java.util.Random;
 
-import org.apache.commons.lang.RandomStringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.security.token.Token;
+import org.apache.hadoop.test.GenericTestUtils;
 import org.junit.Assert;
 
 import static org.junit.Assert.*;
@@ -45,7 +45,7 @@ public class FileSystemTestHelper {
    * Create helper with test root located at <wd>/build/test/data
    */
   public FileSystemTestHelper() {
-      this(System.getProperty("test.build.data", "target/test/data") + "/" + RandomStringUtils.randomAlphanumeric(10));
+    this(GenericTestUtils.getRandomizedTempPath());
   }
 
   /**
@@ -237,7 +237,7 @@ public class FileSystemTestHelper {
     return containsPath(fSys, new Path(path), dirList);
   }
   
-  public static enum fileType {isDir, isFile, isSymlink};
+  public enum fileType {isDir, isFile, isSymlink};
   public static void checkFileStatus(FileSystem aFs, String path,
       fileType expectedType) throws IOException {
     FileStatus s = aFs.getFileStatus(new Path(path));

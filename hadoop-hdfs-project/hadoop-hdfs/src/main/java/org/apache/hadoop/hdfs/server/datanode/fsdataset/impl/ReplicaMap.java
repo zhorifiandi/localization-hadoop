@@ -18,34 +18,48 @@
 package org.apache.hadoop.hdfs.server.datanode.fsdataset.impl;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.hadoop.HadoopIllegalArgumentException;
 import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.server.datanode.ReplicaInfo;
+import org.apache.hadoop.hdfs.util.FoldedTreeSet;
+import org.apache.hadoop.util.AutoCloseableLock;
 
 /**
  * Maintains the replica map. 
  */
 class ReplicaMap {
-  // Object using which this class is synchronized
-  private final Object mutex;
+  // Lock object to synchronize this instance.
+  private final AutoCloseableLock lock;
   
-  // Map of block pool Id to another map of block Id to ReplicaInfo.
-  private final Map<String, Map<Long, ReplicaInfo>> map =
-    new HashMap<String, Map<Long, ReplicaInfo>>();
-  
-  ReplicaMap(Object mutex) {
-    if (mutex == null) {
+  // Map of block pool Id to a set of ReplicaInfo.
+  private final Map<String, FoldedTreeSet<ReplicaInfo>> map = new HashMap<>();
+
+  // Special comparator used to compare Long to Block ID in the TreeSet.
+  private static final Comparator<Object> LONG_AND_BLOCK_COMPARATOR
+      = new Comparator<Object>() {
+
+        @Override
+        public int compare(Object o1, Object o2) {
+          long lookup = (long) o1;
+          long stored = ((Block) o2).getBlockId();
+          return lookup > stored ? 1 : lookup < stored ? -1 : 0;
+        }
+      };
+
+  ReplicaMap(AutoCloseableLock lock) {
+    if (lock == null) {
       throw new HadoopIllegalArgumentException(
-          "Object to synchronize on cannot be null");
+          "Lock to synchronize on cannot be null");
     }
-    this.mutex = mutex;
+    this.lock = lock;
   }
   
   String[] getBlockPoolList() {
-    synchronized(mutex) {
+    try (AutoCloseableLock l = lock.acquire()) {
       return map.keySet().toArray(new String[map.keySet().size()]);   
     }
   }
@@ -90,12 +104,15 @@ class ReplicaMap {
    */
   ReplicaInfo get(String bpid, long blockId) {
     checkBlockPool(bpid);
-    synchronized(mutex) {
-      Map<Long, ReplicaInfo> m = map.get(bpid);
-      return m != null ? m.get(blockId) : null;
+    try (AutoCloseableLock l = lock.acquire()) {
+      FoldedTreeSet<ReplicaInfo> set = map.get(bpid);
+      if (set == null) {
+        return null;
+      }
+      return set.get(blockId, LONG_AND_BLOCK_COMPARATOR);
     }
   }
-  
+
   /**
    * Add a replica's meta information into the map 
    * 
@@ -107,14 +124,14 @@ class ReplicaMap {
   ReplicaInfo add(String bpid, ReplicaInfo replicaInfo) {
     checkBlockPool(bpid);
     checkBlock(replicaInfo);
-    synchronized(mutex) {
-      Map<Long, ReplicaInfo> m = map.get(bpid);
-      if (m == null) {
+    try (AutoCloseableLock l = lock.acquire()) {
+      FoldedTreeSet<ReplicaInfo> set = map.get(bpid);
+      if (set == null) {
         // Add an entry for block pool if it does not exist already
-        m = new HashMap<Long, ReplicaInfo>();
-        map.put(bpid, m);
+        set = new FoldedTreeSet<>();
+        map.put(bpid, set);
       }
-      return  m.put(replicaInfo.getBlockId(), replicaInfo);
+      return set.addOrReplace(replicaInfo);
     }
   }
 
@@ -136,15 +153,15 @@ class ReplicaMap {
   ReplicaInfo remove(String bpid, Block block) {
     checkBlockPool(bpid);
     checkBlock(block);
-    synchronized(mutex) {
-      Map<Long, ReplicaInfo> m = map.get(bpid);
-      if (m != null) {
-        Long key = Long.valueOf(block.getBlockId());
-        ReplicaInfo replicaInfo = m.get(key);
+    try (AutoCloseableLock l = lock.acquire()) {
+      FoldedTreeSet<ReplicaInfo> set = map.get(bpid);
+      if (set != null) {
+        ReplicaInfo replicaInfo =
+            set.get(block.getBlockId(), LONG_AND_BLOCK_COMPARATOR);
         if (replicaInfo != null &&
             block.getGenerationStamp() == replicaInfo.getGenerationStamp()) {
-          return m.remove(key);
-        } 
+          return set.removeAndGet(replicaInfo);
+        }
       }
     }
     
@@ -159,10 +176,10 @@ class ReplicaMap {
    */
   ReplicaInfo remove(String bpid, long blockId) {
     checkBlockPool(bpid);
-    synchronized(mutex) {
-      Map<Long, ReplicaInfo> m = map.get(bpid);
-      if (m != null) {
-        return m.remove(blockId);
+    try (AutoCloseableLock l = lock.acquire()) {
+      FoldedTreeSet<ReplicaInfo> set = map.get(bpid);
+      if (set != null) {
+        return set.removeAndGet(blockId, LONG_AND_BLOCK_COMPARATOR);
       }
     }
     return null;
@@ -174,53 +191,50 @@ class ReplicaMap {
    * @return the number of replicas in the map
    */
   int size(String bpid) {
-    Map<Long, ReplicaInfo> m = null;
-    synchronized(mutex) {
-      m = map.get(bpid);
-      return m != null ? m.size() : 0;
+    try (AutoCloseableLock l = lock.acquire()) {
+      FoldedTreeSet<ReplicaInfo> set = map.get(bpid);
+      return set != null ? set.size() : 0;
     }
   }
   
   /**
    * Get a collection of the replicas for given block pool
    * This method is <b>not synchronized</b>. It needs to be synchronized
-   * externally using the mutex, both for getting the replicas
+   * externally using the lock, both for getting the replicas
    * values from the map and iterating over it. Mutex can be accessed using
-   * {@link #getMutext()} method.
+   * {@link #getLock()} method.
    * 
    * @param bpid block pool id
    * @return a collection of the replicas belonging to the block pool
    */
   Collection<ReplicaInfo> replicas(String bpid) {
-    Map<Long, ReplicaInfo> m = null;
-    m = map.get(bpid);
-    return m != null ? m.values() : null;
+    return map.get(bpid);
   }
 
   void initBlockPool(String bpid) {
     checkBlockPool(bpid);
-    synchronized(mutex) {
-      Map<Long, ReplicaInfo> m = map.get(bpid);
-      if (m == null) {
+    try (AutoCloseableLock l = lock.acquire()) {
+      FoldedTreeSet<ReplicaInfo> set = map.get(bpid);
+      if (set == null) {
         // Add an entry for block pool if it does not exist already
-        m = new HashMap<Long, ReplicaInfo>();
-        map.put(bpid, m);
+        set = new FoldedTreeSet<>();
+        map.put(bpid, set);
       }
     }
   }
   
   void cleanUpBlockPool(String bpid) {
     checkBlockPool(bpid);
-    synchronized(mutex) {
+    try (AutoCloseableLock l = lock.acquire()) {
       map.remove(bpid);
     }
   }
   
   /**
-   * Give access to mutex used for synchronizing ReplicasMap
-   * @return object used as lock
+   * Get the lock object used for synchronizing ReplicasMap
+   * @return lock object
    */
-  Object getMutext() {
-    return mutex;
+  AutoCloseableLock getLock() {
+    return lock;
   }
 }

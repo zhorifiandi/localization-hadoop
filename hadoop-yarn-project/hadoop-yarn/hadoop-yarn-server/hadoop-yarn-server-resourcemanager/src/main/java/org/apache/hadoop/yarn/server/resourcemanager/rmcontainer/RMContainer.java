@@ -25,11 +25,14 @@ import org.apache.hadoop.yarn.api.records.Container;
 import org.apache.hadoop.yarn.api.records.ContainerId;
 import org.apache.hadoop.yarn.api.records.ContainerReport;
 import org.apache.hadoop.yarn.api.records.ContainerState;
+import org.apache.hadoop.yarn.api.records.ExecutionType;
 import org.apache.hadoop.yarn.api.records.NodeId;
 import org.apache.hadoop.yarn.api.records.Priority;
 import org.apache.hadoop.yarn.api.records.Resource;
 import org.apache.hadoop.yarn.api.records.ResourceRequest;
 import org.apache.hadoop.yarn.event.EventHandler;
+import org.apache.hadoop.yarn.server.scheduler.SchedulerRequestKey;
+
 
 /**
  * Represents the ResourceManager's view of an application container. See 
@@ -39,9 +42,12 @@ import org.apache.hadoop.yarn.event.EventHandler;
  * when resources are being reserved to fill space for a future container 
  * allocation.
  */
-public interface RMContainer extends EventHandler<RMContainerEvent> {
+public interface RMContainer extends EventHandler<RMContainerEvent>,
+    Comparable<RMContainer> {
 
   ContainerId getContainerId();
+
+  void setContainerId(ContainerId containerId);
 
   ApplicationAttemptId getApplicationAttemptId();
 
@@ -53,11 +59,15 @@ public interface RMContainer extends EventHandler<RMContainerEvent> {
 
   NodeId getReservedNode();
   
-  Priority getReservedPriority();
+  SchedulerRequestKey getReservedSchedulerKey();
 
   Resource getAllocatedResource();
 
+  Resource getLastConfirmedResource();
+
   NodeId getAllocatedNode();
+
+  SchedulerRequestKey getAllocatedSchedulerKey();
 
   Priority getAllocatedPriority();
 
@@ -80,4 +90,28 @@ public interface RMContainer extends EventHandler<RMContainerEvent> {
   List<ResourceRequest> getResourceRequests();
 
   String getNodeHttpAddress();
+  
+  String getNodeLabelExpression();
+
+  String getQueueName();
+
+  ExecutionType getExecutionType();
+
+  /**
+   * If the container was allocated by a container other than the Resource
+   * Manager (e.g., the distributed scheduler in the NM
+   * <code>LocalScheduler</code>).
+   * @return If the container was allocated remotely.
+   */
+  boolean isRemotelyAllocated();
+
+  /*
+   * Return reserved resource for reserved containers, return allocated resource
+   * for other container
+   */
+  Resource getAllocatedOrReservedResource();
+
+  boolean completed();
+
+  NodeId getNodeId();
 }

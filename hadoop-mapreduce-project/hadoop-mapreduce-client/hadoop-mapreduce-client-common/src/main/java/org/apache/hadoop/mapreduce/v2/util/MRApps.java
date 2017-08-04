@@ -68,6 +68,7 @@ import org.apache.hadoop.yarn.api.ApplicationConstants.Environment;
 import org.apache.hadoop.yarn.api.records.LocalResource;
 import org.apache.hadoop.yarn.api.records.LocalResourceType;
 import org.apache.hadoop.yarn.api.records.LocalResourceVisibility;
+import org.apache.hadoop.yarn.api.records.URL;
 import org.apache.hadoop.yarn.conf.YarnConfiguration;
 import org.apache.hadoop.yarn.exceptions.YarnRuntimeException;
 import org.apache.hadoop.yarn.util.Apps;
@@ -113,7 +114,7 @@ public class MRApps extends Apps {
     throw new YarnRuntimeException("Unknown task type: "+ type.toString());
   }
 
-  public static enum TaskAttemptStateUI {
+  public enum TaskAttemptStateUI {
     NEW(
         new TaskAttemptState[] { TaskAttemptState.NEW,
             TaskAttemptState.STARTING }),
@@ -135,7 +136,7 @@ public class MRApps extends Apps {
     }
   }
 
-  public static enum TaskStateUI {
+  public enum TaskStateUI {
     RUNNING(
         new TaskState[]{TaskState.RUNNING}),
     PENDING(new TaskState[]{TaskState.SCHEDULED}),
@@ -234,7 +235,7 @@ public class MRApps extends Apps {
     }
     // TODO: Remove duplicates.
   }
-
+  
   @SuppressWarnings("deprecation")
   public static void setClasspath(Map<String, String> environment,
       Configuration conf) throws IOException {
@@ -245,30 +246,11 @@ public class MRApps extends Apps {
       conf.getBoolean(MRJobConfig.MAPREDUCE_JOB_CLASSLOADER, false)
         ? Environment.APP_CLASSPATH.name() : Environment.CLASSPATH.name();
 
-    String hadoopClasspathEnvVar = Environment.HADOOP_CLASSPATH.name();
-
     MRApps.addToEnvironment(environment,
       classpathEnvVar, crossPlatformifyMREnv(conf, Environment.PWD), conf);
-
-    MRApps.addToEnvironment(environment,
-        hadoopClasspathEnvVar, crossPlatformifyMREnv(conf, Environment.PWD),
-        conf);
-
     if (!userClassesTakesPrecedence) {
       MRApps.setMRFrameworkClasspath(environment, conf);
     }
-
-    addClasspathToEnv(environment, classpathEnvVar, conf);
-    addClasspathToEnv(environment, hadoopClasspathEnvVar, conf);
-
-    if (userClassesTakesPrecedence) {
-      MRApps.setMRFrameworkClasspath(environment, conf);
-    }
-  }
-
-  @SuppressWarnings("deprecation")
-  public static void addClasspathToEnv(Map<String, String> environment,
-      String classpathEnvVar, Configuration conf) throws IOException {
     MRApps.addToEnvironment(
         environment,
         classpathEnvVar,
@@ -276,21 +258,15 @@ public class MRApps extends Apps {
     MRApps.addToEnvironment(
         environment,
         classpathEnvVar,
-        MRJobConfig.JOB_JAR + Path.SEPARATOR + "classes" + Path.SEPARATOR,
-        conf);
-
+        MRJobConfig.JOB_JAR + Path.SEPARATOR + "classes" + Path.SEPARATOR, conf);
     MRApps.addToEnvironment(
         environment,
         classpathEnvVar,
-        MRJobConfig.JOB_JAR + Path.SEPARATOR + "lib" + Path.SEPARATOR + "*",
-        conf);
-
+        MRJobConfig.JOB_JAR + Path.SEPARATOR + "lib" + Path.SEPARATOR + "*", conf);
     MRApps.addToEnvironment(
         environment,
         classpathEnvVar,
-        crossPlatformifyMREnv(conf, Environment.PWD) + Path.SEPARATOR + "*",
-        conf);
-
+        crossPlatformifyMREnv(conf, Environment.PWD) + Path.SEPARATOR + "*", conf);
     // a * in the classpath will only find a .jar, so we need to filter out
     // all .jars and add everything else
     addToClasspathIfNotJar(DistributedCache.getFileClassPaths(conf),
@@ -301,8 +277,11 @@ public class MRApps extends Apps {
         DistributedCache.getCacheArchives(conf),
         conf,
         environment, classpathEnvVar);
+    if (userClassesTakesPrecedence) {
+      MRApps.setMRFrameworkClasspath(environment, conf);
+    }
   }
-
+  
   /**
    * Add the paths to the classpath if they are not jars
    * @param paths the paths to add to the classpath
@@ -321,12 +300,36 @@ public class MRApps extends Apps {
         for (URI u: withLinks) {
           Path p = new Path(u);
           FileSystem remoteFS = p.getFileSystem(conf);
+          String name = p.getName();
+          String wildcard = null;
+
+          // If the path is wildcarded, resolve its parent directory instead
+          if (name.equals(DistributedCache.WILDCARD)) {
+            wildcard = name;
+            p = p.getParent();
+          }
+
           p = remoteFS.resolvePath(p.makeQualified(remoteFS.getUri(),
               remoteFS.getWorkingDirectory()));
-          String name = (null == u.getFragment())
-              ? p.getName() : u.getFragment();
+
+          if ((wildcard != null) && (u.getFragment() != null)) {
+            throw new IOException("Invalid path URI: " + p + " - cannot "
+                + "contain both a URI fragment and a wildcard");
+          } else if (wildcard != null) {
+            name = p.getName() + Path.SEPARATOR + wildcard;
+          } else if (u.getFragment() != null) {
+            name = u.getFragment();
+          }
+
+          // If it's not a JAR, add it to the link lookup.
           if (!StringUtils.toLowerCase(name).endsWith(".jar")) {
-            linkLookup.put(p, name);
+            String old = linkLookup.put(p, name);
+
+            if ((old != null) && !name.equals(old)) {
+              LOG.warn("The same path is included more than once "
+                  + "with different links or wildcards: " + p + " [" +
+                  name + ", " + old + "]");
+            }
           }
         }
       }
@@ -400,7 +403,7 @@ public class MRApps extends Apps {
   public static void setClassLoader(ClassLoader classLoader,
       Configuration conf) {
     if (classLoader != null) {
-      LOG.info("Setting classloader " + classLoader.getClass().getName() +
+      LOG.info("Setting classloader " + classLoader +
           " on the configuration and as the thread context classloader");
       conf.setClassLoader(classLoader);
       Thread.currentThread().setContextClassLoader(classLoader);
@@ -468,7 +471,6 @@ public class MRApps extends Apps {
     return startCommitFile;
   }
 
-  @SuppressWarnings("deprecation")
   public static void setupDistributedCache( 
       Configuration conf, 
       Map<String, LocalResource> localResources) 
@@ -501,7 +503,6 @@ public class MRApps extends Apps {
    * @param conf
    * @throws java.io.IOException
    */
-  @SuppressWarnings("deprecation")
   public static void setupDistributedCacheLocal(Configuration conf)
       throws IOException {
 
@@ -556,20 +557,9 @@ public class MRApps extends Apps {
     return "cache file (" + MRJobConfig.CACHE_FILES + ") ";
   }
   
-  private static String toString(org.apache.hadoop.yarn.api.records.URL url) {
-    StringBuffer b = new StringBuffer();
-    b.append(url.getScheme()).append("://").append(url.getHost());
-    if(url.getPort() >= 0) {
-      b.append(":").append(url.getPort());
-    }
-    b.append(url.getFile());
-    return b.toString();
-  }
-  
   // TODO - Move this to MR!
   // Use TaskDistributedCacheManager.CacheFiles.makeCacheFiles(URI[], 
   // long[], boolean[], Path[], FileType)
-  @SuppressWarnings("deprecation")
   private static void parseDistributedCacheArtifacts(
       Configuration conf,
       Map<String, LocalResource> localResources,
@@ -593,29 +583,50 @@ public class MRApps extends Apps {
         URI u = uris[i];
         Path p = new Path(u);
         FileSystem remoteFS = p.getFileSystem(conf);
+        String linkName = null;
+
+        if (p.getName().equals(DistributedCache.WILDCARD)) {
+          p = p.getParent();
+          linkName = p.getName() + Path.SEPARATOR + DistributedCache.WILDCARD;
+        }
+
         p = remoteFS.resolvePath(p.makeQualified(remoteFS.getUri(),
             remoteFS.getWorkingDirectory()));
-        // Add URI fragment or just the filename
-        Path name = new Path((null == u.getFragment())
-          ? p.getName()
-          : u.getFragment());
-        if (name.isAbsolute()) {
-          throw new IllegalArgumentException("Resource name must be relative");
+
+        // If there's no wildcard, try using the fragment for the link
+        if (linkName == null) {
+          linkName = u.getFragment();
+
+          // Because we don't know what's in the fragment, we have to handle
+          // it with care.
+          if (linkName != null) {
+            Path linkPath = new Path(linkName);
+
+            if (linkPath.isAbsolute()) {
+              throw new IllegalArgumentException("Resource name must be "
+                  + "relative");
+            }
+
+            linkName = linkPath.toUri().getPath();
+          }
+        } else if (u.getFragment() != null) {
+          throw new IllegalArgumentException("Invalid path URI: " + p +
+              " - cannot contain both a URI fragment and a wildcard");
         }
-        String linkName = name.toUri().getPath();
+
+        // If there's no wildcard or fragment, just link to the file name
+        if (linkName == null) {
+          linkName = p.getName();
+        }
+
         LocalResource orig = localResources.get(linkName);
-        org.apache.hadoop.yarn.api.records.URL url = 
-          ConverterUtils.getYarnUrlFromURI(p.toUri());
-        if(orig != null && !orig.getResource().equals(url)) {
-          LOG.warn(
-              getResourceDescription(orig.getType()) + 
-              toString(orig.getResource()) + " conflicts with " + 
-              getResourceDescription(type) + toString(url) + 
-              " This will be an error in Hadoop 2.0");
-          continue;
+        if(orig != null && !orig.getResource().equals(URL.fromURI(p.toUri()))) {
+          throw new InvalidJobConfException(
+              getResourceDescription(orig.getType()) + orig.getResource() + 
+              " conflicts with " + getResourceDescription(type) + u);
         }
-        localResources.put(linkName, LocalResource.newInstance(ConverterUtils
-          .getYarnUrlFromURI(p.toUri()), type, visibilities[i]
+        localResources.put(linkName, LocalResource
+            .newInstance(URL.fromURI(p.toUri()), type, visibilities[i]
             ? LocalResourceVisibility.PUBLIC : LocalResourceVisibility.PRIVATE,
           sizes[i], timestamps[i]));
       }
@@ -639,12 +650,12 @@ public class MRApps extends Apps {
     if (isMap) {
       return conf.get(
           MRJobConfig.MAP_LOG_LEVEL,
-          JobConf.DEFAULT_LOG_LEVEL.toString()
+          JobConf.DEFAULT_LOG_LEVEL
       );
     } else {
       return conf.get(
           MRJobConfig.REDUCE_LOG_LEVEL,
-          JobConf.DEFAULT_LOG_LEVEL.toString()
+          JobConf.DEFAULT_LOG_LEVEL
       );
     }
   }
@@ -730,6 +741,37 @@ public class MRApps extends Apps {
       vargs.add("-D" + MRJobConfig.MR_PREFIX
           + "shuffle.log.backups=" + numShuffleBackups);
     }
+  }
+
+  /**
+   * Return lines for system property keys and values per configuration.
+   *
+   * @return the formatted string for the system property lines or null if no
+   * properties are specified.
+   */
+  public static String getSystemPropertiesToLog(Configuration conf) {
+    String key = conf.get(MRJobConfig.MAPREDUCE_JVM_SYSTEM_PROPERTIES_TO_LOG,
+      MRJobConfig.DEFAULT_MAPREDUCE_JVM_SYSTEM_PROPERTIES_TO_LOG);
+    if (key != null) {
+      key = key.trim(); // trim leading and trailing whitespace from the config
+      if (!key.isEmpty()) {
+        String[] props = key.split(",");
+        if (props.length > 0) {
+          StringBuilder sb = new StringBuilder();
+          sb.append("\n/************************************************************\n");
+          sb.append("[system properties]\n");
+          for (String prop: props) {
+            prop = prop.trim(); // trim leading and trailing whitespace
+            if (!prop.isEmpty()) {
+              sb.append(prop).append(": ").append(System.getProperty(prop)).append('\n');
+            }
+          }
+          sb.append("************************************************************/");
+          return sb.toString();
+        }
+      }
+    }
+    return null;
   }
 
   public static void setEnvFromInputString(Map<String, String> env,

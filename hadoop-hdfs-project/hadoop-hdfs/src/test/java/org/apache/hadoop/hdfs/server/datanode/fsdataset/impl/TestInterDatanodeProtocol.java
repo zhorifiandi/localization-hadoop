@@ -38,6 +38,7 @@ import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.protocol.ClientProtocol;
 import org.apache.hadoop.hdfs.protocol.DatanodeID;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
+import org.apache.hadoop.hdfs.protocol.DatanodeInfo.DatanodeInfoBuilder;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
@@ -46,6 +47,7 @@ import org.apache.hadoop.hdfs.server.common.HdfsServerConstants.ReplicaState;
 import org.apache.hadoop.hdfs.server.datanode.DataNode;
 import org.apache.hadoop.hdfs.server.datanode.DataNodeTestUtils;
 import org.apache.hadoop.hdfs.server.datanode.FinalizedReplica;
+import org.apache.hadoop.hdfs.server.datanode.Replica;
 import org.apache.hadoop.hdfs.server.datanode.ReplicaInfo;
 import org.apache.hadoop.hdfs.server.datanode.ReplicaUnderRecovery;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsDatasetSpi;
@@ -57,6 +59,7 @@ import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.ipc.RPC;
 import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.net.NetUtils;
+import org.apache.hadoop.util.AutoCloseableLock;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -233,7 +236,7 @@ public class TestInterDatanodeProtocol {
     final long firstblockid = 10000L;
     final long gs = 7777L;
     final long length = 22L;
-    final ReplicaMap map = new ReplicaMap(this);
+    final ReplicaMap map = new ReplicaMap(new AutoCloseableLock());
     String bpid = "BP-TEST";
     final Block[] blocks = new Block[5];
     for(int i = 0; i < blocks.length; i++) {
@@ -327,7 +330,6 @@ public class TestInterDatanodeProtocol {
     try {
       cluster = new MiniDFSCluster.Builder(conf).numDataNodes(3).build();
       cluster.waitActive();
-      String bpid = cluster.getNamesystem().getBlockPoolId();
 
       //create a file
       DistributedFileSystem dfs = cluster.getFileSystem();
@@ -354,12 +356,12 @@ public class TestInterDatanodeProtocol {
           new RecoveringBlock(b, null, recoveryid));
 
       //check replica
-      final ReplicaInfo replica = FsDatasetTestUtil.fetchReplicaInfo(
-          fsdataset, bpid, b.getBlockId());
+      final Replica replica =
+          cluster.getFsDatasetTestUtils(datanode).fetchReplica(b);
       Assert.assertEquals(ReplicaState.RUR, replica.getState());
 
       //check meta data before update
-      FsDatasetImpl.checkReplicaFiles(replica);
+      cluster.getFsDatasetTestUtils(datanode).checkStoredReplica(replica);
 
       //case "THIS IS NOT SUPPOSED TO HAPPEN"
       //with (block length) != (stored replica's on disk length). 
@@ -378,10 +380,11 @@ public class TestInterDatanodeProtocol {
       }
 
       //update
-      final String storageID = fsdataset.updateReplicaUnderRecovery(
+      final Replica r = fsdataset.updateReplicaUnderRecovery(
           new ExtendedBlock(b.getBlockPoolId(), rri), recoveryid,
           rri.getBlockId(), newlength);
-      assertTrue(storageID != null);
+      assertTrue(r != null);
+      assertTrue(r.getStorageUuid() != null);
 
     } finally {
       if (cluster != null) cluster.shutdown();
@@ -398,7 +401,8 @@ public class TestInterDatanodeProtocol {
 
     final InetSocketAddress addr = NetUtils.getConnectAddress(server);
     DatanodeID fakeDnId = DFSTestUtil.getLocalDatanodeID(addr.getPort());
-    DatanodeInfo dInfo = new DatanodeInfo(fakeDnId);
+    DatanodeInfo dInfo = new DatanodeInfoBuilder().setNodeID(fakeDnId)
+        .build();
     InterDatanodeProtocol proxy = null;
 
     try {

@@ -24,20 +24,27 @@ import static org.apache.hadoop.hdfs.server.datanode.BlockScanner.Conf.INTERNAL_
 import static org.apache.hadoop.hdfs.server.datanode.BlockScanner.Conf.INTERNAL_DFS_BLOCK_SCANNER_CURSOR_SAVE_INTERVAL_MS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
 
 import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeoutException;
 
 import com.google.common.base.Supplier;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.hdfs.AppendTestUtil;
 import org.apache.hadoop.hdfs.MiniDFSNNTopology;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
+import org.apache.hadoop.hdfs.server.datanode.FsDatasetTestUtils.MaterializedReplica;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsDatasetSpi;
 import org.apache.hadoop.hdfs.server.datanode.VolumeScanner.ScanResultHandler;
 import org.apache.hadoop.conf.Configuration;
@@ -82,7 +89,7 @@ public class TestBlockScanner {
     final DataNode datanode;
     final BlockScanner blockScanner;
     final FsDatasetSpi<? extends FsVolumeSpi> data;
-    final List<? extends FsVolumeSpi> volumes;
+    final FsDatasetSpi.FsVolumeReferences volumes;
 
     TestContext(Configuration conf, int numNameServices) throws Exception {
       this.numNameServices = numNameServices;
@@ -109,11 +116,12 @@ public class TestBlockScanner {
         dfs[i].mkdirs(new Path("/test"));
       }
       data = datanode.getFSDataset();
-      volumes = data.getVolumes();
+      volumes = data.getFsVolumeReferences();
     }
 
     @Override
     public void close() throws IOException {
+      volumes.close();
       if (cluster != null) {
         for (int i = 0; i < numNameServices; i++) {
           dfs[i].delete(new Path("/test"), true);
@@ -137,6 +145,11 @@ public class TestBlockScanner {
     public ExtendedBlock getFileBlock(int nsIdx, int fileIdx)
           throws Exception {
       return DFSTestUtil.getFirstBlock(dfs[nsIdx], getPath(fileIdx));
+    }
+
+    public MaterializedReplica getMaterializedReplica(int nsIdx, int fileIdx)
+        throws Exception {
+      return cluster.getMaterializedReplica(0, getFileBlock(nsIdx, fileIdx));
     }
   }
 
@@ -162,8 +175,8 @@ public class TestBlockScanner {
     boolean testedRewind = false, testedSave = false, testedLoad = false;
     int blocksProcessed = 0, savedBlocksProcessed = 0;
     try {
-      BPOfferService bpos[] = ctx.datanode.getAllBpOs();
-      assertEquals(1, bpos.length);
+      List<BPOfferService> bpos = ctx.datanode.getAllBpOs();
+      assertEquals(1, bpos.size());
       BlockIterator iter = volume.newBlockIterator(ctx.bpids[0], "test");
       assertEquals(ctx.bpids[0], iter.getBlockPoolId());
       iter.setMaxStalenessMs(maxStaleness);
@@ -244,7 +257,7 @@ public class TestBlockScanner {
     testVolumeIteratorImpl(5, 0);
   }
 
-  @Test(timeout=60000)
+  @Test(timeout=300000)
   public void testVolumeIteratorWithCaching() throws Exception {
     testVolumeIteratorImpl(600, 100);
   }
@@ -541,8 +554,8 @@ public class TestBlockScanner {
       info.shouldRun = false;
     }
     ctx.datanode.shutdown();
-    String vPath = ctx.volumes.get(0).getBasePath();
-    File cursorPath = new File(new File(new File(vPath, "current"),
+    URI vURI = ctx.volumes.get(0).getStorageLocation().getUri();
+    File cursorPath = new File(new File(new File(new File(vURI), "current"),
           ctx.bpids[0]), "scanner.cursor");
     assertTrue("Failed to find cursor save file in " +
         cursorPath.getAbsolutePath(), cursorPath.exists());
@@ -611,14 +624,8 @@ public class TestBlockScanner {
 
     // We scan 5 bytes per file (1 byte in file, 4 bytes of checksum)
     final int BYTES_SCANNED_PER_FILE = 5;
-    final int NUM_FILES[] = new int[] { 1, 5, 10 };
-    int TOTAL_FILES = 0;
-    for (int i = 0; i < NUM_FILES.length; i++) {
-      TOTAL_FILES += NUM_FILES[i];
-    }
-    ctx.createFiles(0, NUM_FILES[0], 1);
-    ctx.createFiles(0, NUM_FILES[1], 1);
-    ctx.createFiles(0, NUM_FILES[2], 1);
+    int TOTAL_FILES = 16;
+    ctx.createFiles(0, TOTAL_FILES, 1);
 
     // start scanning
     final TestScanResultHandler.Info info =
@@ -713,8 +720,7 @@ public class TestBlockScanner {
     ctx.createFiles(0, NUM_EXPECTED_BLOCKS, 1);
     final TestScanResultHandler.Info info =
         TestScanResultHandler.getInfo(ctx.volumes.get(0));
-    String storageID = ctx.datanode.getFSDataset().
-        getVolumes().get(0).getStorageID();
+    String storageID = ctx.volumes.get(0).getStorageID();
     synchronized (info) {
       info.sem = new Semaphore(4);
       info.shouldRun = true;
@@ -809,6 +815,158 @@ public class TestBlockScanner {
       Assert.assertFalse("We should not " +
           "have rescanned block " + first + ", because it should have been " +
           "in recentSuspectBlocks.", info.goodBlocks.contains(first));
+      info.blocksScanned = 0;
+    }
+  }
+
+  /**
+   * Test that blocks which are in the wrong location are ignored.
+   */
+  @Test(timeout=120000)
+  public void testIgnoreMisplacedBlock() throws Exception {
+    Configuration conf = new Configuration();
+    // Set a really long scan period.
+    conf.setLong(DFS_DATANODE_SCAN_PERIOD_HOURS_KEY, 100L);
+    conf.set(INTERNAL_VOLUME_SCANNER_SCAN_RESULT_HANDLER,
+        TestScanResultHandler.class.getName());
+    conf.setLong(INTERNAL_DFS_BLOCK_SCANNER_CURSOR_SAVE_INTERVAL_MS, 0L);
+    final TestContext ctx = new TestContext(conf, 1);
+    final int NUM_FILES = 4;
+    ctx.createFiles(0, NUM_FILES, 5);
+    MaterializedReplica unreachableReplica = ctx.getMaterializedReplica(0, 1);
+    ExtendedBlock unreachableBlock = ctx.getFileBlock(0, 1);
+    unreachableReplica.makeUnreachable();
+    final TestScanResultHandler.Info info =
+        TestScanResultHandler.getInfo(ctx.volumes.get(0));
+    String storageID = ctx.volumes.get(0).getStorageID();
+    synchronized (info) {
+      info.sem = new Semaphore(NUM_FILES);
+      info.shouldRun = true;
+      info.notify();
+    }
+    // Scan the first 4 blocks
+    LOG.info("Waiting for the blocks to be scanned.");
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        synchronized (info) {
+          if (info.blocksScanned >= NUM_FILES - 1) {
+            LOG.info("info = {}.  blockScanned has now reached " +
+                info.blocksScanned, info);
+            return true;
+          } else {
+            LOG.info("info = {}.  Waiting for blockScanned to reach " +
+                (NUM_FILES - 1), info);
+            return false;
+          }
+        }
+      }
+    }, 50, 30000);
+    // We should have scanned 4 blocks
+    synchronized (info) {
+      assertFalse(info.goodBlocks.contains(unreachableBlock));
+      assertFalse(info.badBlocks.contains(unreachableBlock));
+      assertEquals("Expected 3 good blocks.", 3, info.goodBlocks.size());
+      info.goodBlocks.clear();
+      assertEquals("Expected 3 blocksScanned", 3, info.blocksScanned);
+      assertEquals("Did not expect bad blocks.", 0, info.badBlocks.size());
+      info.blocksScanned = 0;
+    }
+    info.sem.release(1);
+  }
+
+  /**
+   * Test concurrent append and scan.
+   * @throws Exception
+   */
+  @Test(timeout=120000)
+  public void testAppendWhileScanning() throws Exception {
+    GenericTestUtils.setLogLevel(DataNode.LOG, Level.ALL);
+    Configuration conf = new Configuration();
+    // throttle the block scanner: 1MB per second
+    conf.setLong(DFS_BLOCK_SCANNER_VOLUME_BYTES_PER_SECOND, 1048576);
+    // Set a really long scan period.
+    conf.setLong(DFS_DATANODE_SCAN_PERIOD_HOURS_KEY, 100L);
+    conf.set(INTERNAL_VOLUME_SCANNER_SCAN_RESULT_HANDLER,
+        TestScanResultHandler.class.getName());
+    conf.setLong(INTERNAL_DFS_BLOCK_SCANNER_CURSOR_SAVE_INTERVAL_MS, 0L);
+    final int numExpectedFiles = 1;
+    final int numExpectedBlocks = 1;
+    final int numNameServices = 1;
+    // the initial file length can not be too small.
+    // Otherwise checksum file stream buffer will be pre-filled and
+    // BlockSender will not see the updated checksum.
+    final int initialFileLength = 2*1024*1024+100;
+    final TestContext ctx = new TestContext(conf, numNameServices);
+    // create one file, with one block.
+    ctx.createFiles(0, numExpectedFiles, initialFileLength);
+    final TestScanResultHandler.Info info =
+        TestScanResultHandler.getInfo(ctx.volumes.get(0));
+    String storageID = ctx.volumes.get(0).getStorageID();
+    synchronized (info) {
+      info.sem = new Semaphore(numExpectedBlocks*2);
+      info.shouldRun = true;
+      info.notify();
+    }
+    // VolumeScanner scans the first block when DN starts.
+    // Due to throttler, this should take approximately 2 seconds.
+    waitForRescan(info, numExpectedBlocks);
+
+    // update throttler to schedule rescan immediately.
+    // this number must be larger than initial file length, otherwise
+    // throttler prevents immediate rescan.
+    conf.setLong(DFS_BLOCK_SCANNER_VOLUME_BYTES_PER_SECOND,
+        initialFileLength+32*1024);
+    BlockScanner.Conf newConf = new BlockScanner.Conf(conf);
+    ctx.datanode.getBlockScanner().setConf(newConf);
+    // schedule the first block for scanning
+    ExtendedBlock first = ctx.getFileBlock(0, 0);
+    ctx.datanode.getBlockScanner().markSuspectBlock(storageID, first);
+
+    // append the file before VolumeScanner completes scanning the block,
+    // which takes approximately 2 seconds to complete.
+    FileSystem fs = ctx.cluster.getFileSystem();
+    FSDataOutputStream os = fs.append(ctx.getPath(0));
+    long seed = -1;
+    int size = 200;
+    final byte[] bytes = AppendTestUtil.randomBytes(seed, size);
+    os.write(bytes);
+    os.hflush();
+    os.close();
+    fs.close();
+
+    // verify that volume scanner does not find bad blocks after append.
+    waitForRescan(info, numExpectedBlocks);
+
+    GenericTestUtils.setLogLevel(DataNode.LOG, Level.INFO);
+  }
+
+  private void waitForRescan(final TestScanResultHandler.Info info,
+      final int numExpectedBlocks)
+      throws TimeoutException, InterruptedException {
+    LOG.info("Waiting for the first 1 blocks to be scanned.");
+    GenericTestUtils.waitFor(new Supplier<Boolean>() {
+      @Override
+      public Boolean get() {
+        synchronized (info) {
+          if (info.blocksScanned >= numExpectedBlocks) {
+            LOG.info("info = {}.  blockScanned has now reached 1.", info);
+            return true;
+          } else {
+            LOG.info("info = {}.  Waiting for blockScanned to reach 1.", info);
+            return false;
+          }
+        }
+      }
+    }, 1000, 30000);
+
+    synchronized (info) {
+      assertEquals("Expected 1 good block.",
+          numExpectedBlocks, info.goodBlocks.size());
+      info.goodBlocks.clear();
+      assertEquals("Expected 1 blocksScanned",
+          numExpectedBlocks, info.blocksScanned);
+      assertEquals("Did not expect bad blocks.", 0, info.badBlocks.size());
       info.blocksScanned = 0;
     }
   }

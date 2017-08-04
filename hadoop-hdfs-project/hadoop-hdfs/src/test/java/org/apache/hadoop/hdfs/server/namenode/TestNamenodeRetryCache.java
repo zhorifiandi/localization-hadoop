@@ -55,6 +55,7 @@ import org.apache.hadoop.ipc.RpcConstants;
 import org.apache.hadoop.ipc.Server;
 import org.apache.hadoop.ipc.StandbyException;
 import org.apache.hadoop.security.AccessControlException;
+import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.test.GenericTestUtils;
 import org.apache.hadoop.util.LightWeightCache;
 import org.junit.After;
@@ -105,22 +106,39 @@ public class TestNamenodeRetryCache {
    * @throws AccessControlException */
   @After
   public void cleanup() throws IOException {
-    cluster.shutdown();
+    if (cluster != null) {
+      cluster.shutdown();
+      cluster = null;
+    }
   }
   
+  static class DummyCall extends Server.Call {
+    private UserGroupInformation ugi;
+
+    DummyCall(int callId, byte[] clientId) {
+      super(callId, 1, null, null, RpcKind.RPC_PROTOCOL_BUFFER, clientId);
+      try {
+        ugi = UserGroupInformation.getCurrentUser();
+      } catch (IOException ioe) {
+      }
+    }
+    @Override
+    public UserGroupInformation getRemoteUser() {
+      return ugi;
+    }
+  }
   /** Set the current Server RPC call */
   public static void newCall() {
-    Server.Call call = new Server.Call(++callId, 1, null, null,
-        RpcKind.RPC_PROTOCOL_BUFFER, CLIENT_ID);
+    Server.Call call = new DummyCall(++callId, CLIENT_ID);
     Server.getCurCall().set(call);
   }
   
   public static void resetCall() {
-    Server.Call call = new Server.Call(RpcConstants.INVALID_CALL_ID, 1, null,
-        null, RpcKind.RPC_PROTOCOL_BUFFER, RpcConstants.DUMMY_CLIENT_ID);
+    Server.Call call = new DummyCall(RpcConstants.INVALID_CALL_ID,
+        RpcConstants.DUMMY_CLIENT_ID);
     Server.getCurCall().set(call);
   }
-  
+
   private void concatSetup(String file1, String file2) throws Exception {
     DFSTestUtil.createFile(filesystem, new Path(file1), BlockSize, (short)1, 0L);
     DFSTestUtil.createFile(filesystem, new Path(file2), BlockSize, (short)1, 0L);
@@ -205,15 +223,20 @@ public class TestNamenodeRetryCache {
     // Two retried calls succeed
     newCall();
     HdfsFileStatus status = nnRpc.create(src, perm, "holder",
-      new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true,
-      (short) 1, BlockSize, null);
-    Assert.assertEquals(status, nnRpc.create(src, perm, "holder", new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true, (short) 1, BlockSize, null));
-    Assert.assertEquals(status, nnRpc.create(src, perm, "holder", new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true, (short) 1, BlockSize, null));
-    
+        new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true,
+        (short) 1, BlockSize, null, null);
+    Assert.assertEquals(status, nnRpc.create(src, perm, "holder",
+        new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true,
+        (short) 1, BlockSize, null, null));
+    Assert.assertEquals(status, nnRpc.create(src, perm, "holder",
+        new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true,
+        (short) 1, BlockSize, null, null));
     // A non-retried call fails
     newCall();
     try {
-      nnRpc.create(src, perm, "holder", new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)), true, (short) 1, BlockSize, null);
+      nnRpc.create(src, perm, "holder",
+          new EnumSetWritable<CreateFlag>(EnumSet.of(CreateFlag.CREATE)),
+          true, (short) 1, BlockSize, null, null);
       Assert.fail("testCreate - expected exception is not thrown");
     } catch (IOException e) {
       // expected
@@ -413,7 +436,7 @@ public class TestNamenodeRetryCache {
 
     LightWeightCache<CacheEntry, CacheEntry> cacheSet = 
         (LightWeightCache<CacheEntry, CacheEntry>) namesystem.getRetryCache().getCacheSet();
-    assertEquals(25, cacheSet.size());
+    assertEquals("Retry cache size is wrong", 26, cacheSet.size());
     
     Map<CacheEntry, CacheEntry> oldEntries = 
         new HashMap<CacheEntry, CacheEntry>();
@@ -432,7 +455,7 @@ public class TestNamenodeRetryCache {
     assertTrue(namesystem.hasRetryCache());
     cacheSet = (LightWeightCache<CacheEntry, CacheEntry>) namesystem
         .getRetryCache().getCacheSet();
-    assertEquals(25, cacheSet.size());
+    assertEquals("Retry cache size is wrong", 26, cacheSet.size());
     iter = cacheSet.iterator();
     while (iter.hasNext()) {
       CacheEntry entry = iter.next();

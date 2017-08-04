@@ -15,18 +15,7 @@
 MapReduce Commands Guide
 ========================
 
-* [Overview](#Overview)
-* [User Commands](#User_Commands)
-    * [archive](#archive)
-    * [classpath](#classpath)
-    * [distcp](#distcp)
-    * [job](#job)
-    * [pipes](#pipes)
-    * [queue](#queue)
-    * [version](#version)
-* [Administration Commands](#Administration_Commands)
-    * [historyserver](#historyserver)
-    * [hsadmin](#hsadmin)
+<!-- MACRO{toc|fromDepth=0|toDepth=3} -->
 
 Overview
 --------
@@ -53,11 +42,23 @@ Commands useful for users of a hadoop cluster.
 Creates a hadoop archive. More information can be found at
 [Hadoop Archives Guide](../../hadoop-archives/HadoopArchives.html).
 
+### `archive-logs`
+
+A tool to combine YARN aggregated logs into Hadoop archives to reduce the number
+of files in HDFS. More information can be found at
+[Hadoop Archive Logs Guide](../../hadoop-archive-logs/HadoopArchiveLogs.html).
+
 ### `classpath`
 
-Prints the class path needed to get the Hadoop jar and the required libraries.
+Usage: `yarn classpath [--glob |--jar <path> |-h |--help]`
 
-Usage: `mapred classpath`
+| COMMAND\_OPTION | Description |
+|:---- |:---- |
+| `--glob` | expand wildcards |
+| `--jar` *path* | write classpath as manifest in jar named *path* |
+| `-h`, `--help` | print help |
+
+Prints the class path needed to get the Hadoop jar and the required libraries. If called without arguments, then prints the classpath set up by the command scripts, which is likely to contain wildcards in the classpath entries. Additional options print the classpath after wildcard expansion or write the classpath into the manifest of a jar file. The latter is useful in environments where wildcards cannot be used and the expanded classpath exceeds the maximum supported command line length.
 
 ### `distcp`
 
@@ -68,7 +69,7 @@ Copy file or directories recursively. More information can be found at
 
 Command to interact with Map Reduce Jobs.
 
-Usage: `mapred job | [GENERIC_OPTIONS] | [-submit <job-file>] | [-status <job-id>] | [-counter <job-id> <group-name> <counter-name>] | [-kill <job-id>] | [-events <job-id> <from-event-#> <#-of-events>] | [-history [all] <jobOutputDir>] | [-list [all]] | [-kill-task <task-id>] | [-fail-task <task-id>] | [-set-priority <job-id> <priority>]`
+Usage: `mapred job | [GENERIC_OPTIONS] | [-submit <job-file>] | [-status <job-id>] | [-counter <job-id> <group-name> <counter-name>] | [-kill <job-id>] | [-events <job-id> <from-event-#> <#-of-events>] | [-history [all] <jobHistoryFile|jobId> [-outfile <file>] [-format <human|json>]] | [-list [all]] | [-kill-task <task-id>] | [-fail-task <task-id>] | [-set-priority <job-id> <priority>] | [-list-active-trackers] | [-list-blacklisted-trackers] | [-list-attempt-ids <job-id> <task-type> <task-state>] [-logs <job-id> <task-attempt-id>] [-config <job-id> <file>]`
 
 | COMMAND\_OPTION | Description |
 |:---- |:---- |
@@ -77,11 +78,16 @@ Usage: `mapred job | [GENERIC_OPTIONS] | [-submit <job-file>] | [-status <job-id
 | -counter *job-id* *group-name* *counter-name* | Prints the counter value. |
 | -kill *job-id* | Kills the job. |
 | -events *job-id* *from-event-\#* *\#-of-events* | Prints the events' details received by jobtracker for the given range. |
-| -history [all]*jobOutputDir* | Prints job details, failed and killed tip details. More details about the job such as successful tasks and task attempts made for each task can be viewed by specifying the [all] option. |
+| -history [all] *jobHistoryFile|jobId* [-outfile *file*] [-format *human|json*] | Prints job details, failed and killed task details. More details about the job such as successful tasks, task attempts made for each task, task counters, etc can be viewed by specifying the [all] option. An optional file output path (instead of stdout) can be specified. The format defaults to human-readable but can also be changed to JSON with the [-format] option. |
 | -list [all] | Displays jobs which are yet to complete. `-list all` displays all jobs. |
 | -kill-task *task-id* | Kills the task. Killed tasks are NOT counted against failed attempts. |
 | -fail-task *task-id* | Fails the task. Failed tasks are counted against failed attempts. |
 | -set-priority *job-id* *priority* | Changes the priority of the job. Allowed priority values are VERY\_HIGH, HIGH, NORMAL, LOW, VERY\_LOW |
+| -list-active-trackers | List all the active NodeManagers in the cluster. |
+| -list-blacklisted-trackers | List the black listed task trackers in the cluster. This command is not supported in MRv2 based cluster. |
+| -list-attempt-ids *job-id* *task-type* *task-state* | List the attempt-ids based on the task type and the status given. Valid values for task-type are REDUCE, MAP. Valid values for task-state are running, pending, completed, failed, killed. |
+| -logs *job-id* *task-attempt-id* | Dump the container log for a job if taskAttemptId is not specified, otherwise dump the log for the task with the specified taskAttemptId. The logs will be dumped in system out. |
+| -config *job-id* *file* | Download the job configuration file. |
 
 ### `pipes`
 
@@ -122,6 +128,12 @@ Prints the version.
 
 Usage: `mapred version`
 
+### `envvars`
+
+Usage: `mapred envvars`
+
+Display computed Hadoop environment variables.
+
 Administration Commands
 -----------------------
 
@@ -149,3 +161,5 @@ Usage: `mapred hsadmin [-refreshUserToGroupsMappings] | [-refreshSuperUserGroups
 | -refreshLogRetentionSettings | Refresh log retention period and log retention check interval |
 | -getGroups [username] | Get the groups which given user belongs to |
 | -help [cmd] | Displays help for the given command or all commands if none is specified. |
+
+

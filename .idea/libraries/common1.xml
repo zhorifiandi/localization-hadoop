@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="common1">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-common-project/hadoop-common/target/hadoop-common-2.7.2/share/hadoop/common/hadoop-common-2.7.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-common-project/hadoop-common/target/hadoop-common-2.7.2/share/hadoop/common/hadoop-common-2.7.2-tests.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="bin3">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-dist/target/hadoop-2.7.2/share/hadoop/httpfs/tomcat/bin/commons-daemon.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-dist/target/hadoop-2.7.2/share/hadoop/httpfs/tomcat/bin/bootstrap.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-dist/target/hadoop-2.7.2/share/hadoop/httpfs/tomcat/bin/tomcat-juli.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

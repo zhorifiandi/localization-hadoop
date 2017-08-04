@@ -1,0 +1,12 @@
+<component name="libraryTable">
+  <library name="target46">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-hs-plugins/target/hadoop-mapreduce-client-hs-plugins-2.7.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-hs-plugins/target/hadoop-mapreduce-client-hs-plugins-2.7.2-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-hs-plugins/target/hadoop-mapreduce-client-hs-plugins-2.7.2-test-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-mapreduce-project/hadoop-mapreduce-client/hadoop-mapreduce-client-hs-plugins/target/hadoop-mapreduce-client-hs-plugins-2.7.2-javadoc.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

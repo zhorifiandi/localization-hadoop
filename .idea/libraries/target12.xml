@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="target12">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-minicluster/target/hadoop-minicluster-2.7.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-minicluster/target/hadoop-minicluster-2.7.2-javadoc.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

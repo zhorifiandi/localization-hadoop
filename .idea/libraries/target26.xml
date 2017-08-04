@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="target26">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-hdfs-project/hadoop-hdfs-httpfs/target/hadoop-hdfs-httpfs-2.7.2-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-hdfs-project/hadoop-hdfs-httpfs/target/hadoop-hdfs-httpfs-2.7.2-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-hdfs-project/hadoop-hdfs-httpfs/target/hadoop-hdfs-httpfs-2.7.2-test-sources.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

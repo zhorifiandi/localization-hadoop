@@ -1,0 +1,10 @@
+<component name="libraryTable">
+  <library name="UNDEF">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-project-dist/target/hadoop-project-dist-2.7.2/share/hadoop/UNDEF/hadoop-project-dist-2.7.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-project-dist/target/hadoop-project-dist-2.7.2/share/hadoop/UNDEF/hadoop-project-dist-2.7.2-tests.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

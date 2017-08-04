@@ -1,0 +1,12 @@
+<component name="libraryTable">
+  <library name="target21">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-client/target/hadoop-yarn-client-2.7.2-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-client/target/hadoop-yarn-client-2.7.2-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-client/target/hadoop-yarn-client-2.7.2-test-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-yarn-project/hadoop-yarn/hadoop-yarn-client/target/hadoop-yarn-client-2.7.2.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

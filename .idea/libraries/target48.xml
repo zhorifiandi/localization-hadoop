@@ -1,0 +1,12 @@
+<component name="libraryTable">
+  <library name="target48">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-common-project/hadoop-nfs/target/hadoop-nfs-2.7.2-test-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-common-project/hadoop-nfs/target/hadoop-nfs-2.7.2-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-common-project/hadoop-nfs/target/hadoop-nfs-2.7.2-javadoc.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-common-project/hadoop-nfs/target/hadoop-nfs-2.7.2.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

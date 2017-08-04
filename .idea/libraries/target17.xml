@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="target17">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-client/target/hadoop-client-2.7.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-client/target/hadoop-client-2.7.2-tests.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-client/target/hadoop-client-2.7.2-javadoc.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

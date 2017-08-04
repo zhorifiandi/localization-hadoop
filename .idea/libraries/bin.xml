@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="bin">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-hdfs-project/hadoop-hdfs-httpfs/target/hadoop-hdfs-httpfs-2.7.2/share/hadoop/httpfs/tomcat/bin/tomcat-juli.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-hdfs-project/hadoop-hdfs-httpfs/target/hadoop-hdfs-httpfs-2.7.2/share/hadoop/httpfs/tomcat/bin/bootstrap.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-hdfs-project/hadoop-hdfs-httpfs/target/hadoop-hdfs-httpfs-2.7.2/share/hadoop/httpfs/tomcat/bin/commons-daemon.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

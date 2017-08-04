@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="target9">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/hadoop-maven-plugins/target/hadoop-maven-plugins-2.7.2-sources.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-maven-plugins/target/hadoop-maven-plugins-2.7.2.jar!/" />
+      <root url="jar://$PROJECT_DIR$/hadoop-maven-plugins/target/hadoop-maven-plugins-2.7.2-javadoc.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

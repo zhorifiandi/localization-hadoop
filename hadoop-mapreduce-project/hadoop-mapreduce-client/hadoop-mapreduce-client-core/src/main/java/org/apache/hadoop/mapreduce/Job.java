@@ -1304,6 +1304,7 @@ public class Job extends JobContextImpl implements JobContext {
   public boolean waitForCompletion(boolean verbose
                                    ) throws IOException, InterruptedException,
                                             ClassNotFoundException {
+    JobID jobId = getJobID();
     if (state == JobState.DEFINE) {
       LOG.info("ARIZHO >>  Submitting Job (JobId : "+jobId+" , Start Time at at"+ getStartTime() +".....");
       submit();

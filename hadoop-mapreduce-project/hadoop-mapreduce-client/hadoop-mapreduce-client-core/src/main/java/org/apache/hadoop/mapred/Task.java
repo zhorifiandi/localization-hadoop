@@ -579,9 +579,6 @@ abstract public class Task implements Writable, Configurable {
                          boolean useNewApi) throws IOException, 
                                                    ClassNotFoundException,
                                                    InterruptedException {
-    long startTime = System.currentTimeMillis();
-    LOG.info("ARIZHO >>> Task Initialization Start Time : " + Long.toString(startTime));
-
     jobContext = new JobContextImpl(job, id, reporter);
     taskContext = new TaskAttemptContextImpl(job, taskId, reporter);
     if (getState() == TaskStatus.State.UNASSIGNED) {
@@ -618,9 +615,6 @@ abstract public class Task implements Writable, Configurable {
       initCpuCumulativeTime = pTree.getCumulativeCpuTime();
     }
 
-    long endTime = System.currentTimeMillis();
-    LOG.info("ARIZHO >>> Task Initialization Finish Time : " + Long.toString(endTime));
-    LOG.info("ARIZHO >>> Task Initialization Taken : " + Long.toString(endTime - startTime));
   }
 
   public static String normalizeStatus(String status, Configuration conf) {

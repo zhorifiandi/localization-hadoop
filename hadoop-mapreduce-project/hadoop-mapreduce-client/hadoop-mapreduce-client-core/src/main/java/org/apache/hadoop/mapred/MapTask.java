@@ -321,7 +321,17 @@ public class MapTask extends Task {
     TaskReporter reporter = startReporter(umbilical);
  
     boolean useNewApi = job.getUseNewMapper();
+
+    LOG.info("ARIZHO >>> JOB ID: "+ getJobID().getJobIDsPattern());
+    long startTime = System.currentTimeMillis();
+    LOG.info("ARIZHO >>> Task Initialization Start Time : " + Long.toString(startTime));
+
     initialize(job, getJobID(), reporter, useNewApi);
+
+    
+    long endTime = System.currentTimeMillis();
+    LOG.info("ARIZHO >>> Task Initialization Finish Time : " + Long.toString(endTime));
+    LOG.info("ARIZHO >>> Task Initialization Taken : " + Long.toString(endTime - startTime));
 
     // check if it is a cleanupJobTask
     if (jobCleanup) {

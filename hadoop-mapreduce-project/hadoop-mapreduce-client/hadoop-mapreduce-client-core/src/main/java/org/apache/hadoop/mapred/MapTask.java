@@ -322,7 +322,7 @@ public class MapTask extends Task {
  
     boolean useNewApi = job.getUseNewMapper();
 
-    LOG.info("ARIZHO >>> JOB ID: "+ getJobID().getJobIDsPattern());
+    LOG.info("ARIZHO >>> JOB ID: "+ getJobID().getJobIDsPattern(null,null));
     long startTime = System.currentTimeMillis();
     LOG.info("ARIZHO >>> Task Initialization Start Time : " + Long.toString(startTime));
 

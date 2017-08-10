@@ -318,10 +318,19 @@ class YarnChild {
 
     // Overwrite the localized task jobconf which is linked to in the current
     // work-dir.
+
+    long startTime = System.currentTimeMillis();
+    LOG.info("ARIZHO >>> writeLocalJobFile Start Time : " + Long.toString(startTime));
+
     Path localTaskFile = new Path(MRJobConfig.JOB_CONF_FILE);
     writeLocalJobFile(localTaskFile, job);
     task.setJobFile(localTaskFile.toString());
     task.setConf(job);
+
+    long endTime = System.currentTimeMillis();
+    LOG.info("ARIZHO >>> writeLocalJobFile Finish Time : " + Long.toString(endTime));
+    LOG.info("ARIZHO >>> writeLocalJobFile Taken : " + Long.toString(endTime - startTime));
+
   }
 
   private static final FsPermission urw_gr =
